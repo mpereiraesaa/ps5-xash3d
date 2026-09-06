@@ -1,5 +1,9 @@
 # Publication roadmap
 
+> Items up to the 60,000-frame Gears soak were completed in `ps5-agc-gears`;
+> this repository continues the list from the Phase 2 resource foundation on.
+> The phase-level plan of the Xash3D port lives in the README table.
+
 - [x] Record the initial hardware-accelerated triangle proof.
 - [x] Create an isolated publication staging directory and positive allowlist.
 - [x] Add a fail-closed publication auditor.

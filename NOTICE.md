@@ -1,5 +1,13 @@
 # Notices
 
+## Repository origin
+
+This repository continues `mpereiraesaa/ps5-agc-gears` from commit
+`cbff2649520984696270fedf94a217954b9efddd` with its complete history. The
+Gears repository remains published as the standalone demo; the Xash3D port,
+including the Phase 1-3 BSP viewer, resource foundation and texture path,
+continues here under the same GPL-3.0-or-later license and authorship.
+
 ## Native application foundation
 
 The native application shell derives from
