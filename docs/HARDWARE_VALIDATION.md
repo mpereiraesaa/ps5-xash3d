@@ -149,6 +149,45 @@ and visibly shows all four 2D component classes over the map. This closes the
 orthographic 2D gate only; lighting and the remaining Phase 4 scene/visibility
 features are still open.
 
+## Phase 4 BSP lightstyles and dynamic-light gate
+
+The next artifact extended the compatible version-3 bundle with all original
+BSP lightstyle sample planes. It selected wall face 203 (draw 379; styles
+0/33/35), rebuilt its 11×16 atlas patch from real samples and alternated base,
+animated lightstyle, face-local radial dynamic light and the combined result:
+
+- Run: `20260906T233103794Z_PPSA99996_ps5-xash3d_0x813f7d9b54cf`
+- Native ELF SHA-256:
+  `7cf6d6b7c0e4ace01781de5f8c63f18b8a7be09b2b5113cdd0c1bf215f0f62dd`
+- Signed fSELF SHA-256:
+  `dd66e6c4659b8bc4453720c003c549683c884d40d9906c3b7e9859f6fff14506`
+- Private enriched bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Transcript/manifest SHA-256:
+  `f1c69e8d1825275da6716aeff6f0620c516f8fb4e708a45b18f8e19cd00e620b` /
+  `197c0086ac8e72e91ff01465c513a029d95c39e690e2d611231a35c12cd10060`
+- Requested/completed: 10,000/10,000; structured records: 266
+- BSP lighting source: 3,052 lightmapped faces, 734,229 sample bytes, 528
+  styled faces and 1,084 style layers
+- Upload path: two initial full-slot uploads, then a 704-byte bounded patch in
+  a 61,484-byte aligned acquire span
+- Readbacks: four modes × two slots, all taken after fence zero and exact
+  VideoOut ownership; every same-slot mode hash was distinct
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` helper left no BigApp and all four services
+  healthy; the obsolete `PPSA99998` title remained absent
+
+Four compositor-visible CLI-stream captures accompanied the exact run, with
+SHA-256 values `6fbb3283006e563631d29f22c1e2e39fadb795b8cad6a90733f1baca70964890`,
+`d08ac11fdfacb55e6aeeae6d2c375b9e219a627c673918fd1a2cdef5ade1e18d`,
+`8dd5ba9ad6d416c17365b5255b5e4099c16f264f0119d67095cf0c12cea476b1`
+and `145b5d9b1ee5b9bfa822f228ae21dc71cc89f77c7d76f31ef98995bde448f4ba`.
+Chiaki reused the existing registered entry and its exact isolated PID was
+closed after capture; no pairing, client-window control or focus assumption
+was involved. This closes Phase 4 lighting only. Sprites/particles, studio
+models, brush entities and visibility remain open.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

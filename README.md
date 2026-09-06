@@ -20,7 +20,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 1 — BSP viewer with noclip | Complete | `c1a0`, 3,611 draws, 164 base textures plus lightmap, DualSense movement, clean 60,000-frame textured gate |
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
-| 4 — GoldSrc render states | In progress | All 99 semantic states and nine `gfx1013` variants exist; real binding, viewport/scissor, the complete state matrix and the orthographic blended HUD/console/menu/font path passed 10,000-frame visual/readback gates with zero errors; lighting and scene-feature gates remain open |
+| 4 — GoldSrc render states | In progress | All 99 semantic states and nine `gfx1013` variants exist; binding, viewport/scissor, the state matrix, orthographic 2D and real BSP lightstyles plus dynamic-light atlas updates passed 10,000-frame visual/readback gates with zero errors; scene-object and visibility gates remain open |
 | 5 — Platform layer | Sized | ScePad, AudioOut, filesystem, engine allocator, time/threads, three measured libc shims |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
@@ -58,6 +58,10 @@ hardware-bearing texture-path title:
 ```sh
 make bsp-bundle BSP_INPUT=/private/path/map.bsp
 make bsp-texture-final-native-release BSP_INPUT=/private/path/map.bsp \
+  PS5LOG_DEV_CONF=/private/path/dev.conf \
+  AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
+
+make bsp-phase4-lighting-native-release BSP_INPUT=/private/path/map.bsp \
   PS5LOG_DEV_CONF=/private/path/dev.conf \
   AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
 ```

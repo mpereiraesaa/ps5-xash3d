@@ -126,6 +126,18 @@ bookends, exactly two batches and 522 indices, the expected component counts,
 10,000 clean frames, exact fence plus VideoOut retirement, intact guards, six
 reclaimed resources and the dedicated gap-free completion BYE.
 
+The lighting gate adds `GOLDSRC_LIGHTING_READY`, transition samples in
+`GOLDSRC_LIGHTING_FRAME`, exactly eight `GOLDSRC_LIGHTING_READBACK` records and
+`GOLDSRC_LIGHTING_COMPLETE`. The ready record binds an actual BSP face, draw,
+style IDs, source-sample hash, atlas rectangle and proof camera. Each frame
+identifies base, lightstyle, dynamic-light or combined composition, including
+the style tick/scale, dynamic luxel count, patch hash and exact bounded upload.
+Each mode is read back once per slot only after fence zero and the exact
+VideoOut token. Acceptance requires real BSP sample planes, all four modes,
+both slots, four distinct same-slot images, a converged final base patch,
+inherited resource ownership, intact guards, zero errors and the dedicated
+gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

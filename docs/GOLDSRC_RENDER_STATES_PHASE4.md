@@ -142,6 +142,44 @@ and the additive crosshair. The direct Chiaki stream was stopped by its exact
 PID and the exact `PPSA99996` close helper then left no BigApp while all four
 console services remained healthy.
 
-This closes implementation gates 1–3, not Phase 4. Lightstyles/dynamic lights,
-sprites/particles, studio models, brush entities and PVS/frustum culling remain
-open.
+The lightstyle/dynamic-light gate is now closed as well. The version-3 BSP
+bundle remains backwards compatible while optionally carrying `LMFM` face
+metadata and `LMSP` source sample planes. The baker preserves every real
+GoldSrc style plane rather than flattening the atlas. A checked composer
+rebuilds one selected wall patch from those planes, applies the original
+GoldSrc scale domain and a moving face-local radial dynamic light, then sends
+the result through the existing Phase 3 bounded, fence-retired uploader.
+
+Run `20260906T233103794Z_PPSA99996_ps5-xash3d_0x813f7d9b54cf` used the
+privately owned `c1a0e.bsp` source and completed 10,000/10,000 frames. Its
+enriched bundle contains 3,052 lightmapped faces, 734,229 source-sample bytes,
+528 multi-style faces and 1,084 style layers. The proof camera selected wall
+face 203 (draw 379), whose three actual styles are 0, 33 and 35. The four
+600-frame modes were base, lightstyle, dynamic light and combined; after each
+slot's initial full upload, every frame uploaded only the 704-byte 11×16 patch
+through a 61,484-byte aligned acquire span.
+
+The title captured exactly eight post-retirement framebuffer readbacks: every
+mode on both slots, after fence zero and the exact VideoOut token. All four
+same-slot images were distinct. It ended with guards intact, six reclaimed
+allocations, 266 gap-free records and zero renderer errors. Exact artifacts:
+
+- native ELF: `7cf6d6b7c0e4ace01781de5f8c63f18b8a7be09b2b5113cdd0c1bf215f0f62dd`;
+- signed fSELF: `dd66e6c4659b8bc4453720c003c549683c884d40d9906c3b7e9859f6fff14506`;
+- private enriched bundle: `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105`
+  (9,573,888 bytes);
+- transcript/manifest: `f1c69e8d1825275da6716aeff6f0620c516f8fb4e708a45b18f8e19cd00e620b` /
+  `197c0086ac8e72e91ff01465c513a029d95c39e690e2d611231a35c12cd10060`.
+
+Four compositor-visible Chiaki CLI captures were taken during the mode cycle;
+their SHA-256 values are `6fbb3283006e563631d29f22c1e2e39fadb795b8cad6a90733f1baca70964890`,
+`d08ac11fdfacb55e6aeeae6d2c375b9e219a627c673918fd1a2cdef5ade1e18d`,
+`8dd5ba9ad6d416c17365b5255b5e4099c16f264f0119d67095cf0c12cea476b1`
+and `145b5d9b1ee5b9bfa822f228ae21dc71cc89f77c7d76f31ef98995bde448f4ba`.
+The stream reused the registered console entry without pairing and was closed
+by exact isolated PID. Exact-title closure then left no BigApp, all four
+services healthy and only `PPSA99996`, `PPSA99997` and `PPSA99999` in the
+local homebrew title range; `PPSA99998` remains absent.
+
+This closes implementation gates 1–4, not Phase 4. Sprites/particles, studio
+models, brush entities and PVS/frustum culling remain open.
