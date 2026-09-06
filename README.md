@@ -20,7 +20,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 1 — BSP viewer with noclip | Complete | `c1a0`, 3,611 draws, 164 base textures plus lightmap, DualSense movement, clean 60,000-frame textured gate |
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
-| 4 — GoldSrc render states | Next | Blend/additive permutations, 2D, sprites, particles, studio and brush entities, culling |
+| 4 — GoldSrc render states | Next | Dedicated `PPSA99996` identity gate passed; blend/additive permutations, 2D, sprites, particles, studio and brush entities, culling are next |
 | 5 — Platform layer | Sized | ScePad, AudioOut, filesystem, engine allocator, time/threads, three measured libc shims |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
@@ -65,7 +65,7 @@ make bsp-texture-final-native-release BSP_INPUT=/private/path/map.bsp \
 `.bsp`, `.wad` and `.ps5bsp` files are ignored and never release inputs. The
 build pins and verifies its public native foundation, always targets
 `-gfxip=10.1.3`, derives shader metadata from PAL notes, links/signs the native
-executable and packages `dist/PPSA99997/`. Generated binaries, local telemetry
+executable and packages `dist/PPSA99996/`. Generated binaries, local telemetry
 configuration and deployment material are excluded from publication.
 Deployment remains loader-specific.
 
@@ -106,6 +106,6 @@ All shaders and AGC integration in this repository are independently authored
 and source reproducible. Xash3D FWGS is not vendored yet; it will be integrated
 as a pinned submodule under its own license when Phase 6 starts.
 
-Licensed GPL-3.0-or-later. The application identity `PPSA99997` is a local
-development identifier shared with the Gears demo for now, not an official
-Sony assignment.
+Licensed GPL-3.0-or-later. The application identity `PPSA99996` is a local
+development identifier dedicated to PS5 Xash3D, not an official Sony
+assignment. The frozen Gears demo retains its separate `PPSA99997` identity.

@@ -5,6 +5,41 @@ They are not compatibility claims for other firmware or consoles. Run logs and
 captures live in the private parent laboratory; this public boundary records
 only sanitized identifiers, hashes, outcomes and known limitations.
 
+## Dedicated-title identity gate
+
+Before Phase 4, the port moved from the inherited Gears development identity
+to its own local title, `PPSA99996` (`PS5 Xash3D`). The frozen Gears demo keeps
+`PPSA99997`; both applications are installed side by side and are controlled
+by separate exact-title launch/close helpers.
+
+The dedicated-title smoke gate passed on FW 12.02:
+
+- Run: `20260906T205728904Z_PPSA99996_ps5-xash3d_0x78de031d5d51`
+- Native ELF SHA-256:
+  `7aeb69f792de3dfd5080da43c93bd9c1b51f6fa3a5c956fd31cc1c479e9278d1`
+- Signed fSELF SHA-256:
+  `e62dec33f47c8bab7851dea9e75b90a2b9cca34f10f143e5a0d899d285c5face`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript/manifest SHA-256:
+  `cf7369da2450be324baa08fe69558aefcfcb157025dabd86fb38a9140b5dc40c` /
+  `d83526382b016b5a142d0add69b1145f0b1daab1ee1cb2e94ae3adba06446051`
+- Observed title/application: `PPSA99996` / `ps5-xash3d`
+- Completed sample: 1,440 frames at 59.94 fps, zero renderer errors and no
+  presentation intervals over budget
+- Runtime shape: 122 mip chains and 2,915/137/158 opaque/alpha/sky draws,
+  matching the accepted Phase 3 final artifact
+- Closure: the dedicated `PPSA99996` helper removed the exact BigApp, an
+  independent status query observed no BigApp, and all four console services
+  remained healthy
+
+This was intentionally an identity/launch/close smoke gate, not a repetition
+of the already accepted 60,000-frame renderer soak. The external exact-title
+close ends the TCP stream without an application BYE, so this manifest is
+expected to record a gap-free EOF with `bye=false`; it is not used as Phase 3
+completion evidence.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

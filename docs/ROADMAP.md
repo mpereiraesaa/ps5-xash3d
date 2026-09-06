@@ -7,8 +7,8 @@
 - [x] Record the initial hardware-accelerated triangle proof.
 - [x] Create an isolated publication staging directory and positive allowlist.
 - [x] Add a fail-closed publication auditor.
-- [x] Choose repository name (`ps5-agc-gears`), GPL-3.0-or-later and local
-  development identity `PPSA99997`.
+- [x] Inherit the original `ps5-agc-gears` repository history,
+  GPL-3.0-or-later license and initial `PPSA99997` hardware evidence.
 - [x] Confirm intended GitHub owner: `mpereiraesaa`.
 - [x] Publish the repository publicly and confirm the development identity.
 - [x] Derive the standalone app from a pinned public boilerplate revision.
@@ -76,6 +76,8 @@
 - [ ] Reproduce the archive from a fresh clone after this reconciliation PR
   commit and compare its checksum.
 - [x] Publish the repository and acknowledge upstream projects precisely.
+- [x] Assign PS5 Xash3D the dedicated local development identity `PPSA99996`;
+  retain `PPSA99997` exclusively for the frozen Gears demo.
 - [x] Publish the LLPC GFX1013 fork with pinned LLPC/LLVM revisions and a
   target-selection regression test.
 - [x] Add the Phase 2 direct-memory resource pool with generation handles and

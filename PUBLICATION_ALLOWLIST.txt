@@ -181,6 +181,7 @@ tests/test_generate_agc_metadata.py
 tests/test_generate_pipeline_table.py
 tests/test_generate_bsp_build_metadata.py
 tests/test_native_contract.py
+tests/test_title_identity.py
 tests/test_validate_bsp_noclip_evidence.py
 tests/test_validate_bsp_textured_evidence.py
 tests/test_validate_bsp_resource_evidence.py
