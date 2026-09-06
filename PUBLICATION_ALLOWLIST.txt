@@ -93,6 +93,8 @@ src/goldsrc_render_state.c
 src/goldsrc_render_state.h
 src/goldsrc_state_matrix.c
 src/goldsrc_state_matrix.h
+src/goldsrc_2d.c
+src/goldsrc_2d.h
 src/goldsrc_shader_catalog.h
 src/goldsrc_pipeline_cache.c
 src/goldsrc_pipeline_cache.h
@@ -156,6 +158,7 @@ tests/test_gears_telemetry.c
 tests/test_gears_rt_clear.c
 tests/test_goldsrc_render_state.c
 tests/test_goldsrc_state_matrix.c
+tests/test_goldsrc_2d.c
 tests/test_goldsrc_pipeline_cache.c
 tests/test_gears_renderer.c
 tests/test_ps5_surface.c

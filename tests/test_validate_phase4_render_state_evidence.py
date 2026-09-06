@@ -13,7 +13,7 @@ VALIDATOR = ROOT / "tools" / "validate_phase4_render_state_evidence.py"
 BUNDLE_SHA = "7" * 64
 
 
-def make_evidence(directory: Path) -> Path:
+def make_evidence(directory: Path, *, screen_2d: bool = False) -> Path:
     matrix = (
         ("opaque", 68, 0, 1, 0, 0, 1, "surface_lightmap",
          "00000000", "000000b6", "00000240"),
@@ -52,10 +52,11 @@ def make_evidence(directory: Path) -> Path:
     ]
     messages = [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
-        f"BSP_TEXTURE_PATH_BOOT schema=1 slice=dynamic-lightmap target=gfx1013 fw=12.02 transient_slots=2 ownership=fence+videoout bundle_sha256={BUNDLE_SHA} bundle_bytes=42 soak_frames=10000",
+        f"BSP_TEXTURE_PATH_BOOT schema=1 slice={'goldsrc-2d' if screen_2d else 'dynamic-lightmap'} target=gfx1013 fw=12.02 transient_slots=2 ownership=fence+videoout bundle_sha256={BUNDLE_SHA} bundle_bytes=42 soak_frames=10000 input_gate={'not-required' if screen_2d else 'not-repeated'}",
         "GOLDSRC_VIEWPORT_READY schema=1 framebuffer=1920x1080 inset_viewport=320,180+1280x720 inset_scissor=400,220+1120x640 restore=full-frame registers=8",
         "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=99 shader_variants=9 native_slots=9 base_depth=000000b6 base_raster=00000240 state_register_bytes=2376 target=gfx1013",
         "GOLDSRC_STATE_MATRIX_READY schema=1 cases=9 hold_frames=300 readback_slots=2 coverage=blend+depth-write+cull+fog+lightmap",
+        "GOLDSRC_2D_READY schema=1 framebuffer=1920x1080 projection=orthographic atlas=128x32 format=rgba8 sampler=point batches=alpha+additive components=hud+console+menu+font geometry=per-frame-transient ownership=fence+videoout",
         *matrix_frames,
         *matrix_readbacks,
         "GOLDSRC_VIEWPORT_FRAME schema=1 frame=0 slot=0 sequence=full-clear,inset-opaque,inset-alpha,full-restore inset_scissor_tl=80dc0190 inset_scissor_br=035c05f0 full_scissor_tl=80000000 full_scissor_br=04380780",
@@ -77,6 +78,9 @@ def make_evidence(directory: Path) -> Path:
         "GOLDSRC_PIPELINE_GATE_COMPLETE schema=1 frames=10000 semantic_permutations=99 shader_variants=9 opaque_key=68 opaque_shader=surface_lightmap alpha_key=71 alpha_shader=masked_lightmap framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
         "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1 frames=10000 sequence=full-clear,inset-opaque,inset-alpha,full-restore framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
         "GOLDSRC_STATE_MATRIX_COMPLETE schema=1 frames=10000 cases=9 readbacks=18 both_slots=true control_pairs=distinct coverage=opaque+alpha+additive+alpha-test+depth-write+cull-front-back-none+fog+lightmap tokens=exact guards=intact errors=0",
+        "GOLDSRC_2D_FRAME schema=1 frame=0 slot=0 alpha_key=129 additive_key=130 shader=screen_2d draws=2 indices=522 hud_quads=4 console_quads=2 menu_quads=3 font_quads=78 atlas_hash=1111111111111111 layout_hash=2222222222222222 transient_bytes=34800 ownership=fence+videoout",
+        "GOLDSRC_2D_FRAME schema=1 frame=9999 slot=1 alpha_key=129 additive_key=130 shader=screen_2d draws=2 indices=522 hud_quads=4 console_quads=2 menu_quads=3 font_quads=78 atlas_hash=1111111111111111 layout_hash=2222222222222222 transient_bytes=34800 ownership=fence+videoout",
+        "GOLDSRC_2D_COMPLETE schema=1 frames=10000 draws_per_frame=2 passes=alpha+additive projection=orthographic components=hud+console+menu+font atlas=procedural-rgba8 geometry=per-frame-transient tokens=exact guards=intact errors=0",
         "RESOURCE_POOL_RETIRED token=10099 reclaimed=6 completion=fence+videoout",
     ]
     rows = []
@@ -86,7 +90,7 @@ def make_evidence(directory: Path) -> Path:
     payload = "\n".join([
         "HELLO ps5log/1 title=PPSA99996 app=ps5-xash3d boot=0x1234 tag=test",
         *rows,
-        f"BYE seq={len(rows)} reason=bsp-texture-path-lightmap-soak-complete",
+        f"BYE seq={len(rows)} reason={'goldsrc-phase4-2d-soak-complete' if screen_2d else 'bsp-texture-path-lightmap-soak-complete'}",
         "",
     ]).encode()
     (directory / "synthetic.log").write_bytes(payload)
@@ -104,7 +108,8 @@ def make_evidence(directory: Path) -> Path:
     return path
 
 
-def run(path: Path, *, matrix: bool = False) -> subprocess.CompletedProcess[str]:
+def run(path: Path, *, matrix: bool = False,
+        screen_2d: bool = False) -> subprocess.CompletedProcess[str]:
     command = [
         "python3", str(VALIDATOR), str(path),
         "--bundle-sha256", BUNDLE_SHA, "--bundle-bytes", "42",
@@ -112,6 +117,8 @@ def run(path: Path, *, matrix: bool = False) -> subprocess.CompletedProcess[str]
     ]
     if matrix:
         command.append("--require-matrix")
+    if screen_2d:
+        command.append("--require-2d")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -123,6 +130,9 @@ def main() -> int:
         assert valid.returncode == 0, valid.stderr
         valid_matrix = run(path, matrix=True)
         assert valid_matrix.returncode == 0, valid_matrix.stderr
+        path_2d = make_evidence(root, screen_2d=True)
+        valid_2d = run(path_2d, screen_2d=True)
+        assert valid_2d.returncode == 0, valid_2d.stderr
         log = root / "synthetic.log"
         changed = log.read_text().replace(
             "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1",

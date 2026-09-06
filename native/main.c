@@ -8,6 +8,7 @@
 #include "../src/goldsrc_pipeline_cache.h"
 #include "../src/goldsrc_shader_catalog.h"
 #include "../src/goldsrc_state_matrix.h"
+#include "../src/goldsrc_2d.h"
 #include "../src/bsp_bundle.h"
 #include "../src/bsp_command_plan.h"
 #include "../src/bsp_flat_scene.h"
@@ -253,6 +254,9 @@ struct native_renderer {
     uint64_t goldsrc_matrix_hashes[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
     uint64_t goldsrc_matrix_bright[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
     uint8_t goldsrc_matrix_seen[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
+#endif
+#ifdef PS5_GOLDSRC_2D_GATE
+    GoldSrc2DFrame goldsrc_2d_frames[2];
 #endif
 #ifdef PS5_GOLDSRC_VIEWPORT_GATE
     ps5_agc_register *goldsrc_viewport_inset;
@@ -869,6 +873,19 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             ) != 0) {
         return resource_compose_fail(state, resource_slot, -9);
     }
+#ifdef PS5_GOLDSRC_2D_GATE
+    if (goldsrc_2d_frame_build(
+            &state->goldsrc_2d_frames[resource_slot],
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->resources->surface.width,
+            state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+#endif
     Ps5TransientSlot *const transient_slot =
         &state->transient_ring.slots[resource_slot];
     const void *const transient_begin = state->transient_ring.base +
@@ -1344,6 +1361,65 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->resources->resource_heap_bytes,
             state->overlay_draw_modifier, ps5_native_set_sh_direct,
             ps5_native_draw_index, &resource_composed);
+#ifdef PS5_GOLDSRC_2D_GATE
+    GoldSrc2DComposeResult screen_composed = {0};
+    GoldSrcRenderState screen_alpha_state;
+    GoldSrcRenderState screen_additive_state;
+    Ps5GoldSrcPipelineBinding screen_alpha_binding;
+    Ps5GoldSrcPipelineBinding screen_additive_binding;
+    GoldSrc2DFrame *const screen =
+        &state->goldsrc_2d_frames[resource_slot];
+    if (result == 0 &&
+        (goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA,
+                                 &screen_alpha_state) != 0 ||
+         goldsrc_render_state_2d(GOLDSRC_BLEND_ADDITIVE,
+                                 &screen_additive_state) != 0))
+        result = -1;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &screen_alpha_state, frame->buffer,
+            &screen_alpha_binding);
+    if (result == 0)
+        result = goldsrc_2d_compose_range(
+            &cursor, end, screen, screen->alpha_first_index,
+            screen->alpha_index_count, state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            screen_alpha_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &screen_composed);
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &screen_additive_state, frame->buffer,
+            &screen_additive_binding);
+    if (result == 0)
+        result = goldsrc_2d_compose_range(
+            &cursor, end, screen, screen->additive_first_index,
+            screen->additive_index_count,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            screen_additive_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &screen_composed);
+    if (result == 0 &&
+        (frame->frame_index == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_2D_FRAME schema=1 frame=%llu slot=%u "
+            "alpha_key=%u additive_key=%u shader=%s draws=%u "
+            "indices=%u hud_quads=%u console_quads=%u menu_quads=%u "
+            "font_quads=%u atlas_hash=%016llx layout_hash=%016llx "
+            "transient_bytes=%llu ownership=fence+videoout",
+            (unsigned long long)frame->frame_index, resource_slot,
+            screen_alpha_binding.permutation->key,
+            screen_additive_binding.permutation->key,
+            goldsrc_pipeline_shader_variant_name(
+                screen_alpha_binding.permutation->shader),
+            screen_composed.draws, screen_composed.indices,
+            screen->hud_quads, screen->console_quads,
+            screen->menu_quads, screen->font_quads,
+            (unsigned long long)screen->atlas_hash,
+            (unsigned long long)screen->layout_hash,
+            (unsigned long long)screen->transient_bytes);
+#endif
     const uint32_t expected_sky_draws =
         sky_enabled ? state->sky_plan.draw_count : 0u;
     const uint32_t expected_map_draws =
@@ -1358,6 +1434,12 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             expected_map_draws ||
         resource_composed.overlay_draws != 1u)
         return resource_compose_fail(state, resource_slot, -16);
+#ifdef PS5_GOLDSRC_2D_GATE
+    if (screen_composed.draws != 2u ||
+        screen_composed.indices !=
+            screen->alpha_index_count + screen->additive_index_count)
+        return resource_compose_fail(state, resource_slot, -16);
+#endif
 #elif defined(PS5_BSP_TEXTURED)
     BspFlatComposeResult composed = {0, 0};
     result = bsp_textured_compose(
@@ -1762,7 +1844,9 @@ static uint64_t bright_pixel_count(const void *data, size_t bytes)
 static void park_complete(void)
 {
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_TEXTURE_FINAL_GATE
+#ifdef PS5_GOLDSRC_2D_GATE
+    ps5log_close("goldsrc-phase4-2d-soak-complete");
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     ps5log_close("bsp-texture-path-final-soak-complete");
 #elif defined(PS5_TEXTURE_ACCOUNTING_GATE)
     ps5log_close("bsp-texture-path-accounting-soak-complete");
@@ -1831,7 +1915,15 @@ int main(void)
                         log_path ? log_path : "unavailable");
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_TEXTURE_FINAL_GATE
+#ifdef PS5_GOLDSRC_2D_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-2d "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     (void)ps5log_printf(PS5LOG_MARK,
         "BSP_TEXTURE_PATH_BOOT schema=1 slice=final "
         "target=gfx1013 fw=12.02 transient_slots=2 "
@@ -2471,6 +2563,16 @@ int main(void)
         renderer.goldsrc_pipeline_cache.count,
         GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT,
         (unsigned long long)phase4_state_bytes);
+#ifdef PS5_GOLDSRC_2D_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_2D_READY schema=1 framebuffer=%ux%u "
+        "projection=orthographic atlas=%ux%u format=rgba8 "
+        "sampler=point batches=alpha+additive "
+        "components=hud+console+menu+font geometry=per-frame-transient "
+        "ownership=fence+videoout",
+        resources.surface.width, resources.surface.height,
+        GOLDSRC_2D_ATLAS_WIDTH, GOLDSRC_2D_ATLAS_HEIGHT);
+#endif
 #endif
 
 #ifdef PS5_BSP_VIEWER
@@ -3350,6 +3452,16 @@ int main(void)
         renderer.bsp_bundle.texture_count,
         renderer.bsp_plan.descriptor_table_dwords,
         (unsigned long long)run.telemetry.errors);
+#ifdef PS5_GOLDSRC_2D_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_2D_COMPLETE schema=1 frames=%llu draws_per_frame=2 "
+        "passes=alpha+additive projection=orthographic "
+        "components=hud+console+menu+font atlas=procedural-rgba8 "
+        "geometry=per-frame-transient tokens=exact guards=intact "
+        "errors=%llu",
+        (unsigned long long)run.frames_completed,
+        (unsigned long long)run.telemetry.errors);
+#endif
     const uint64_t retire_token = renderer.last_completed_token;
     uint32_t reclaimed = 0u;
 #ifdef PS5_TEXTURE_PATH

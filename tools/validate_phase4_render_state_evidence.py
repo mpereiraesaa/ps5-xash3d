@@ -90,8 +90,10 @@ def load(path: Path) -> tuple[list[str], bytes]:
     if not lines or not lines[0].startswith("HELLO ps5log/1 ") or \
             f"title=PPSA99996 app=ps5-xash3d boot={boot}" not in lines[0]:
         fail("HELLO identity mismatch")
-    if not lines[-1].startswith("BYE seq=") or \
-            "reason=bsp-texture-path-lightmap-soak-complete" not in lines[-1]:
+    if not lines[-1].startswith("BYE seq=") or not any(
+            reason in lines[-1] for reason in (
+                "reason=bsp-texture-path-lightmap-soak-complete",
+                "reason=goldsrc-phase4-2d-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -114,7 +116,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
 
 def validate(path: Path, *, bundle_sha256: str,
              bundle_bytes: int, require_viewport: bool,
-             require_matrix: bool) -> dict[str, object]:
+             require_matrix: bool,
+             require_2d: bool) -> dict[str, object]:
     messages, data = load(path.resolve())
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
     if boot.get("schema") != "1" or boot.get("target") != "gfx1013" or \
@@ -124,6 +127,9 @@ def validate(path: Path, *, bundle_sha256: str,
             number(boot, "bundle_bytes") != bundle_bytes or \
             number(boot, "soak_frames") != 10_000:
         fail("Phase 4 boot contract mismatch")
+    if require_2d and (boot.get("slice") != "goldsrc-2d" or
+                       boot.get("input_gate") != "not-required"):
+        fail("2D boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -234,6 +240,41 @@ def validate(path: Path, *, bundle_sha256: str,
             for slot in range(2):
                 if hashes[index, slot] == hashes[0, slot]:
                     fail("state-matrix feature/control framebuffer collision")
+    if require_2d:
+        ready_2d = one(messages, "GOLDSRC_2D_READY")
+        if ready_2d.get("schema") != "1" or \
+                ready_2d.get("framebuffer") != "1920x1080" or \
+                ready_2d.get("projection") != "orthographic" or \
+                ready_2d.get("atlas") != "128x32" or \
+                ready_2d.get("format") != "rgba8" or \
+                ready_2d.get("sampler") != "point" or \
+                ready_2d.get("batches") != "alpha+additive" or \
+                ready_2d.get("components") != "hud+console+menu+font" or \
+                ready_2d.get("geometry") != "per-frame-transient" or \
+                ready_2d.get("ownership") != "fence+videoout":
+            fail("2D ready contract mismatch")
+        frames_2d = many(messages, "GOLDSRC_2D_FRAME")
+        if [number(row, "frame") for row in frames_2d] != [0, 9_999]:
+            fail("2D frame bookends mismatch")
+        for index, row in enumerate(frames_2d):
+            if number(row, "slot") != index or \
+                    number(row, "alpha_key") != 129 or \
+                    number(row, "additive_key") != 130 or \
+                    row.get("shader") != "screen_2d" or \
+                    number(row, "draws") != 2 or \
+                    number(row, "indices") != 522 or \
+                    number(row, "hud_quads") != 4 or \
+                    number(row, "console_quads") != 2 or \
+                    number(row, "menu_quads") != 3 or \
+                    number(row, "font_quads") != 78 or \
+                    hex_number(row, "atlas_hash") == 0 or \
+                    hex_number(row, "layout_hash") == 0 or \
+                    not 32_768 <= number(row, "transient_bytes") < 65_536 or \
+                    row.get("ownership") != "fence+videoout":
+                fail("2D frame contract mismatch")
+        if frames_2d[0]["atlas_hash"] != frames_2d[1]["atlas_hash"] or \
+                frames_2d[0]["layout_hash"] != frames_2d[1]["layout_hash"]:
+            fail("2D deterministic atlas/layout mismatch")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -302,6 +343,21 @@ def validate(path: Path, *, bundle_sha256: str,
                 matrix_complete.get("guards") != "intact" or \
                 number(matrix_complete, "errors") != 0:
             fail("state-matrix completion contract mismatch")
+    if require_2d:
+        complete_2d = one(messages, "GOLDSRC_2D_COMPLETE")
+        if complete_2d.get("schema") != "1" or \
+                number(complete_2d, "frames") != 10_000 or \
+                number(complete_2d, "draws_per_frame") != 2 or \
+                complete_2d.get("passes") != "alpha+additive" or \
+                complete_2d.get("projection") != "orthographic" or \
+                complete_2d.get("components") != \
+                "hud+console+menu+font" or \
+                complete_2d.get("atlas") != "procedural-rgba8" or \
+                complete_2d.get("geometry") != "per-frame-transient" or \
+                complete_2d.get("tokens") != "exact" or \
+                complete_2d.get("guards") != "intact" or \
+                number(complete_2d, "errors") != 0:
+            fail("2D completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -312,6 +368,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "frames": 10_000,
         "viewport": require_viewport,
         "matrix": require_matrix,
+        "screen_2d": require_2d,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -324,13 +381,15 @@ def main() -> int:
     parser.add_argument("--bundle-bytes", required=True, type=int)
     parser.add_argument("--require-viewport", action="store_true")
     parser.add_argument("--require-matrix", action="store_true")
+    parser.add_argument("--require-2d", action="store_true")
     args = parser.parse_args()
     try:
         result = validate(args.manifest,
                           bundle_sha256=args.bundle_sha256,
                           bundle_bytes=args.bundle_bytes,
                           require_viewport=args.require_viewport,
-                          require_matrix=args.require_matrix)
+                          require_matrix=args.require_matrix,
+                          require_2d=args.require_2d)
     except EvidenceError as exc:
         raise SystemExit(f"Phase 4 evidence validation failed: {exc}") from exc
     print(json.dumps(result, sort_keys=True))
