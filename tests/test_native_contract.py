@@ -289,6 +289,30 @@ def main() -> None:
     if "bsp-phase4-lighting-native-release" not in makefile or \
             "GOLDSRC_LIGHTING_GATE=1" not in makefile:
         raise SystemExit("Phase 4 lighting release target missing")
+    for item in (
+        "GOLDSRC_SPRITE_PARTICLE_GATE requires GOLDSRC_PHASE4=1",
+        "-DPS5_GOLDSRC_SPRITE_PARTICLE_GATE=1",
+        "src/goldsrc_sprite_particles.c",
+    ):
+        if item not in builder:
+            raise SystemExit(
+                f"Phase 4 sprite/particle build contract missing: {item}")
+    for item in (
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-sprite-particles",
+        "GOLDSRC_SPRITE_PARTICLE_READY schema=1 atlas=%ux%u",
+        "GOLDSRC_SPRITE_PARTICLE_FRAME schema=1 frame=%llu",
+        "GOLDSRC_SPRITE_PARTICLE_DRAW schema=1 frame=%llu",
+        "GOLDSRC_SPRITE_PARTICLE_READBACK schema=1",
+        "BSP_LOOP_BEGIN mode=goldsrc-sprite-particle-soak buffers=2",
+        "GOLDSRC_SPRITE_PARTICLE_COMPLETE schema=1 frames=%llu",
+        'ps5log_close("goldsrc-phase4-sprite-particle-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(
+                f"Phase 4 sprite/particle runtime contract missing: {item}")
+    if "bsp-phase4-sprite-particles-native-release" not in makefile or \
+            "GOLDSRC_SPRITE_PARTICLE_GATE=1" not in makefile:
+        raise SystemExit("Phase 4 sprite/particle release target missing")
     for item in ('bsp_resource.gs.bin', 'bsp_resource.ps.bin',
                  'bsp_alpha_test.gs.bin', 'bsp_alpha_test.ps.bin',
                  'bsp_sky.gs.bin', 'bsp_sky.ps.bin',

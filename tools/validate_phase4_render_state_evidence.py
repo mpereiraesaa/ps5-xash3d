@@ -94,7 +94,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
             reason in lines[-1] for reason in (
                 "reason=bsp-texture-path-lightmap-soak-complete",
                 "reason=goldsrc-phase4-2d-soak-complete",
-                "reason=goldsrc-phase4-lighting-soak-complete")):
+                "reason=goldsrc-phase4-lighting-soak-complete",
+                "reason=goldsrc-phase4-sprite-particle-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -119,7 +120,8 @@ def validate(path: Path, *, bundle_sha256: str,
              bundle_bytes: int, require_viewport: bool,
              require_matrix: bool,
              require_2d: bool,
-             require_lighting: bool) -> dict[str, object]:
+             require_lighting: bool,
+             require_sprite_particles: bool) -> dict[str, object]:
     messages, data = load(path.resolve())
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
     if boot.get("schema") != "1" or boot.get("target") != "gfx1013" or \
@@ -136,6 +138,10 @@ def validate(path: Path, *, bundle_sha256: str,
             boot.get("slice") != "goldsrc-lighting" or
             boot.get("input_gate") != "not-required"):
         fail("lighting boot contract mismatch")
+    if require_sprite_particles and (
+            boot.get("slice") != "goldsrc-sprite-particles" or
+            boot.get("input_gate") != "not-required"):
+        fail("sprite/particle boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -353,6 +359,91 @@ def validate(path: Path, *, bundle_sha256: str,
         for slot in range(2):
             if len({lighting_hashes[mode, slot] for mode in range(4)}) != 4:
                 fail("lighting feature/control framebuffer collision")
+    if require_sprite_particles:
+        effects_ready = one(messages, "GOLDSRC_SPRITE_PARTICLE_READY")
+        if effects_ready.get("schema") != "1" or \
+                effects_ready.get("atlas") != "64x32" or \
+                effects_ready.get("format") != "rgba8" or \
+                effects_ready.get("modes") != \
+                    "control+sprite+particles+combined" or \
+                number(effects_ready, "hold_frames") != 600 or \
+                number(effects_ready, "sprite_quads") != 1 or \
+                number(effects_ready, "alpha_particles") != 24 or \
+                number(effects_ready, "additive_particles") != 48 or \
+                effects_ready.get("batches") != "alpha+additive" or \
+                effects_ready.get("geometry") != "per-frame-transient" or \
+                effects_ready.get("camera") != "locked-relative" or \
+                effects_ready.get("ownership") != "fence+videoout":
+            fail("sprite/particle ready contract mismatch")
+        names = ("control", "sprite", "particles", "combined")
+        effect_frames = many(messages, "GOLDSRC_SPRITE_PARTICLE_FRAME")
+        for mode, name in enumerate(names):
+            rows = [row for row in effect_frames
+                    if number(row, "mode") == mode]
+            if not rows or {number(row, "slot") for row in rows} != {0, 1}:
+                fail(f"sprite/particle frame coverage mismatch for mode {mode}")
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "sprite_quads") != 1 or \
+                        number(row, "alpha_particles") != 24 or \
+                        number(row, "additive_particles") != 48 or \
+                        number(row, "sprite_indices") != 6 or \
+                        number(row, "alpha_particle_indices") != 144 or \
+                        number(row, "additive_particle_indices") != 288 or \
+                        hex_number(row, "atlas_hash") == 0 or \
+                        hex_number(row, "layout_hash") == 0 or \
+                        not 8_192 < number(row, "transient_bytes") < 32_768 or \
+                        row.get("geometry") != "per-frame-transient":
+                    fail("sprite/particle frame contract mismatch")
+        effect_draws = many(messages, "GOLDSRC_SPRITE_PARTICLE_DRAW")
+        expected_draws = ((0, 0, 0), (1, 6, 1),
+                          (2, 432, 0), (3, 438, 1))
+        for mode, name in enumerate(names):
+            rows = [row for row in effect_draws
+                    if number(row, "mode") == mode]
+            if not rows:
+                fail(f"missing sprite/particle draw mode {mode}")
+            for row in rows:
+                draws, indices, sprite_draws = expected_draws[mode]
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "alpha_key") != (0 if mode == 0 else 1) or \
+                        number(row, "additive_key") != \
+                            (2 if mode in (2, 3) else 0) or \
+                        row.get("shader") != ("none" if mode == 0 else
+                                               "surface") or \
+                        number(row, "draws") != draws or \
+                        number(row, "indices") != indices or \
+                        number(row, "sprite_draws") != sprite_draws or \
+                        number(row, "particle_draws") != \
+                            (2 if mode in (2, 3) else 0) or \
+                        row.get("depth_write") != "false" or \
+                        row.get("cull") != "none" or \
+                        row.get("lightmap") != "false" or \
+                        row.get("ownership") != "fence+videoout":
+                    fail("sprite/particle draw contract mismatch")
+        effect_readbacks = many(
+            messages, "GOLDSRC_SPRITE_PARTICLE_READBACK")
+        if len(effect_readbacks) != 8:
+            fail("sprite/particle readback count mismatch")
+        effect_hashes: dict[tuple[int, int], str] = {}
+        for row in effect_readbacks:
+            mode = number(row, "mode")
+            slot = number(row, "slot")
+            if mode >= 4 or slot >= 2 or (mode, slot) in effect_hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != names[mode] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("sprite/particle GPU readback mismatch")
+            effect_hashes[mode, slot] = row["hash"]
+        for slot in range(2):
+            if any(effect_hashes[mode, slot] == effect_hashes[0, slot]
+                   for mode in range(1, 4)) or \
+                    effect_hashes[3, slot] in {
+                        effect_hashes[1, slot], effect_hashes[2, slot]}:
+                fail("sprite/particle feature/control framebuffer collision")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -462,6 +553,27 @@ def validate(path: Path, *, bundle_sha256: str,
                 complete_lighting.get("guards") != "intact" or \
                 number(complete_lighting, "errors") != 0:
             fail("lighting completion contract mismatch")
+    if require_sprite_particles:
+        complete_effects = one(
+            messages, "GOLDSRC_SPRITE_PARTICLE_COMPLETE")
+        if complete_effects.get("schema") != "1" or \
+                number(complete_effects, "frames") != 10_000 or \
+                number(complete_effects, "modes") != 4 or \
+                number(complete_effects, "readbacks") != 8 or \
+                complete_effects.get("both_slots") != "true" or \
+                complete_effects.get("control_pairs") != "distinct" or \
+                complete_effects.get("combined_pairs") != "distinct" or \
+                number(complete_effects, "sprite_quads") != 1 or \
+                number(complete_effects, "alpha_particles") != 24 or \
+                number(complete_effects, "additive_particles") != 48 or \
+                complete_effects.get("batches") != "alpha+additive" or \
+                complete_effects.get("geometry") != "per-frame-transient" or \
+                complete_effects.get("camera") != "locked-proof-view" or \
+                complete_effects.get("input_dependency") != "none" or \
+                complete_effects.get("tokens") != "exact" or \
+                complete_effects.get("guards") != "intact" or \
+                number(complete_effects, "errors") != 0:
+            fail("sprite/particle completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -474,6 +586,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "matrix": require_matrix,
         "screen_2d": require_2d,
         "lighting": require_lighting,
+        "sprite_particles": require_sprite_particles,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -488,6 +601,7 @@ def main() -> int:
     parser.add_argument("--require-matrix", action="store_true")
     parser.add_argument("--require-2d", action="store_true")
     parser.add_argument("--require-lighting", action="store_true")
+    parser.add_argument("--require-sprite-particles", action="store_true")
     args = parser.parse_args()
     try:
         result = validate(args.manifest,
@@ -496,7 +610,9 @@ def main() -> int:
                           require_viewport=args.require_viewport,
                           require_matrix=args.require_matrix,
                           require_2d=args.require_2d,
-                          require_lighting=args.require_lighting)
+                          require_lighting=args.require_lighting,
+                          require_sprite_particles=
+                              args.require_sprite_particles)
     except EvidenceError as exc:
         raise SystemExit(f"Phase 4 evidence validation failed: {exc}") from exc
     print(json.dumps(result, sort_keys=True))
