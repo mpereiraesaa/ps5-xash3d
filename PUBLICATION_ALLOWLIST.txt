@@ -28,6 +28,7 @@ docs/ARCHITECTURE.md
 docs/BACKEND_PROVENANCE.md
 docs/CAPABILITY_MATRIX.md
 docs/DEVELOPMENT.md
+docs/GOLDSRC_RENDER_STATES_PHASE4.md
 docs/HARDWARE_VALIDATION.md
 docs/RELEASING.md
 docs/ROADMAP.md
@@ -86,6 +87,10 @@ src/gears_telemetry.c
 src/gears_telemetry.h
 src/gears_rt_clear.c
 src/gears_rt_clear.h
+src/goldsrc_render_state.c
+src/goldsrc_render_state.h
+src/goldsrc_pipeline_cache.c
+src/goldsrc_pipeline_cache.h
 src/gears_renderer.c
 src/gears_renderer.h
 src/ps5_surface.c
@@ -122,6 +127,10 @@ src/ps5_cache_contract.c
 src/ps5_cache_contract.h
 src/ps5_gfx1013_descriptor.c
 src/ps5_gfx1013_descriptor.h
+src/ps5_goldsrc_render_state.c
+src/ps5_goldsrc_render_state.h
+src/ps5_viewport_scissor.c
+src/ps5_viewport_scissor.h
 src/ps5_resource_pool.c
 src/ps5_resource_pool.h
 src/ps5_transient_ring.c
@@ -136,6 +145,8 @@ tests/test_gears_animation.c
 tests/test_gears_scene.c
 tests/test_gears_telemetry.c
 tests/test_gears_rt_clear.c
+tests/test_goldsrc_render_state.c
+tests/test_goldsrc_pipeline_cache.c
 tests/test_gears_renderer.c
 tests/test_ps5_surface.c
 tests/test_ps5_present.c
@@ -171,6 +182,8 @@ tests/test_bsp_textured_draw.c
 tests/test_ps5_bump_allocator.c
 tests/test_ps5_cache_contract.c
 tests/test_ps5_gfx1013_descriptor.c
+tests/test_ps5_goldsrc_render_state.c
+tests/test_ps5_viewport_scissor.c
 tests/test_ps5_resource_pool.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c

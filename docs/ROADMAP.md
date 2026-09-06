@@ -104,5 +104,15 @@
   and pass its 10,000-frame hardware gate.
 - [x] Pass and archive the complete Phase 3 60,000-frame hardware gate with
   exact accounting, GPU-visible readbacks, intact guards and zero errors.
+- [x] Define and host-test the complete Phase 4 semantic render-state space,
+  its 99-entry permutation cache, exact dynamic blend/depth/cull translation
+  and checked mid-frame viewport/scissor updates.
+- [ ] Bind the Phase 4 shader variants and pass the incremental FW 12.02
+  pipeline-state and viewport/scissor hardware gates.
+- [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles
+  and dynamic lights, transient sprites/particles, studio models and brush
+  entities.
+- [ ] Add PVS plus frustum culling and pass the complete Phase 4 visual and
+  continuous ownership soak with zero errors.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.
