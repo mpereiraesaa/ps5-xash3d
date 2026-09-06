@@ -107,6 +107,8 @@
 - [x] Define and host-test the complete Phase 4 semantic render-state space,
   its 99-entry permutation cache, exact dynamic blend/depth/cull translation
   and checked mid-frame viewport/scissor updates.
+- [x] Generate, compile and manifest-check all eight explicit surface/masked
+  fog/lightmap shader variants plus the orthographic 2D shader for `gfx1013`.
 - [ ] Bind the Phase 4 shader variants and pass the incremental FW 12.02
   pipeline-state and viewport/scissor hardware gates.
 - [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles

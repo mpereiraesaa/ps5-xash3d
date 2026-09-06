@@ -29,6 +29,69 @@
       "purpose": "transient debug overlay quad",
       "gs_application_words": 1,
       "ps_application_words": 0
+    },
+    {
+      "id": "goldsrc_surface",
+      "pipe": "build/generated-shaders/goldsrc_surface.pipe",
+      "purpose": "unlit GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_surface_lightmap",
+      "pipe": "build/generated-shaders/goldsrc_surface_lightmap.pipe",
+      "purpose": "lightmapped GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_surface_fog",
+      "pipe": "build/generated-shaders/goldsrc_surface_fog.pipe",
+      "purpose": "fogged unlit GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_surface_lightmap_fog",
+      "pipe": "build/generated-shaders/goldsrc_surface_lightmap_fog.pipe",
+      "purpose": "fogged lightmapped GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_masked",
+      "pipe": "build/generated-shaders/goldsrc_masked.pipe",
+      "purpose": "masked unlit GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_masked_lightmap",
+      "pipe": "build/generated-shaders/goldsrc_masked_lightmap.pipe",
+      "purpose": "masked lightmapped GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_masked_fog",
+      "pipe": "build/generated-shaders/goldsrc_masked_fog.pipe",
+      "purpose": "fogged masked unlit GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_masked_lightmap_fog",
+      "pipe": "build/generated-shaders/goldsrc_masked_lightmap_fog.pipe",
+      "purpose": "fogged masked lightmapped GoldSrc surface",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "goldsrc_screen_2d",
+      "pipe": "shaders/goldsrc_screen_2d.pipe",
+      "purpose": "orthographic blended HUD, console, menu and font batches",
+      "gs_application_words": 2,
+      "ps_application_words": 1
     }
   ]
 }

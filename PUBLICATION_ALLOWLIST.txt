@@ -42,6 +42,8 @@ shaders/bsp_resource.pipe
 shaders/bsp_alpha_test.pipe
 shaders/bsp_sky.pipe
 shaders/bsp_overlay.pipe
+shaders/goldsrc_screen_2d.pipe
+shaders/goldsrc_surface.template.pipe
 shaders/pipeline_permutations.json
 src/bsp_bundle.c
 src/bsp_bundle.h
@@ -191,6 +193,7 @@ tests/test_bake_bsp.py
 tests/test_shader_contract.py
 tests/test_build_shader.py
 tests/test_generate_agc_metadata.py
+tests/test_generate_goldsrc_shader_variants.py
 tests/test_generate_pipeline_table.py
 tests/test_generate_bsp_build_metadata.py
 tests/test_native_contract.py
@@ -207,6 +210,7 @@ tests/test_validate_texture_path_final_evidence.py
 tools/audit_publication.py
 tools/build_shader.py
 tools/generate_agc_metadata.py
+tools/generate_goldsrc_shader_variants.py
 tools/generate_pipeline_table.py
 tools/generate_bsp_build_metadata.py
 tools/package_release.sh
@@ -222,6 +226,7 @@ tools/validate_texture_path_alpha_evidence.py
 tools/validate_texture_path_sky_evidence.py
 tools/validate_texture_path_accounting_evidence.py
 tools/validate_texture_path_final_evidence.py
+tools/validate_goldsrc_shader_manifests.py
 docs/BSP_VIEWER_PHASE1.md
 docs/BSP_RESOURCE_FOUNDATION_PHASE2.md
 docs/BSP_TEXTURE_PATH_PHASE3.md

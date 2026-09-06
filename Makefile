@@ -95,6 +95,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_shader_contract.py
 	python3 tests/test_build_shader.py
 	python3 tests/test_generate_agc_metadata.py
+	python3 tests/test_generate_goldsrc_shader_variants.py
 	python3 tests/test_generate_pipeline_table.py
 	python3 tests/test_generate_bsp_build_metadata.py
 	python3 tests/test_native_contract.py
@@ -144,6 +145,19 @@ shaders:
 	python3 tools/build_shader.py --pipe shaders/bsp_overlay.pipe \
 		--name bsp_overlay --amdllpc "$(AMDLLPC)" \
 		--readelf "$(LLVM_READELF)" --output-dir build/shaders
+	python3 tools/generate_goldsrc_shader_variants.py
+	@set -e; for name in goldsrc_surface goldsrc_surface_lightmap \
+		goldsrc_surface_fog goldsrc_surface_lightmap_fog goldsrc_masked \
+		goldsrc_masked_lightmap goldsrc_masked_fog \
+		goldsrc_masked_lightmap_fog; do \
+		python3 tools/build_shader.py \
+			--pipe "build/generated-shaders/$$name.pipe" --name "$$name" \
+			--amdllpc "$(AMDLLPC)" --readelf "$(LLVM_READELF)" \
+			--output-dir build/shaders; \
+	done
+	python3 tools/build_shader.py --pipe shaders/goldsrc_screen_2d.pipe \
+		--name goldsrc_screen_2d --amdllpc "$(AMDLLPC)" \
+		--readelf "$(LLVM_READELF)" --output-dir build/shaders
 	python3 tools/generate_agc_metadata.py \
 		--manifest build/shaders/gears_lit.manifest.json \
 		--output build/generated/gears_shader_metadata.h
@@ -172,6 +186,7 @@ shaders:
 		--output build/generated/bsp_overlay_shader_metadata.h \
 		--prefix BSP_OVERLAY --symbol-prefix ps5_bsp_overlay
 	python3 tools/generate_pipeline_table.py
+	python3 tools/validate_goldsrc_shader_manifests.py
 
 native:
 	bash tools/build_native.sh

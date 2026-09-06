@@ -78,6 +78,9 @@ The final Phase 4 soak re-runs the complete scene without weakening any Phase
 ## Current checkpoint
 
 The semantic state model, complete 99-entry cache, exact GFX10.3 dynamic-state
-translation and checked viewport/scissor builder pass the full host suite. The
-shader binding, native command integration and hardware gates remain open, so
-Phase 4 is in progress rather than complete.
+translation and checked viewport/scissor builder pass the full host suite. All
+eight surface/masked feature variants and the orthographic 2D shader compile
+for `gfx1013`; their manifests prove nine non-empty pipelines, the expected
+masked kill bits and eight distinct surface/masked pixel programs. Native
+binding, command integration and the hardware gates remain open, so Phase 4 is
+in progress rather than complete.
