@@ -111,6 +111,44 @@ for the ordinary lightmapped scene and
 for the fog-selected scene. This closes Phase 4's pipeline-state matrix, not
 the later 2D, scene-object or visibility work.
 
+## Phase 4 orthographic blended 2D gate
+
+The next artifact exercised the compiled `screen_2d` shader through semantic
+alpha key 129 and additive key 130. A procedural 128×32 RGBA8 atlas, projection
+constants, vertex/index data and descriptors were rebuilt in the active
+transient slot each frame. The visible layout combined a translucent console,
+menu and HUD, 78 readable bitmap glyph quads and an additive crosshair over the
+live BSP world:
+
+- Run: `20260906T225115588Z_PPSA99996_ps5-xash3d_0x7f137394ac44`
+- Native ELF SHA-256:
+  `b7b2ef1e9cf4679bbe5edea37a8511aecdac3352252c7d48ffea0d6e70ac3dde`
+- Signed fSELF SHA-256:
+  `f391dbbae2f90a34f64a3593418be137a4efd5099651254724144bf1665404b2`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript/manifest SHA-256:
+  `12c94237d1aa4fb5e762372549e7e803f2df7781468b862af5a70a513237ac39` /
+  `254087254ae7358b02f5465fe1aeb00e281eccbbfdf6136cb547da35955f6db4`
+- Requested/completed: 10,000/10,000; structured records: 224
+- Draw shape: two 2D batches and 522 indices per frame; 4 HUD, 2 console, 3
+  menu and 78 font quads
+- Per-frame transient use: 47,312 bytes total, including 34,612 bytes for the
+  deterministic 2D atlas/layout
+- Renderer errors: 0; fence and VideoOut tokens: exact; guards intact; six
+  allocations reclaimed; gap-free BYE
+- Closure: the direct Chiaki stream was stopped by its exact process and the
+  exact-title helper removed `PPSA99996`; independent status observed no
+  BigApp and all four console services healthy
+
+The first Remote Play frame arrived black during stream negotiation and was
+rejected. The accepted RGB capture from the same parked artifact has SHA-256
+`7102eadff45ee1b3c8598d02e5480fba1bc736494a0f80dfd7dbe46b936ee383`
+and visibly shows all four 2D component classes over the map. This closes the
+orthographic 2D gate only; lighting and the remaining Phase 4 scene/visibility
+features are still open.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

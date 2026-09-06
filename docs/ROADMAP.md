@@ -118,9 +118,11 @@
 - [x] Exercise alpha blend, additive, alpha test, depth-write on/off, cull
   front/back/none, fog on/off and lightmap on/off through actual draws and 18
   post-retirement framebuffer readbacks in a 10,000-frame FW 12.02 gate.
-- [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles
-  and dynamic lights, transient sprites/particles, studio models and brush
-  entities.
+- [x] Add and prove the orthographic blended 2D HUD/console/menu/font path
+  with a procedural atlas and per-frame transient geometry in a clean
+  10,000-frame FW 12.02 gate.
+- [ ] Add lightstyles and dynamic lights, transient sprites/particles, studio
+  models and brush entities.
 - [ ] Add PVS plus frustum culling and pass the complete Phase 4 visual and
   continuous ownership soak with zero errors.
 - [x] Require pull requests on `main`; require the host CI check after this PR

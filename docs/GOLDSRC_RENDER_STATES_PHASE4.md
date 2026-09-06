@@ -118,6 +118,30 @@ the transcript SHA-256 is
 Compositor-visible captures confirmed the ordinary lightmapped scene and the
 fog-selected scene from that exact artifact.
 
-This closes implementation gates 1 and 2, not Phase 4. The orthographic 2D,
-lighting, sprite/particle, studio, brush-entity and PVS/frustum gates remain
+The orthographic 2D gate is also closed. `goldsrc_2d` builds a 128×32
+procedural RGBA8 glyph atlas, an orthographic constant buffer, 32-byte colored
+vertices, 16-bit indices and all descriptor tables inside the current
+framebuffer slot of the Phase 2 transient ring. It emits one source-alpha batch
+for translucent HUD, console, menu and font quads, followed by one additive
+batch for the crosshair. Both bind the compiled `screen_2d` variant through
+semantic keys 129 and 130; depth, fog, lightmaps and culling remain disabled by
+the state contract.
+
+Run `20260906T225115588Z_PPSA99996_ps5-xash3d_0x7f137394ac44` completed
+10,000/10,000 frames with 2 draws and 522 indices per frame, deterministic
+atlas/layout hashes in both slots, 47,312 total transient bytes per frame,
+exact fence/VideoOut retirement, intact guards, six reclaimed allocations and
+zero renderer errors. The ELF/fSELF hashes are
+`b7b2ef1e9cf4679bbe5edea37a8511aecdac3352252c7d48ffea0d6e70ac3dde`
+and `f391dbbae2f90a34f64a3593418be137a4efd5099651254724144bf1665404b2`;
+the transcript SHA-256 is
+`12c94237d1aa4fb5e762372549e7e803f2df7781468b862af5a70a513237ac39`.
+A compositor-visible capture from that exact parked artifact showed the BSP
+world beneath the translucent console, menu and HUD, with readable bitmap text
+and the additive crosshair. The direct Chiaki stream was stopped by its exact
+PID and the exact `PPSA99996` close helper then left no BigApp while all four
+console services remained healthy.
+
+This closes implementation gates 1–3, not Phase 4. Lightstyles/dynamic lights,
+sprites/particles, studio models, brush entities and PVS/frustum culling remain
 open.

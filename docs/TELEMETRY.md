@@ -116,6 +116,16 @@ VideoOut token. Acceptance requires all nine cases, both slots, nonzero visible
 pixels, a distinct feature/control hash for every non-opaque case, inherited
 resource/lightmap ownership and zero renderer errors through a gap-free BYE.
 
+The orthographic gate adds `GOLDSRC_2D_READY`, two bookend
+`GOLDSRC_2D_FRAME` records and `GOLDSRC_2D_COMPLETE`. The frame records bind
+screen-space state keys 129/130 to `screen_2d`, report the alpha/additive draw
+and index counts, separate HUD/console/menu/font quad counts, deterministic
+atlas/layout hashes and the transient bytes owned by that frame slot. The
+strict validator requires identical nonzero atlas/layout hashes in both
+bookends, exactly two batches and 522 indices, the expected component counts,
+10,000 clean frames, exact fence plus VideoOut retirement, intact guards, six
+reclaimed resources and the dedicated gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a
