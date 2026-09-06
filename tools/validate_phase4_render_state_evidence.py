@@ -93,7 +93,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
     if not lines[-1].startswith("BYE seq=") or not any(
             reason in lines[-1] for reason in (
                 "reason=bsp-texture-path-lightmap-soak-complete",
-                "reason=goldsrc-phase4-2d-soak-complete")):
+                "reason=goldsrc-phase4-2d-soak-complete",
+                "reason=goldsrc-phase4-lighting-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -117,7 +118,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
 def validate(path: Path, *, bundle_sha256: str,
              bundle_bytes: int, require_viewport: bool,
              require_matrix: bool,
-             require_2d: bool) -> dict[str, object]:
+             require_2d: bool,
+             require_lighting: bool) -> dict[str, object]:
     messages, data = load(path.resolve())
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
     if boot.get("schema") != "1" or boot.get("target") != "gfx1013" or \
@@ -130,6 +132,10 @@ def validate(path: Path, *, bundle_sha256: str,
     if require_2d and (boot.get("slice") != "goldsrc-2d" or
                        boot.get("input_gate") != "not-required"):
         fail("2D boot contract mismatch")
+    if require_lighting and (
+            boot.get("slice") != "goldsrc-lighting" or
+            boot.get("input_gate") != "not-required"):
+        fail("lighting boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -275,6 +281,78 @@ def validate(path: Path, *, bundle_sha256: str,
         if frames_2d[0]["atlas_hash"] != frames_2d[1]["atlas_hash"] or \
                 frames_2d[0]["layout_hash"] != frames_2d[1]["layout_hash"]:
             fail("2D deterministic atlas/layout mismatch")
+    if require_lighting:
+        lighting_ready = one(messages, "GOLDSRC_LIGHTING_READY")
+        if lighting_ready.get("schema") != "1" or \
+                number(lighting_ready, "styles") < 2 or \
+                number(lighting_ready, "styled_faces") <= 0 or \
+                number(lighting_ready, "styled_layers") <= 0 or \
+                number(lighting_ready, "patch_bytes") <= 0 or \
+                number(lighting_ready, "source_samples") <= 0 or \
+                hex_number(lighting_ready, "source_hash") == 0 or \
+                lighting_ready.get("modes") != \
+                "base+lightstyle+dlight+combined" or \
+                number(lighting_ready, "hold_frames") != 600 or \
+                number(lighting_ready, "lightstyle_hz") != 10 or \
+                lighting_ready.get("dlight") != "face-local-radial" or \
+                lighting_ready.get("camera") != "face-normal-standoff" or \
+                lighting_ready.get("upload") != "phase3-bounded":
+            fail("lighting ready contract mismatch")
+        expected_names = ("base", "lightstyle", "dlight", "combined")
+        lighting_frames = many(messages, "GOLDSRC_LIGHTING_FRAME")
+        for mode, name in enumerate(expected_names):
+            rows = [row for row in lighting_frames
+                    if number(row, "mode") == mode]
+            if not rows or {number(row, "slot") for row in rows} != {0, 1}:
+                fail(f"lighting frame coverage mismatch for mode {mode}")
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        hex_number(row, "style_hash") == 0 or \
+                        hex_number(row, "patch_hash") == 0 or \
+                        number(row, "patch_bytes") != \
+                            number(lighting_ready, "patch_bytes") or \
+                        number(row, "upload_bytes") <= 0 or \
+                        number(row, "dirty_span_bytes") < \
+                            number(row, "patch_bytes"):
+                    fail("lighting frame contract mismatch")
+            if mode == 0 and any(number(row, "animated_scale") != 0 or
+                                 number(row, "dynamic_luxels") != 0
+                                 for row in rows):
+                fail("base lighting mode is not a true control")
+            if mode == 1 and (not any(number(row, "animated_scale") > 0
+                                      for row in rows) or
+                              any(number(row, "dynamic_luxels") != 0
+                                  for row in rows)):
+                fail("lightstyle-only mode mismatch")
+            if mode == 2 and (any(number(row, "animated_scale") != 0
+                                  for row in rows) or
+                              not all(number(row, "dynamic_luxels") > 0
+                                      for row in rows)):
+                fail("dynamic-light-only mode mismatch")
+            if mode == 3 and (not any(number(row, "animated_scale") > 0
+                                      for row in rows) or
+                              not all(number(row, "dynamic_luxels") > 0
+                                      for row in rows)):
+                fail("combined lighting mode mismatch")
+        lighting_readbacks = many(messages, "GOLDSRC_LIGHTING_READBACK")
+        if len(lighting_readbacks) != 8:
+            fail("lighting readback count mismatch")
+        lighting_hashes: dict[tuple[int, int], str] = {}
+        for row in lighting_readbacks:
+            mode = number(row, "mode")
+            slot = number(row, "slot")
+            if mode >= 4 or slot >= 2 or (mode, slot) in lighting_hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != expected_names[mode] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("lighting GPU readback mismatch")
+            lighting_hashes[mode, slot] = row["hash"]
+        for slot in range(2):
+            if len({lighting_hashes[mode, slot] for mode in range(4)}) != 4:
+                fail("lighting feature/control framebuffer collision")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -290,7 +368,8 @@ def validate(path: Path, *, bundle_sha256: str,
     if ring.get("reusable") != "true" or ring.get("tokens") != "exact":
         fail("transient ring retirement mismatch")
     resource = one(messages, "BSP_RESOURCE_READBACK")
-    if resource.get("buffer0") == resource.get("buffer1") or \
+    if (not require_lighting and
+            resource.get("buffer0") == resource.get("buffer1")) or \
             number(resource, "bright_pixels0") <= 0 or \
             number(resource, "bright_pixels1") <= 0 or \
             resource.get("guards") != "intact" or \
@@ -298,11 +377,16 @@ def validate(path: Path, *, bundle_sha256: str,
             number(resource, "errors") != 0:
         fail("framebuffer readback contract mismatch")
     dynamic = one(messages, "DYNAMIC_LIGHTMAP_READBACK")
-    if dynamic.get("buffers_distinct") != "true" or \
-            dynamic.get("surrounding") != "stable" or \
+    if dynamic.get("surrounding") != "stable" or \
             dynamic.get("guards") != "intact" or \
             number(dynamic, "frames") != 10_000:
         fail("dynamic lightmap readback mismatch")
+    if require_lighting:
+        if dynamic.get("slots_equal") != "true" or \
+                dynamic.get("final_mode") != "base":
+            fail("lighting final atlas convergence mismatch")
+    elif dynamic.get("buffers_distinct") != "true":
+        fail("dynamic lightmap framebuffer mismatch")
     complete = one(messages, "GOLDSRC_PIPELINE_GATE_COMPLETE")
     if complete.get("schema") != "1" or \
             number(complete, "frames") != 10_000 or \
@@ -358,6 +442,26 @@ def validate(path: Path, *, bundle_sha256: str,
                 complete_2d.get("guards") != "intact" or \
                 number(complete_2d, "errors") != 0:
             fail("2D completion contract mismatch")
+    if require_lighting:
+        complete_lighting = one(messages, "GOLDSRC_LIGHTING_COMPLETE")
+        if complete_lighting.get("schema") != "1" or \
+                number(complete_lighting, "frames") != 10_000 or \
+                number(complete_lighting, "modes") != 4 or \
+                number(complete_lighting, "readbacks") != 8 or \
+                complete_lighting.get("both_slots") != "true" or \
+                complete_lighting.get("control_pairs") != "distinct" or \
+                complete_lighting.get("lightstyles") != "real-bsp-planes" or \
+                number(complete_lighting, "animated_hz") != 10 or \
+                complete_lighting.get("dynamic_lights") != \
+                    "face-local-radial" or \
+                complete_lighting.get("atlas_upload") != "phase3-bounded" or \
+                number(complete_lighting, "styles") < 2 or \
+                number(complete_lighting, "styled_faces") <= 0 or \
+                number(complete_lighting, "styled_layers") <= 0 or \
+                complete_lighting.get("tokens") != "exact" or \
+                complete_lighting.get("guards") != "intact" or \
+                number(complete_lighting, "errors") != 0:
+            fail("lighting completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -369,6 +473,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "viewport": require_viewport,
         "matrix": require_matrix,
         "screen_2d": require_2d,
+        "lighting": require_lighting,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -382,6 +487,7 @@ def main() -> int:
     parser.add_argument("--require-viewport", action="store_true")
     parser.add_argument("--require-matrix", action="store_true")
     parser.add_argument("--require-2d", action="store_true")
+    parser.add_argument("--require-lighting", action="store_true")
     args = parser.parse_args()
     try:
         result = validate(args.manifest,
@@ -389,7 +495,8 @@ def main() -> int:
                           bundle_bytes=args.bundle_bytes,
                           require_viewport=args.require_viewport,
                           require_matrix=args.require_matrix,
-                          require_2d=args.require_2d)
+                          require_2d=args.require_2d,
+                          require_lighting=args.require_lighting)
     except EvidenceError as exc:
         raise SystemExit(f"Phase 4 evidence validation failed: {exc}") from exc
     print(json.dumps(result, sort_keys=True))

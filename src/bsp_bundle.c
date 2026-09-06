@@ -21,6 +21,8 @@ typedef struct ChunkView {
 _Static_assert(sizeof(BspBundleVertex) == 32u, "bundle vertex ABI");
 _Static_assert(sizeof(BspBundleDraw) == 32u, "bundle draw ABI");
 _Static_assert(sizeof(BspBundleImage) == 16u, "bundle image ABI");
+_Static_assert(sizeof(BspBundleLightmapFace) == 32u,
+               "bundle lightmap face ABI");
 _Static_assert(sizeof(BspBundleTexture) == 48u, "bundle texture ABI");
 
 static uint32_t align_u32(uint32_t value, uint32_t alignment)
@@ -187,6 +189,8 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
     const ChunkView *draw_chunk = 0;
     const ChunkView *lightmap_header_chunk = 0;
     const ChunkView *lightmap_pixels_chunk = 0;
+    const ChunkView *lightmap_face_chunk = 0;
+    const ChunkView *lightmap_sample_chunk = 0;
     const ChunkView *texture_metadata_chunk = 0;
     const ChunkView *texture_pixels_chunk = 0;
     for (uint32_t index = 0; index < chunk_count; ++index) {
@@ -195,6 +199,8 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         if (tag_equal(chunks[index].tag, "DRAW")) draw_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "LMHD")) lightmap_header_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "LMPX")) lightmap_pixels_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "LMFM")) lightmap_face_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "LMSP")) lightmap_sample_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "TEXM")) texture_metadata_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "TEXP")) texture_pixels_chunk = &chunks[index];
     }
@@ -205,6 +211,9 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         index_chunk->count % 3u != 0u)
         return BSP_BUNDLE_GEOMETRY_INVALID;
     if (!!lightmap_header_chunk != !!lightmap_pixels_chunk)
+        return BSP_BUNDLE_GEOMETRY_INVALID;
+    if (!!lightmap_face_chunk != !!lightmap_sample_chunk ||
+        (lightmap_face_chunk && !lightmap_header_chunk))
         return BSP_BUNDLE_GEOMETRY_INVALID;
     if (lightmap_header_chunk) {
         if (lightmap_header_chunk->count != 1u ||
@@ -221,6 +230,47 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
             image->format != BSP_BUNDLE_IMAGE_RGBA8_UNORM ||
             image->width > UINT32_MAX / image->height ||
             image->width * image->height != lightmap_pixels_chunk->count)
+            return BSP_BUNDLE_GEOMETRY_INVALID;
+    }
+    const BspBundleLightmapFace *lightmap_faces = 0;
+    if (lightmap_face_chunk) {
+        if (lightmap_face_chunk->stride !=
+                sizeof(BspBundleLightmapFace) ||
+            lightmap_sample_chunk->stride != 1u)
+            return BSP_BUNDLE_GEOMETRY_INVALID;
+        lightmap_faces = (const BspBundleLightmapFace *)(
+            data + lightmap_face_chunk->offset);
+        const BspBundleImage *const image =
+            (const BspBundleImage *)(data + lightmap_header_chunk->offset);
+        uint32_t expected_sample_offset = 0u;
+        for (uint32_t index = 0u; index < lightmap_face_chunk->count;
+             ++index) {
+            const BspBundleLightmapFace *const face = &lightmap_faces[index];
+            uint32_t style_count = 0u;
+            while (style_count < 4u && face->styles[style_count] != 255u)
+                ++style_count;
+            for (uint32_t style = style_count; style < 4u; ++style)
+                if (face->styles[style] != 255u)
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+            const uint64_t plane_bytes =
+                (uint64_t)face->width * face->height * 3u;
+            if (style_count == 0u || face->width == 0u ||
+                face->height == 0u || face->atlas_x >= image->width ||
+                face->width > image->width - face->atlas_x ||
+                face->atlas_y >= image->height ||
+                face->height > image->height - face->atlas_y ||
+                plane_bytes > UINT32_MAX ||
+                plane_bytes * style_count != face->sample_bytes ||
+                face->sample_offset != expected_sample_offset ||
+                face->sample_offset > lightmap_sample_chunk->bytes ||
+                face->sample_bytes >
+                    lightmap_sample_chunk->bytes - face->sample_offset ||
+                (index > 0u && lightmap_faces[index - 1u].face_id >=
+                                  face->face_id))
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+            expected_sample_offset += face->sample_bytes;
+        }
+        if (expected_sample_offset != lightmap_sample_chunk->bytes)
             return BSP_BUNDLE_GEOMETRY_INVALID;
     }
     if (!!texture_metadata_chunk != !!texture_pixels_chunk)
@@ -284,6 +334,24 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
               draw[-1].face_id >= draw->face_id))))
             return BSP_BUNDLE_GEOMETRY_INVALID;
     }
+    if (lightmap_faces) {
+        for (uint32_t metadata_index = 0u;
+             metadata_index < lightmap_face_chunk->count;
+             ++metadata_index) {
+            int found = 0;
+            for (uint32_t draw_index = 0u; draw_index < draw_chunk->count;
+                 ++draw_index)
+                if (draws[draw_index].face_id ==
+                        lightmap_faces[metadata_index].face_id) {
+                    if (draws[draw_index].lightmap != 0u)
+                        return BSP_BUNDLE_GEOMETRY_INVALID;
+                    found = 1;
+                    break;
+                }
+            if (!found)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+        }
+    }
 
     view->data = data;
     view->bytes = bytes;
@@ -298,6 +366,12 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
             data + lightmap_header_chunk->offset);
         view->lightmap_pixels = data + lightmap_pixels_chunk->offset;
         view->lightmap_pixel_count = lightmap_pixels_chunk->count;
+    }
+    if (lightmap_face_chunk) {
+        view->lightmap_faces = lightmap_faces;
+        view->lightmap_face_count = lightmap_face_chunk->count;
+        view->lightmap_samples = data + lightmap_sample_chunk->offset;
+        view->lightmap_sample_bytes = lightmap_sample_chunk->bytes;
     }
     if (texture_metadata_chunk) {
         view->textures = (const BspBundleTexture *)(

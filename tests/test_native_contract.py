@@ -268,6 +268,27 @@ def main() -> None:
     if "bsp-texture-final-native-release" not in makefile or \
             "BSP_TEXTURE_FINAL_GATE=1" not in makefile:
         raise SystemExit("final texture gate release target missing")
+    for item in (
+        "GOLDSRC_LIGHTING_GATE requires GOLDSRC_PHASE4=1",
+        "-DPS5_GOLDSRC_LIGHTING_GATE=1",
+        "src/goldsrc_lightmap_lighting.c",
+    ):
+        if item not in builder:
+            raise SystemExit(f"Phase 4 lighting build contract missing: {item}")
+    for item in (
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-lighting",
+        "GOLDSRC_LIGHTING_READY schema=1 face=%u draw=%u",
+        "GOLDSRC_LIGHTING_FRAME schema=1 frame=%llu slot=%u",
+        "GOLDSRC_LIGHTING_READBACK schema=1 frame=%llu",
+        "BSP_LOOP_BEGIN mode=goldsrc-lighting-soak buffers=2",
+        "GOLDSRC_LIGHTING_COMPLETE schema=1 frames=%llu modes=%u",
+        'ps5log_close("goldsrc-phase4-lighting-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 4 lighting runtime contract missing: {item}")
+    if "bsp-phase4-lighting-native-release" not in makefile or \
+            "GOLDSRC_LIGHTING_GATE=1" not in makefile:
+        raise SystemExit("Phase 4 lighting release target missing")
     for item in ('bsp_resource.gs.bin', 'bsp_resource.ps.bin',
                  'bsp_alpha_test.gs.bin', 'bsp_alpha_test.ps.bin',
                  'bsp_sky.gs.bin', 'bsp_sky.ps.bin',

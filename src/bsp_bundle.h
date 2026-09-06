@@ -39,6 +39,19 @@ typedef struct BspBundleImage {
     uint32_t format;
 } BspBundleImage;
 
+/* One BSP face's source light samples and its destination atlas rectangle.
+ * Samples are tightly packed RGB8 planes in styles[] order. */
+typedef struct BspBundleLightmapFace {
+    uint32_t face_id;
+    uint32_t atlas_x;
+    uint32_t atlas_y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t sample_offset;
+    uint32_t sample_bytes;
+    uint8_t styles[4];
+} BspBundleLightmapFace;
+
 enum {
     BSP_BUNDLE_TEXTURE_TRANSPARENT = 1u,
     BSP_BUNDLE_TEXTURE_FALLBACK = 2u,
@@ -79,6 +92,10 @@ typedef struct BspBundleView {
     const BspBundleImage *lightmap_image;
     const uint8_t *lightmap_pixels;
     uint32_t lightmap_pixel_count;
+    const BspBundleLightmapFace *lightmap_faces;
+    uint32_t lightmap_face_count;
+    const uint8_t *lightmap_samples;
+    uint32_t lightmap_sample_bytes;
     const BspBundleTexture *textures;
     uint32_t texture_count;
     const uint8_t *texture_pixels;

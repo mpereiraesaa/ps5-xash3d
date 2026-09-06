@@ -39,6 +39,7 @@ DRAW = struct.Struct("<8I")
 INDEX = struct.Struct("<H")
 IMAGE = struct.Struct("<4I")
 TEXTURE = struct.Struct("<12I")
+LIGHTMAP_FACE = struct.Struct("<7I4B")
 
 MAX_INPUT_BYTES = 512 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
@@ -472,7 +473,8 @@ def _face_geometry(face_index: int, face: Face,
 
 def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
                     lighting: bytes, renderable: list[bool] | None = None
-                    ) -> tuple[bytes, bytes, list[AtlasPlacement | None]]:
+                    ) -> tuple[bytes, bytes, list[AtlasPlacement | None],
+                               bytes, bytes]:
     lit_faces: list[int] = []
     sizes: list[tuple[int, int]] = []
     for face_index, (face, shape) in enumerate(zip(faces, geometry)):
@@ -493,14 +495,25 @@ def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
 
     atlas_width, atlas_height, packed = _pack_atlas(sizes)
     pixels = bytearray([255]) * (atlas_width * atlas_height * 4)
+    metadata = bytearray()
+    samples = bytearray()
     placements: list[AtlasPlacement | None] = [None] * len(faces)
     for face_index, placement in zip(lit_faces, packed):
         assert placement is not None
         placements[face_index] = placement
         face = faces[face_index]
         shape = geometry[face_index]
-        source = lighting[face.light_offset:face.light_offset +
-                          shape.light_width * shape.light_height * 3]
+        style_count = next((index for index, style in enumerate(face.styles)
+                            if style == 255), len(face.styles))
+        sample_bytes = shape.light_width * shape.light_height * 3
+        source_bytes = sample_bytes * style_count
+        source = lighting[face.light_offset:face.light_offset + source_bytes]
+        sample_offset = len(samples)
+        samples += source
+        metadata += LIGHTMAP_FACE.pack(
+            face_index, placement.x, placement.y,
+            shape.light_width, shape.light_height,
+            sample_offset, source_bytes, *face.styles)
         for row in range(shape.light_height):
             for column in range(shape.light_width):
                 source_at = (row * shape.light_width + column) * 3
@@ -521,7 +534,7 @@ def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
                 pixels[target:target + 4] = pixels[source_at:source_at + 4]
     header = IMAGE.pack(atlas_width, atlas_height, atlas_width * 4,
                         IMAGE_FORMAT_RGBA8_UNORM)
-    return header, bytes(pixels), placements
+    return header, bytes(pixels), placements, bytes(metadata), bytes(samples)
 
 
 def _chunk_bytes(chunks: list[Chunk], camera: tuple[float, float, float],
@@ -593,7 +606,8 @@ def bake(data: bytes) -> bytes:
                                        surfedges, texture))
         renderable.append(
             not (base_textures[texture.miptex].flags & TEXTURE_FLAG_NODRAW))
-    light_header, light_pixels, light_placements = _lightmap_atlas(
+    (light_header, light_pixels, light_placements,
+     light_face_metadata, light_samples) = _lightmap_atlas(
         faces, geometry, lighting, renderable)
     atlas_width, atlas_height, _pitch, _format = IMAGE.unpack(light_header)
 
@@ -644,15 +658,25 @@ def bake(data: bytes) -> bytes:
         raise BakeError("BSP contains no renderable faces")
     draws.sort(key=lambda item: (item[0], item[1]))
     draw_blob = b"".join(item[2] for item in draws)
-    return _chunk_bytes([
+    chunks = [
         Chunk(b"VERT", bytes(vertex_blob), emitted_vertices, VERTEX.size),
         Chunk(b"INDX", bytes(index_blob), emitted_indices, INDEX.size),
         Chunk(b"DRAW", draw_blob, len(draws), DRAW.size),
         Chunk(b"LMHD", light_header, 1, IMAGE.size),
         Chunk(b"LMPX", light_pixels, atlas_width * atlas_height, 4, 256),
+    ]
+    if light_face_metadata:
+        chunks += [
+            Chunk(b"LMFM", light_face_metadata,
+                  len(light_face_metadata) // LIGHTMAP_FACE.size,
+                  LIGHTMAP_FACE.size),
+            Chunk(b"LMSP", light_samples, len(light_samples), 1),
+        ]
+    chunks += [
         Chunk(b"TEXM", texture_metadata, len(base_textures), TEXTURE.size),
         Chunk(b"TEXP", texture_pixels, len(texture_pixels), 1, 256),
-    ], camera, forward)
+    ]
+    return _chunk_bytes(chunks, camera, forward)
 
 
 def main() -> int:

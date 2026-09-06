@@ -44,6 +44,7 @@ goldsrc_phase4=${GOLDSRC_PHASE4:-0}
 goldsrc_viewport_gate=${GOLDSRC_VIEWPORT_GATE:-0}
 goldsrc_state_matrix_gate=${GOLDSRC_STATE_MATRIX_GATE:-0}
 goldsrc_2d_gate=${GOLDSRC_2D_GATE:-0}
+goldsrc_lighting_gate=${GOLDSRC_LIGHTING_GATE:-0}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
 [[ $bsp_noclip == 0 || $bsp_noclip == 1 ]] || {
@@ -94,6 +95,17 @@ fi
 }
 if [[ $goldsrc_2d_gate == 1 && $goldsrc_phase4 != 1 ]]; then
     echo "GOLDSRC_2D_GATE requires GOLDSRC_PHASE4=1" >&2; exit 2
+fi
+[[ $goldsrc_lighting_gate == 0 || $goldsrc_lighting_gate == 1 ]] || {
+    echo "GOLDSRC_LIGHTING_GATE must be 0 or 1" >&2; exit 2;
+}
+if [[ $goldsrc_lighting_gate == 1 && $goldsrc_phase4 != 1 ]]; then
+    echo "GOLDSRC_LIGHTING_GATE requires GOLDSRC_PHASE4=1" >&2; exit 2
+fi
+if ((goldsrc_viewport_gate + goldsrc_state_matrix_gate +
+     goldsrc_2d_gate + goldsrc_lighting_gate > 1)); then
+    echo "Phase 4 hardware subgates are mutually exclusive" >&2
+    exit 2
 fi
 if [[ $bsp_noclip == 1 && -z $bsp_bundle ]]; then
     echo "BSP_NOCLIP requires BSP_BUNDLE" >&2
@@ -194,6 +206,9 @@ if [[ -n $bsp_bundle ]]; then
     if [[ $goldsrc_2d_gate == 1 ]]; then
         bsp_flags+=(-DPS5_GOLDSRC_2D_GATE=1)
     fi
+    if [[ $goldsrc_lighting_gate == 1 ]]; then
+        bsp_flags+=(-DPS5_GOLDSRC_LIGHTING_GATE=1)
+    fi
 fi
 
 sdk="$foundation/.deps/native/ps5-payload-sdk"
@@ -249,6 +264,7 @@ sources=(
     src/ps5_goldsrc_render_state.c src/ps5_shader_pipeline_slot.c \
     src/ps5_goldsrc_pipeline_runtime.c src/ps5_viewport_scissor.c \
     src/goldsrc_state_matrix.c src/goldsrc_2d.c
+    src/goldsrc_lightmap_lighting.c
     src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c

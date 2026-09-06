@@ -10,6 +10,7 @@ BUILD := build/host
 	bsp-texture-accounting-native-release bsp-texture-final-native-release \
 	bsp-phase4-pipeline-native-release bsp-phase4-viewport-native-release \
 	bsp-phase4-state-matrix-native-release bsp-phase4-2d-native-release \
+	bsp-phase4-lighting-native-release \
 	audit clean
 all: test audit
 
@@ -69,13 +70,14 @@ $(eval $(call test_rule,test_bsp_texture_accounting,tests/test_bsp_texture_accou
 $(eval $(call test_rule,test_goldsrc_render_state,tests/test_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_state_matrix,tests/test_goldsrc_state_matrix.c src/goldsrc_state_matrix.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,))
+$(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
 $(eval $(call test_rule,test_ps5_goldsrc_render_state,tests/test_ps5_goldsrc_render_state.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_pipeline_cache,tests/test_goldsrc_pipeline_cache.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scissor.c src/ps5_viewport_scissor.c,))
 $(eval $(call test_rule,test_ps5_shader_pipeline_slot,tests/test_ps5_shader_pipeline_slot.c src/ps5_shader_pipeline_slot.c src/ps5_shader_header.c src/ps5_pipeline.c,))
 $(eval $(call test_rule,test_ps5_goldsrc_pipeline_runtime,tests/test_ps5_goldsrc_pipeline_runtime.c src/ps5_goldsrc_pipeline_runtime.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
-$(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_ring.c,-Isrc -lm))
+$(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/goldsrc_lightmap_lighting.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_ring.c,-Isrc -lm))
 
 TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_gears_draw_compose test_gears_animation test_gears_telemetry \
@@ -94,6 +96,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
 	test_bsp_texture_accounting test_goldsrc_render_state \
 	test_goldsrc_state_matrix test_goldsrc_2d \
+	test_goldsrc_lightmap_lighting \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime
@@ -280,6 +283,11 @@ bsp-phase4-2d-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
 		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
 		GOLDSRC_PHASE4=1 GOLDSRC_2D_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-lighting-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_LIGHTING_GATE=1 bash tools/build_native.sh
 
 audit:
 	python3 tools/audit_publication.py
