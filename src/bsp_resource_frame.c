@@ -128,7 +128,8 @@ int bsp_resource_frame_build(
         1, 0, 0, 0, 0, 1, 0, 0,
         0, 0, 1, 0, 0, 0, 0, 1,
     };
-    const float map_control[4] = {0, 0, 0, 1};
+    /* Also aliases Phase 4's render_color at the same 128-byte ABI. */
+    const float map_control[4] = {1, 1, 1, 1};
     const float clear_control[4] = {0.02f, 0.02f, 0.025f, 0};
     if (constants(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
                   map_mvp, map_control, frame_index,

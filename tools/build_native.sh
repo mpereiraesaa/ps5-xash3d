@@ -216,7 +216,8 @@ sources=(
     src/ps5_agc_submit.c src/ps5_agc_writer.c src/ps5_color_target.c
     src/ps5_depth_target.c src/ps5_event_adapter.c
     src/ps5_frame_completion.c src/ps5_gpu_span.c src/ps5_pipeline.c
-    src/ps5_goldsrc_render_state.c src/ps5_shader_pipeline_slot.c
+    src/ps5_goldsrc_render_state.c src/ps5_shader_pipeline_slot.c \
+    src/ps5_goldsrc_pipeline_runtime.c
     src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c

@@ -30,6 +30,7 @@
 #include "../src/ps5_resource_pool.h"
 #include "../src/ps5_shader_header.h"
 #include "../src/ps5_shader_pipeline_slot.h"
+#include "../src/ps5_goldsrc_pipeline_runtime.h"
 #include "../src/ps5_submission.h"
 #include "../src/ps5_transient_ring.h"
 #include "../src/ps5_surface.h"
@@ -138,6 +139,7 @@ enum {
     SKY_PIPELINE_OFFSET = 0xf000u,
 #ifdef PS5_GOLDSRC_PHASE4
     GOLDSRC_SHADER_SLOTS_OFFSET = 0x10000u,
+    GOLDSRC_STATE_REGISTERS_OFFSET = 0x34000u,
 #endif
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
@@ -240,6 +242,7 @@ struct native_renderer {
     Ps5ShaderPipelineSlotResult
         goldsrc_shader_slots[GOLDSRC_SHADER_VARIANT_COUNT];
     GoldSrcPipelineCache goldsrc_pipeline_cache;
+    Ps5GoldSrcPipelineRuntime goldsrc_pipeline_runtime;
 #endif
     BspAlphaTestPlan alpha_test_plan;
     BspSkyPlan sky_plan;
@@ -728,6 +731,40 @@ static int resource_compose_fail(struct native_renderer *state,
     (void)ps5_transient_ring_abort_unsubmitted(&state->transient_ring, slot);
     return result;
 }
+
+#ifdef PS5_GOLDSRC_PHASE4
+static int bind_goldsrc_pipeline(
+    struct native_renderer *state, uint32_t **cursor, uint32_t *end,
+    const GoldSrcRenderState *render_state, uint32_t framebuffer_slot,
+    Ps5GoldSrcPipelineBinding *binding)
+{
+    if (!state || !cursor || !*cursor || !end || *cursor > end ||
+        ps5_goldsrc_pipeline_runtime_bind(
+            &state->goldsrc_pipeline_runtime, render_state,
+            framebuffer_slot, binding) != 0)
+        return -1;
+    int result = ps5_native_set_indirect(
+        cursor, (uint32_t)(end - *cursor), binding->pipeline->cx,
+        PS5_PIPELINE_CX_REGISTERS, state->resources->shader,
+        SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->pipeline->uc,
+            PS5_PIPELINE_UC_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_UC);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->pipeline->sh,
+            PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->dynamic_cx,
+            PS5_GOLDSRC_RENDER_REGISTER_COUNT, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    return result;
+}
+#endif
 #endif
 
 static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
@@ -1008,6 +1045,31 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_RESOURCE_FOUNDATION
     BspResourceComposeResult resource_composed = {0};
+#ifdef PS5_GOLDSRC_PHASE4
+    result = bsp_resource_compose_clear(
+        &cursor, end, &state->resource_frames[resource_slot],
+        state->clear_indices, state->resources->resource_heap,
+        state->resources->resource_heap_bytes, state->draw_modifier,
+        ps5_native_set_sh_direct, ps5_native_draw_index,
+        &resource_composed);
+    const GoldSrcRenderState opaque_state = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    Ps5GoldSrcPipelineBinding opaque_binding;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &opaque_state, frame->buffer,
+            &opaque_binding);
+    if (result == 0)
+        result = bsp_resource_compose_map_pass(
+            &cursor, end, &state->resource_frames[resource_slot],
+            &state->bsp_bundle, state->clear_indices,
+            BSP_RESOURCE_DRAW_OPAQUE, 0,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            opaque_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &resource_composed);
+#else
     result = bsp_resource_compose_map_pass(
         &cursor, end, &state->resource_frames[resource_slot],
         &state->bsp_bundle, state->clear_indices,
@@ -1016,6 +1078,17 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         state->resources->resource_heap_bytes, state->draw_modifier,
         ps5_native_set_sh_direct, ps5_native_draw_index,
         &resource_composed);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    const GoldSrcRenderState alpha_state = {
+        GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    Ps5GoldSrcPipelineBinding alpha_binding;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &alpha_state, frame->buffer,
+            &alpha_binding);
+#else
     struct ps5_pipeline_registers *alpha_test =
         state->alpha_test_pipelines[frame->buffer];
 #ifdef PS5_TEXTURE_ALPHA_GATE
@@ -1039,15 +1112,45 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             &cursor, (uint32_t)(end - cursor), alpha_test->sh,
             PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
             SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+#endif
     if (result == 0)
         result = bsp_resource_compose_map_pass(
             &cursor, end, &state->resource_frames[resource_slot],
             &state->bsp_bundle, state->clear_indices,
             BSP_RESOURCE_DRAW_ALPHA_TEST, 0,
             state->resources->resource_heap,
-            state->resources->resource_heap_bytes, state->draw_modifier,
+            state->resources->resource_heap_bytes,
+#ifdef PS5_GOLDSRC_PHASE4
+            alpha_binding.draw_modifier,
+#else
+            state->draw_modifier,
+#endif
             ps5_native_set_sh_direct, ps5_native_draw_index,
             &resource_composed);
+#ifdef PS5_GOLDSRC_PHASE4
+    if (result == 0 && frame->frame_index == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_STATE_FRAME schema=1 frame=%llu slot=%u "
+            "opaque_key=%u opaque_pass=%u opaque_shader=%s "
+            "opaque_blend=%08x opaque_depth=%08x opaque_raster=%08x "
+            "alpha_key=%u alpha_pass=%u alpha_shader=%s "
+            "alpha_blend=%08x alpha_depth=%08x alpha_raster=%08x",
+            (unsigned long long)frame->frame_index, resource_slot,
+            opaque_binding.permutation->key,
+            opaque_binding.permutation->pass,
+            goldsrc_pipeline_shader_variant_name(
+                opaque_binding.permutation->shader),
+            opaque_binding.dynamic_cx[0].value,
+            opaque_binding.dynamic_cx[1].value,
+            opaque_binding.dynamic_cx[2].value,
+            alpha_binding.permutation->key,
+            alpha_binding.permutation->pass,
+            goldsrc_pipeline_shader_variant_name(
+                alpha_binding.permutation->shader),
+            alpha_binding.dynamic_cx[0].value,
+            alpha_binding.dynamic_cx[1].value,
+            alpha_binding.dynamic_cx[2].value);
+#endif
 #ifdef PS5_TEXTURE_ALPHA_GATE
     if (result == 0 &&
         (frame->frame_index == 0u ||
@@ -2174,12 +2277,25 @@ int main(void)
             &renderer.goldsrc_pipeline_cache, UINT32_C(0x000000b6),
             UINT32_C(0x00000240)) != 0)
         return fail_pre_submit("goldsrc_pipeline_cache", -1);
+    const size_t phase4_state_bytes =
+        ps5_goldsrc_pipeline_runtime_register_bytes(
+            renderer.goldsrc_pipeline_cache.count);
+    if (GOLDSRC_STATE_REGISTERS_OFFSET + phase4_state_bytes > SHADER_BYTES ||
+        ps5_goldsrc_pipeline_runtime_init(
+            &renderer.goldsrc_pipeline_runtime,
+            &renderer.goldsrc_pipeline_cache,
+            renderer.goldsrc_shader_slots, GOLDSRC_SHADER_VARIANT_COUNT,
+            base + GOLDSRC_STATE_REGISTERS_OFFSET,
+            SHADER_BYTES - GOLDSRC_STATE_REGISTERS_OFFSET,
+            resources.shader, SHADER_BYTES) != 0)
+        return fail_pre_submit("goldsrc_pipeline_runtime", -1);
     (void)ps5log_printf(PS5LOG_MARK,
         "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=%u "
         "shader_variants=%u native_slots=%u base_depth=000000b6 "
-        "base_raster=00000240 target=gfx1013",
+        "base_raster=00000240 state_register_bytes=%llu target=gfx1013",
         renderer.goldsrc_pipeline_cache.count,
-        GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT);
+        GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT,
+        (unsigned long long)phase4_state_bytes);
 #endif
 
 #ifdef PS5_BSP_VIEWER

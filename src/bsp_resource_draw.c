@@ -39,6 +39,44 @@ static int draw_selected(const BspBundleView *bundle,
     return !alpha && !sky;
 }
 
+int bsp_resource_compose_clear(
+    uint32_t **cursor, uint32_t *end, const BspResourceFrame *frame,
+    const uint16_t clear_indices[3], const void *gpu_mapping,
+    size_t gpu_mapping_bytes, uint64_t modifier,
+    BspSetShDirectFn set_sh_direct, BspDrawIndexedFn draw_indexed,
+    BspResourceComposeResult *result)
+{
+    if (!cursor || !*cursor || !end || *cursor > end || !frame ||
+        !clear_indices || !gpu_mapping || !gpu_mapping_bytes || !modifier ||
+        !set_sh_direct || !draw_indexed || !result ||
+        (size_t)(end - *cursor) < CLEAR_DWORDS ||
+        !table_visible(gpu_mapping, gpu_mapping_bytes,
+                       frame->clear_constant_table, 4u) ||
+        !table_visible(gpu_mapping, gpu_mapping_bytes,
+                       frame->clear_vertex_table, 4u) ||
+        !table_visible(gpu_mapping, gpu_mapping_bytes,
+                       frame->texture_tables, frame->texture_table_dwords) ||
+        !ps5_gpu_span_visible(gpu_mapping, gpu_mapping_bytes,
+                              clear_indices, 3u * sizeof(*clear_indices)))
+        return -1;
+    uint32_t *const start = *cursor;
+    const uint32_t gs_values[2] = {
+        (uint32_t)(uintptr_t)frame->clear_constant_table,
+        (uint32_t)(uintptr_t)frame->clear_vertex_table,
+    };
+    const uint32_t texture = (uint32_t)(uintptr_t)frame->texture_tables;
+    if (set_sh_direct(cursor, (uint32_t)(end - *cursor),
+                      BSP_RESOURCE_GS_SH_OFFSET, gs_values, 2u) != 0 ||
+        set_sh_direct(cursor, (uint32_t)(end - *cursor),
+                      BSP_RESOURCE_PS_SH_OFFSET, &texture, 1u) != 0 ||
+        draw_indexed(cursor, (uint32_t)(end - *cursor), 3u,
+                     clear_indices, gpu_mapping, gpu_mapping_bytes,
+                     modifier) != 0)
+        return -2;
+    result->command_dwords += (uint32_t)(*cursor - start);
+    return (uint32_t)(*cursor - start) == CLEAR_DWORDS ? 0 : -3;
+}
+
 int bsp_resource_draw_counts(const BspBundleView *bundle,
                              uint32_t *opaque_draws,
                              uint32_t *alpha_test_draws,
@@ -124,21 +162,13 @@ int bsp_resource_compose_map_pass(
         return -2;
 
     uint32_t *const start = *cursor;
-    uint32_t gs_values[2] = {
-        (uint32_t)(uintptr_t)frame->clear_constant_table,
-        (uint32_t)(uintptr_t)frame->clear_vertex_table,
-    };
-    uint32_t texture = (uint32_t)(uintptr_t)frame->texture_tables;
-    if (include_clear) {
-        if (set_sh_direct(cursor, (uint32_t)(end - *cursor),
-                          BSP_RESOURCE_GS_SH_OFFSET, gs_values, 2u) != 0 ||
-            set_sh_direct(cursor, (uint32_t)(end - *cursor),
-                          BSP_RESOURCE_PS_SH_OFFSET, &texture, 1u) != 0 ||
-            draw_indexed(cursor, (uint32_t)(end - *cursor), 3u,
-                         clear_indices, gpu_mapping, gpu_mapping_bytes,
-                         modifier) != 0)
-            return -4;
-    }
+    if (include_clear && bsp_resource_compose_clear(
+            cursor, end, frame, clear_indices, gpu_mapping,
+            gpu_mapping_bytes, modifier, set_sh_direct, draw_indexed,
+            result) != 0)
+        return -4;
+    uint32_t gs_values[2];
+    uint32_t texture;
     gs_values[0] = (uint32_t)(uintptr_t)frame->map_constant_table;
     gs_values[1] = (uint32_t)(uintptr_t)frame->map_vertex_table;
     if (set_sh_direct(cursor, (uint32_t)(end - *cursor),
@@ -168,7 +198,7 @@ int bsp_resource_compose_map_pass(
             ++result->opaque_draws;
     }
     const uint32_t written = (uint32_t)(*cursor - start);
-    result->command_dwords += written;
+    result->command_dwords += written - (include_clear ? CLEAR_DWORDS : 0u);
     return written == required ? 0 : -6;
 }
 

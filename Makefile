@@ -70,6 +70,7 @@ $(eval $(call test_rule,test_ps5_goldsrc_render_state,tests/test_ps5_goldsrc_ren
 $(eval $(call test_rule,test_goldsrc_pipeline_cache,tests/test_goldsrc_pipeline_cache.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scissor.c src/ps5_viewport_scissor.c,))
 $(eval $(call test_rule,test_ps5_shader_pipeline_slot,tests/test_ps5_shader_pipeline_slot.c src/ps5_shader_pipeline_slot.c src/ps5_shader_header.c src/ps5_pipeline.c,))
+$(eval $(call test_rule,test_ps5_goldsrc_pipeline_runtime,tests/test_ps5_goldsrc_pipeline_runtime.c src/ps5_goldsrc_pipeline_runtime.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_ring.c,-Isrc -lm))
 
@@ -90,7 +91,8 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
 	test_bsp_texture_accounting test_goldsrc_render_state \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
-	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot
+	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
+	test_ps5_goldsrc_pipeline_runtime
 
 test: $(addprefix $(BUILD)/,$(TESTS))
 	@set -e; for test in $^; do $$test; done
