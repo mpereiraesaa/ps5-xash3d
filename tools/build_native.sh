@@ -41,6 +41,7 @@ bsp_texture_sky_gate=${BSP_TEXTURE_SKY_GATE:-0}
 bsp_texture_accounting_gate=${BSP_TEXTURE_ACCOUNTING_GATE:-0}
 bsp_texture_final_gate=${BSP_TEXTURE_FINAL_GATE:-0}
 goldsrc_phase4=${GOLDSRC_PHASE4:-0}
+goldsrc_viewport_gate=${GOLDSRC_VIEWPORT_GATE:-0}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
 [[ $bsp_noclip == 0 || $bsp_noclip == 1 ]] || {
@@ -74,6 +75,12 @@ bsp_flags=()
 [[ $goldsrc_phase4 == 0 || $goldsrc_phase4 == 1 ]] || {
     echo "GOLDSRC_PHASE4 must be 0 or 1" >&2; exit 2;
 }
+[[ $goldsrc_viewport_gate == 0 || $goldsrc_viewport_gate == 1 ]] || {
+    echo "GOLDSRC_VIEWPORT_GATE must be 0 or 1" >&2; exit 2;
+}
+if [[ $goldsrc_viewport_gate == 1 && $goldsrc_phase4 != 1 ]]; then
+    echo "GOLDSRC_VIEWPORT_GATE requires GOLDSRC_PHASE4=1" >&2; exit 2
+fi
 if [[ $bsp_noclip == 1 && -z $bsp_bundle ]]; then
     echo "BSP_NOCLIP requires BSP_BUNDLE" >&2
     exit 2
@@ -164,6 +171,9 @@ if [[ -n $bsp_bundle ]]; then
     if [[ $goldsrc_phase4 == 1 ]]; then
         bsp_flags+=(-DPS5_GOLDSRC_PHASE4=1)
     fi
+    if [[ $goldsrc_viewport_gate == 1 ]]; then
+        bsp_flags+=(-DPS5_GOLDSRC_VIEWPORT_GATE=1)
+    fi
 fi
 
 sdk="$foundation/.deps/native/ps5-payload-sdk"
@@ -217,7 +227,7 @@ sources=(
     src/ps5_depth_target.c src/ps5_event_adapter.c
     src/ps5_frame_completion.c src/ps5_gpu_span.c src/ps5_pipeline.c
     src/ps5_goldsrc_render_state.c src/ps5_shader_pipeline_slot.c \
-    src/ps5_goldsrc_pipeline_runtime.c
+    src/ps5_goldsrc_pipeline_runtime.c src/ps5_viewport_scissor.c
     src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c

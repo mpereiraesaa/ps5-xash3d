@@ -82,10 +82,25 @@ translation and checked viewport/scissor builder pass the full host suite. All
 eight surface/masked feature variants and the orthographic 2D shader compile
 for `gfx1013`; their manifests prove nine non-empty pipelines, the expected
 masked kill bits and eight distinct surface/masked pixel programs. Native
-storage now embeds the 18 stage blobs in a generated typed catalog; a checked
+storage embeds the 18 stage blobs in a generated typed catalog, and a checked
 slot constructor creates, links and builds both framebuffer pipelines for all
-nine variants without changing the frozen four-entry Phase 3 table. The signed
-`PPSA99996` native package builds successfully and will emit
-`GOLDSRC_PIPELINES_READY` only after all 99 semantic entries and nine native
-slots exist. Hardware proof and draw-command integration remain open, so Phase
-4 is in progress rather than complete.
+nine variants without changing the frozen four-entry Phase 3 table.
+
+The real BSP draw path now selects Phase 4 opaque-lightmap key 68 and
+masked-lightmap alpha-test key 71. The viewport gate changes to a 1280×720
+viewport and a nested 1120×640 scissor between the full-frame clear and the BSP
+draws, then restores the 1920×1080 state before the final pass. Run
+`20260906T220730780Z_PPSA99996_ps5-xash3d_0x7cb052db2ae7` completed
+10,000/10,000 frames at 59.94 fps with two frames in flight, exact GPU fences
+and VideoOut tokens, intact guards, six reclaimed allocations, zero renderer
+errors and no presentation intervals over budget. It observed all 99 semantic
+entries, all nine native shader variants, both real BSP state keys and every
+required viewport marker. The transcript SHA-256 is
+`daee720296ea418ec0e9d887de0937400291b7351b24228d15763b2c03d68708`.
+A compositor-visible capture from the exact inset artifact confirmed the
+mid-frame state on screen before exact-title closure.
+
+This closes the native binding and viewport/scissor checkpoint, not Phase 4.
+Actual draw/readback gates for alpha blend, additive, depth-write, all cull
+modes, fog and lightmap off remain open, followed by the 2D, lighting,
+sprite/particle, studio, brush-entity and culling gates.

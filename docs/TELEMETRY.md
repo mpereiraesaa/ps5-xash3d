@@ -93,6 +93,19 @@ telemetry, but are not success criteria because the input path did not change
 after its earlier hardware gate. This keeps the accounting proof from silently
 becoming another DualSense movement proof.
 
+The Phase 4 native-binding checkpoint adds `GOLDSRC_PIPELINES_READY` after all
+99 semantic cache entries and nine native shader slots are valid.
+`GOLDSRC_STATE_FRAME` identifies the selected opaque and masked BSP keys,
+passes, shader variants and dynamic register hashes. The viewport/scissor gate
+adds `GOLDSRC_VIEWPORT_READY`, sampled `GOLDSRC_VIEWPORT_FRAME`,
+`GOLDSRC_VIEWPORT_GATE_COMPLETE` and `GOLDSRC_PIPELINE_GATE_COMPLETE`.
+Acceptance requires the exact full/inset/scissor/restore plans, both real BSP
+state keys, the complete catalog and every inherited Phase 3 resource,
+readback, guard, fence and VideoOut invariant across exactly 10,000 frames.
+Input continuity and presentation-spike criteria are not inherited from the
+old noclip gate when they are unrelated to the render-state variable under
+test.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

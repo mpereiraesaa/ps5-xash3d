@@ -40,6 +40,42 @@ close ends the TCP stream without an application BYE, so this manifest is
 expected to record a gap-free EOF with `bye=false`; it is not used as Phase 3
 completion evidence.
 
+## Phase 4 native binding and viewport/scissor gate
+
+The first Phase 4 hardware checkpoint bound the generated GoldSrc pipeline
+catalog in the real BSP draw path, selected opaque-lightmap key 68 and
+masked-lightmap alpha-test key 71, and changed viewport plus scissor between
+draws before restoring the full-frame state:
+
+- Run: `20260906T220730780Z_PPSA99996_ps5-xash3d_0x7cb052db2ae7`
+- Native ELF SHA-256:
+  `a2e2a303aa428733c11128521b19c20b14cc1cf59efab54fad7307ab3eda9679`
+- Signed fSELF SHA-256:
+  `e36eb2fe00ff33e23f491c4c53d3744b9d6df801361b054dee3d851e1e65e1e4`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript SHA-256:
+  `daee720296ea418ec0e9d887de0937400291b7351b24228d15763b2c03d68708`
+- Requested/completed: 10,000/10,000; maximum frames in flight: two
+- Pipeline catalog: 99 semantic entries, nine native shader variants and both
+  required BSP keys observed
+- Viewport/scissor: 1920×1080 full state, 1280×720 inset viewport, 1120×640
+  nested scissor and full restoration observed in every sampled frame
+- Presentation intervals over budget: 0; renderer errors: 0
+- Fence and VideoOut tokens: exact; guards intact; six allocations reclaimed
+- Closure: exact-title helper left no active BigApp and all console services
+  healthy
+
+A compositor-visible capture from the exact artifact showed the BSP world
+inside the inset rectangle and the final overlay after the full-frame restore.
+The fail-closed Phase 4 validator also required all Phase 3 resource,
+lightmap, upload-accounting and alternating-readback invariants. Controller
+connection and movement were observations, not acceptance conditions. This
+gate closes actual opaque/masked binding and mid-frame viewport/scissor only;
+it does not claim the remaining render-state matrix or later Phase 4 scene
+features.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

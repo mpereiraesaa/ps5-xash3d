@@ -35,6 +35,7 @@
 #include "../src/ps5_transient_ring.h"
 #include "../src/ps5_surface.h"
 #include "../src/ps5_videoout.h"
+#include "../src/ps5_viewport_scissor.h"
 #include "ps5_agc_native.h"
 #include "ps5log/ps5log.h"
 #include "gears_shader_metadata.h"
@@ -140,6 +141,10 @@ enum {
 #ifdef PS5_GOLDSRC_PHASE4
     GOLDSRC_SHADER_SLOTS_OFFSET = 0x10000u,
     GOLDSRC_STATE_REGISTERS_OFFSET = 0x34000u,
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    GOLDSRC_VIEWPORT_INSET_OFFSET = 0x35000u,
+    GOLDSRC_VIEWPORT_FULL_OFFSET = 0x35040u,
+#endif
 #endif
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
@@ -243,6 +248,10 @@ struct native_renderer {
         goldsrc_shader_slots[GOLDSRC_SHADER_VARIANT_COUNT];
     GoldSrcPipelineCache goldsrc_pipeline_cache;
     Ps5GoldSrcPipelineRuntime goldsrc_pipeline_runtime;
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    ps5_agc_register *goldsrc_viewport_inset;
+    ps5_agc_register *goldsrc_viewport_full;
+#endif
 #endif
     BspAlphaTestPlan alpha_test_plan;
     BspSkyPlan sky_plan;
@@ -1060,6 +1069,15 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         result = bind_goldsrc_pipeline(
             state, &cursor, end, &opaque_state, frame->buffer,
             &opaque_binding);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_inset,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+#endif
     if (result == 0)
         result = bsp_resource_compose_map_pass(
             &cursor, end, &state->resource_frames[resource_slot],
@@ -1088,6 +1106,15 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         result = bind_goldsrc_pipeline(
             state, &cursor, end, &alpha_state, frame->buffer,
             &alpha_binding);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_inset,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+#endif
 #else
     struct ps5_pipeline_registers *alpha_test =
         state->alpha_test_pipelines[frame->buffer];
@@ -1127,6 +1154,26 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #endif
             ps5_native_set_sh_direct, ps5_native_draw_index,
             &resource_composed);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_full,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+    if (result == 0 && frame->frame_index == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_VIEWPORT_FRAME schema=1 frame=%llu slot=%u "
+            "sequence=full-clear,inset-opaque,inset-alpha,full-restore "
+            "inset_scissor_tl=%08x inset_scissor_br=%08x "
+            "full_scissor_tl=%08x full_scissor_br=%08x",
+            (unsigned long long)frame->frame_index, resource_slot,
+            state->goldsrc_viewport_inset[6].value,
+            state->goldsrc_viewport_inset[7].value,
+            state->goldsrc_viewport_full[6].value,
+            state->goldsrc_viewport_full[7].value);
+#endif
 #ifdef PS5_GOLDSRC_PHASE4
     if (result == 0 && frame->frame_index == 0u)
         (void)ps5log_printf(PS5LOG_MARK,
@@ -2289,6 +2336,35 @@ int main(void)
             SHADER_BYTES - GOLDSRC_STATE_REGISTERS_OFFSET,
             resources.shader, SHADER_BYTES) != 0)
         return fail_pre_submit("goldsrc_pipeline_runtime", -1);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (GOLDSRC_VIEWPORT_FULL_OFFSET +
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT * sizeof(ps5_agc_register) >
+        SHADER_BYTES)
+        return fail_pre_submit("goldsrc_viewport_storage", -1);
+    renderer.goldsrc_viewport_inset =
+        (ps5_agc_register *)(base + GOLDSRC_VIEWPORT_INSET_OFFSET);
+    renderer.goldsrc_viewport_full =
+        (ps5_agc_register *)(base + GOLDSRC_VIEWPORT_FULL_OFFSET);
+    const Ps5RectU32 inset_viewport = {320u, 180u, 1280u, 720u};
+    const Ps5RectU32 inset_scissor = {400u, 220u, 1120u, 640u};
+    const Ps5RectU32 full_rect = {
+        0u, 0u, resources.surface.width, resources.surface.height,
+    };
+    if (ps5_viewport_scissor_build(
+            renderer.goldsrc_viewport_inset, &inset_viewport,
+            &inset_scissor, resources.surface.width,
+            resources.surface.height) != 0 ||
+        ps5_viewport_scissor_build(
+            renderer.goldsrc_viewport_full, &full_rect, &full_rect,
+            resources.surface.width, resources.surface.height) != 0)
+        return fail_pre_submit("goldsrc_viewport_build", -1);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VIEWPORT_READY schema=1 framebuffer=%ux%u "
+        "inset_viewport=320,180+1280x720 inset_scissor=400,220+1120x640 "
+        "restore=full-frame registers=%u",
+        resources.surface.width, resources.surface.height,
+        PS5_VIEWPORT_SCISSOR_REGISTER_COUNT);
+#endif
     (void)ps5log_printf(PS5LOG_MARK,
         "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=%u "
         "shader_variants=%u native_slots=%u base_depth=000000b6 "
@@ -2825,7 +2901,8 @@ int main(void)
         (unsigned long long)run.frames_completed,
         (unsigned long long)run.telemetry.errors);
 #endif
-#ifndef PS5_TEXTURE_ACCOUNTING_ENABLED
+#if !defined(PS5_TEXTURE_ACCOUNTING_ENABLED) && \
+    !defined(PS5_GOLDSRC_PHASE4)
     const int input_continuity_valid =
         run.telemetry.errors == 0u &&
         run.telemetry.present_interval_over_budget == 0u &&
@@ -2835,7 +2912,12 @@ int main(void)
 #endif
 #ifdef PS5_RESOURCE_FOUNDATION
     const int resource_valid =
-#ifdef PS5_TEXTURE_ACCOUNTING_ENABLED
+#ifdef PS5_GOLDSRC_PHASE4
+        run.telemetry.errors == 0u &&
+        run.frames_completed == BSP_GATE_FRAME_COUNT &&
+        renderer.pad_read_errors == 0u &&
+        renderer.noclip.sampled_frames == BSP_GATE_FRAME_COUNT &&
+#elif defined(PS5_TEXTURE_ACCOUNTING_ENABLED)
         run.telemetry.errors == 0u &&
         run.telemetry.present_interval_over_budget == 0u &&
         renderer.pad_read_errors == 0u &&
@@ -2913,6 +2995,44 @@ int main(void)
         (unsigned long long)first_hash,
         (unsigned long long)second_hash,
         (unsigned long long)run.frames_completed);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    const GoldSrcRenderState proved_opaque_state = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    const GoldSrcRenderState proved_alpha_state = {
+        GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    const GoldSrcPipelinePermutation *const proved_opaque =
+        goldsrc_pipeline_cache_find(
+            &renderer.goldsrc_pipeline_cache, &proved_opaque_state);
+    const GoldSrcPipelinePermutation *const proved_alpha =
+        goldsrc_pipeline_cache_find(
+            &renderer.goldsrc_pipeline_cache, &proved_alpha_state);
+    if (!proved_opaque || !proved_alpha)
+        park("goldsrc-state-cache-final-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PIPELINE_GATE_COMPLETE schema=1 frames=%llu "
+        "semantic_permutations=%u shader_variants=%u "
+        "opaque_key=%u opaque_shader=%s alpha_key=%u alpha_shader=%s "
+        "framebuffer_distinct=true input_required=false "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        renderer.goldsrc_pipeline_cache.count,
+        GOLDSRC_SHADER_VARIANT_COUNT, proved_opaque->key,
+        goldsrc_pipeline_shader_variant_name(proved_opaque->shader),
+        proved_alpha->key,
+        goldsrc_pipeline_shader_variant_name(proved_alpha->shader),
+        (unsigned long long)run.telemetry.errors);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1 frames=%llu "
+        "sequence=full-clear,inset-opaque,inset-alpha,full-restore "
+        "framebuffer_distinct=true input_required=false "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        (unsigned long long)run.telemetry.errors);
+#endif
 #endif
 #ifdef PS5_TEXTURE_SKY_GATE
     (void)ps5log_printf(PS5LOG_MARK,

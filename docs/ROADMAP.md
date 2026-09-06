@@ -112,9 +112,11 @@
 - [x] Generate the native shader catalog, host-test the bounded slot builder
   and produce a signed `PPSA99996` package that creates and links all nine
   variants without changing the frozen Phase 3 permutation table.
-- [ ] Select the Phase 4 shader variants in draw composition and pass the
-  incremental FW 12.02
-  pipeline-state and viewport/scissor hardware gates.
+- [x] Bind the real opaque and masked-lightmap Phase 4 variants in BSP draw
+  composition and pass the 10,000-frame FW 12.02 viewport/scissor hardware
+  gate with full-frame restoration, exact ownership and zero errors.
+- [ ] Exercise alpha blend, additive, depth-write, cull, fog and lightmap
+  switches through actual draws and paired framebuffer evidence on FW 12.02.
 - [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles
   and dynamic lights, transient sprites/particles, studio models and brush
   entities.
