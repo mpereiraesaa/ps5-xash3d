@@ -2,7 +2,6 @@
 """Verify deterministic and explicit Phase 4 shader generation."""
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -37,12 +36,6 @@ def main() -> int:
         )
         assert ("distance_to_eye" in source) == name.endswith("fog")
         assert "color = vec4(surface, base.a * render_color.a);" in source
-    pipeline_spec = json.loads(
-        (ROOT / "shaders/pipeline_permutations.json").read_text(encoding="utf-8")
-    )
-    ids = [entry["id"] for entry in pipeline_spec["pipelines"]]
-    assert len(ids) == 13 and len(set(ids)) == 13
-    assert ids[-9:] == list(first) + ["goldsrc_screen_2d"]
     print("GoldSrc shader variant generator tests passed")
     return 0
 

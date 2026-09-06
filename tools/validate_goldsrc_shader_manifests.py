@@ -24,8 +24,8 @@ def fail(message: str) -> None:
     raise SystemExit(f"GoldSrc shader validation: {message}")
 
 
-def validate(manifest_dir: Path, generated_source_dir: Path,
-             pipeline_header: Path) -> tuple[int, int]:
+def validate(manifest_dir: Path,
+             generated_source_dir: Path) -> tuple[int, int]:
     pixel_bytes = 0
     unique_pixel_hashes: set[str] = set()
     for name in ALL_VARIANTS:
@@ -71,13 +71,6 @@ def validate(manifest_dir: Path, generated_source_dir: Path,
 
     if len(unique_pixel_hashes) < len(SURFACE_VARIANTS + MASKED_VARIANTS):
         fail("surface/masked pixel-stage permutations did not remain distinct")
-    header = pipeline_header.read_text(encoding="utf-8")
-    if "PS5_PIPELINE_PERMUTATION_COUNT = 13" not in header:
-        fail("generated pipeline table does not contain 13 entries")
-    for name in ALL_VARIANTS:
-        enum_name = "PS5_PIPELINE_" + name.upper()
-        if header.count(f"    {enum_name} =") != 1:
-            fail(f"pipeline enum mismatch: {name}")
     return len(ALL_VARIANTS), pixel_bytes
 
 
@@ -87,12 +80,9 @@ def main() -> int:
                         default=ROOT / "build/shaders")
     parser.add_argument("--generated-source-dir", type=Path,
                         default=ROOT / "build/generated-shaders")
-    parser.add_argument("--pipeline-header", type=Path,
-                        default=ROOT / "build/generated/pipeline_permutations.h")
     args = parser.parse_args()
     count, pixel_bytes = validate(
-        args.manifest_dir.resolve(), args.generated_source_dir.resolve(),
-        args.pipeline_header.resolve()
+        args.manifest_dir.resolve(), args.generated_source_dir.resolve()
     )
     print(f"GoldSrc shader validation passed: variants={count} "
           f"pixel_isa_bytes={pixel_bytes} target=gfx1013")

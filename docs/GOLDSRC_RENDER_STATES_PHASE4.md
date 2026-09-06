@@ -82,5 +82,10 @@ translation and checked viewport/scissor builder pass the full host suite. All
 eight surface/masked feature variants and the orthographic 2D shader compile
 for `gfx1013`; their manifests prove nine non-empty pipelines, the expected
 masked kill bits and eight distinct surface/masked pixel programs. Native
-binding, command integration and the hardware gates remain open, so Phase 4 is
-in progress rather than complete.
+storage now embeds the 18 stage blobs in a generated typed catalog; a checked
+slot constructor creates, links and builds both framebuffer pipelines for all
+nine variants without changing the frozen four-entry Phase 3 table. The signed
+`PPSA99996` native package builds successfully and will emit
+`GOLDSRC_PIPELINES_READY` only after all 99 semantic entries and nine native
+slots exist. Hardware proof and draw-command integration remain open, so Phase
+4 is in progress rather than complete.

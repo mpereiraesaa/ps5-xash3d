@@ -109,7 +109,11 @@
   and checked mid-frame viewport/scissor updates.
 - [x] Generate, compile and manifest-check all eight explicit surface/masked
   fog/lightmap shader variants plus the orthographic 2D shader for `gfx1013`.
-- [ ] Bind the Phase 4 shader variants and pass the incremental FW 12.02
+- [x] Generate the native shader catalog, host-test the bounded slot builder
+  and produce a signed `PPSA99996` package that creates and links all nine
+  variants without changing the frozen Phase 3 permutation table.
+- [ ] Select the Phase 4 shader variants in draw composition and pass the
+  incremental FW 12.02
   pipeline-state and viewport/scissor hardware gates.
 - [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles
   and dynamic lights, transient sprites/particles, studio models and brush

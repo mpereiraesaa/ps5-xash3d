@@ -40,6 +40,7 @@ bsp_texture_alpha_gate=${BSP_TEXTURE_ALPHA_GATE:-0}
 bsp_texture_sky_gate=${BSP_TEXTURE_SKY_GATE:-0}
 bsp_texture_accounting_gate=${BSP_TEXTURE_ACCOUNTING_GATE:-0}
 bsp_texture_final_gate=${BSP_TEXTURE_FINAL_GATE:-0}
+goldsrc_phase4=${GOLDSRC_PHASE4:-0}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
 [[ $bsp_noclip == 0 || $bsp_noclip == 1 ]] || {
@@ -69,6 +70,9 @@ bsp_flags=()
 }
 [[ $bsp_texture_final_gate == 0 || $bsp_texture_final_gate == 1 ]] || {
     echo "BSP_TEXTURE_FINAL_GATE must be 0 or 1" >&2; exit 2;
+}
+[[ $goldsrc_phase4 == 0 || $goldsrc_phase4 == 1 ]] || {
+    echo "GOLDSRC_PHASE4 must be 0 or 1" >&2; exit 2;
 }
 if [[ $bsp_noclip == 1 && -z $bsp_bundle ]]; then
     echo "BSP_NOCLIP requires BSP_BUNDLE" >&2
@@ -106,10 +110,14 @@ if [[ $bsp_texture_final_gate == 1 && $bsp_texture_path != 1 ]]; then
     echo "BSP_TEXTURE_FINAL_GATE requires BSP_TEXTURE_PATH=1" >&2
     exit 2
 fi
+if [[ $goldsrc_phase4 == 1 && $bsp_texture_path != 1 ]]; then
+    echo "GOLDSRC_PHASE4 requires BSP_TEXTURE_PATH=1" >&2
+    exit 2
+fi
 if ((bsp_texture_mip_gate + bsp_texture_alpha_gate +
      bsp_texture_sky_gate + bsp_texture_accounting_gate +
-     bsp_texture_final_gate > 1)); then
-    echo "texture-path hardware gates are mutually exclusive" >&2
+     bsp_texture_final_gate + goldsrc_phase4 > 1)); then
+    echo "texture-path and Phase 4 hardware gates are mutually exclusive" >&2
     exit 2
 fi
 if [[ -n $bsp_bundle ]]; then
@@ -153,6 +161,9 @@ if [[ -n $bsp_bundle ]]; then
     if [[ $bsp_texture_final_gate == 1 ]]; then
         bsp_flags+=(-DPS5_TEXTURE_FINAL_GATE=1)
     fi
+    if [[ $goldsrc_phase4 == 1 ]]; then
+        bsp_flags+=(-DPS5_GOLDSRC_PHASE4=1)
+    fi
 fi
 
 sdk="$foundation/.deps/native/ps5-payload-sdk"
@@ -194,6 +205,7 @@ sources=(
     src/bsp_bundle.c src/bsp_command_plan.c src/bsp_flat_draw.c
     src/bsp_dynamic_lightmap.c src/bsp_alpha_test.c src/bsp_sky.c
     src/bsp_texture_accounting.c
+    src/goldsrc_pipeline_cache.c src/goldsrc_render_state.c
     src/bsp_noclip.c
     src/bsp_textured_draw.c
     src/bsp_flat_scene.c src/bsp_runtime_plan.c src/bsp_texture_descriptor.c
@@ -204,6 +216,7 @@ sources=(
     src/ps5_agc_submit.c src/ps5_agc_writer.c src/ps5_color_target.c
     src/ps5_depth_target.c src/ps5_event_adapter.c
     src/ps5_frame_completion.c src/ps5_gpu_span.c src/ps5_pipeline.c
+    src/ps5_goldsrc_render_state.c src/ps5_shader_pipeline_slot.c
     src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c
@@ -223,6 +236,11 @@ done
     -o "$build/obj/ps5log_ps5_net.o"
 "${cc[@]}" -c "$root/native/shader_assets.S" \
     -o "$build/obj/shader_assets.o"
+if [[ $goldsrc_phase4 == 1 ]]; then
+    "${cc[@]}" -c "$root/build/generated/goldsrc_shader_assets.S" \
+        -o "$build/obj/goldsrc_shader_assets.o"
+    objects+=("$build/obj/goldsrc_shader_assets.o")
+fi
 "${cc[@]}" -std=c++20 -O2 -Wall -Wextra -Werror -fno-exceptions -fno-rtti \
     -ffunction-sections -fdata-sections -c "$native/app_crt.cpp" \
     -o "$build/obj/app_crt.o"

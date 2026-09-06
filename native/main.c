@@ -5,6 +5,8 @@
 #include "../src/gears_mesh.h"
 #include "../src/gears_renderer.h"
 #include "../src/gears_rt_clear.h"
+#include "../src/goldsrc_pipeline_cache.h"
+#include "../src/goldsrc_shader_catalog.h"
 #include "../src/bsp_bundle.h"
 #include "../src/bsp_command_plan.h"
 #include "../src/bsp_flat_scene.h"
@@ -27,6 +29,7 @@
 #include "../src/ps5_pipeline.h"
 #include "../src/ps5_resource_pool.h"
 #include "../src/ps5_shader_header.h"
+#include "../src/ps5_shader_pipeline_slot.h"
 #include "../src/ps5_submission.h"
 #include "../src/ps5_transient_ring.h"
 #include "../src/ps5_surface.h"
@@ -50,6 +53,9 @@
 #include "bsp_sky_shader_metadata.h"
 #include "bsp_overlay_shader_metadata.h"
 #include "pipeline_permutations.h"
+#ifdef PS5_GOLDSRC_PHASE4
+#include "goldsrc_shader_catalog_generated.h"
+#endif
 #endif
 #endif
 #endif
@@ -130,6 +136,9 @@ enum {
     SKY_LINKED_CX_OFFSET = 0xe000u,
     SKY_LINKED_UC_OFFSET = 0xe200u,
     SKY_PIPELINE_OFFSET = 0xf000u,
+#ifdef PS5_GOLDSRC_PHASE4
+    GOLDSRC_SHADER_SLOTS_OFFSET = 0x10000u,
+#endif
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
 #endif
@@ -227,6 +236,11 @@ struct native_renderer {
     struct ps5_pipeline_registers *overlay_pipelines[2];
     struct ps5_pipeline_registers *alpha_test_pipelines[2];
     struct ps5_pipeline_registers *sky_pipelines[2];
+#ifdef PS5_GOLDSRC_PHASE4
+    Ps5ShaderPipelineSlotResult
+        goldsrc_shader_slots[GOLDSRC_SHADER_VARIANT_COUNT];
+    GoldSrcPipelineCache goldsrc_pipeline_cache;
+#endif
     BspAlphaTestPlan alpha_test_plan;
     BspSkyPlan sky_plan;
     Ps5TransientRing transient_ring;
@@ -2118,6 +2132,55 @@ int main(void)
                                      resources.surface.width,
                                      resources.surface.height) != 0)
         return fail_pre_submit("depth_state", -1);
+
+#ifdef PS5_GOLDSRC_PHASE4
+    if (GOLDSRC_SHADER_SLOTS_OFFSET +
+            GOLDSRC_SHADER_VARIANT_COUNT * PS5_SHADER_PIPELINE_SLOT_BYTES >
+        SHADER_BYTES)
+        return fail_pre_submit("goldsrc_shader_storage", -1);
+    ps5_agc_register phase4_color_targets[2][PS5_PIPELINE_RT_REGISTERS];
+    for (unsigned slot = 0; slot < 2u; ++slot) {
+        const uintptr_t address = (uintptr_t)resources.framebuffer +
+            resources.surface.buffer_offsets[slot];
+        if (ps5_color_build_target(
+                phase4_color_targets[slot], defaults, address,
+                resources.surface.width, resources.surface.height) != 0)
+            return fail_pre_submit("goldsrc_color_target", -1);
+    }
+    for (unsigned variant = 0;
+         variant < GOLDSRC_SHADER_VARIANT_COUNT; ++variant) {
+        const GoldSrcShaderAsset *const asset =
+            &goldsrc_shader_catalog[variant];
+        if (asset->variant != (GoldSrcShaderVariant)variant)
+            return fail_pre_submit("goldsrc_shader_catalog", -1);
+        const Ps5EmbeddedShaderPair embedded = {
+            asset->gs_start,
+            (size_t)(asset->gs_end - asset->gs_start),
+            asset->ps_start,
+            (size_t)(asset->ps_end - asset->ps_start),
+            asset->metadata,
+        };
+        void *const shader_slot = base + GOLDSRC_SHADER_SLOTS_OFFSET +
+            variant * PS5_SHADER_PIPELINE_SLOT_BYTES;
+        result = ps5_shader_pipeline_slot_build(
+            shader_slot, PS5_SHADER_PIPELINE_SLOT_BYTES, &embedded,
+            phase4_color_targets, resources.surface.width,
+            resources.surface.height, sceAgcCreateShader,
+            sceAgcLinkShaders, &renderer.goldsrc_shader_slots[variant]);
+        if (result != 0)
+            return fail_pre_submit("goldsrc_shader_pipeline", result);
+    }
+    if (goldsrc_pipeline_cache_build(
+            &renderer.goldsrc_pipeline_cache, UINT32_C(0x000000b6),
+            UINT32_C(0x00000240)) != 0)
+        return fail_pre_submit("goldsrc_pipeline_cache", -1);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=%u "
+        "shader_variants=%u native_slots=%u base_depth=000000b6 "
+        "base_raster=00000240 target=gfx1013",
+        renderer.goldsrc_pipeline_cache.count,
+        GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT);
+#endif
 
 #ifdef PS5_BSP_VIEWER
     if (prepare_bsp_scene() != 0)
