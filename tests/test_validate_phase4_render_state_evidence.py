@@ -14,11 +14,50 @@ BUNDLE_SHA = "7" * 64
 
 
 def make_evidence(directory: Path) -> Path:
+    matrix = (
+        ("opaque", 68, 0, 1, 0, 0, 1, "surface_lightmap",
+         "00000000", "000000b6", "00000240"),
+        ("alpha", 65, 1, 0, 0, 0, 1, "surface_lightmap",
+         "65010504", "000000b2", "00000240"),
+        ("additive", 66, 2, 0, 0, 0, 1, "surface_lightmap",
+         "61010104", "000000b2", "00000240"),
+        ("alpha-test", 71, 3, 1, 0, 0, 1, "masked_lightmap",
+         "00000000", "000000b6", "00000240"),
+        ("depth-write-off", 64, 0, 0, 0, 0, 1, "surface_lightmap",
+         "00000000", "000000b2", "00000240"),
+        ("cull-front", 76, 0, 1, 1, 0, 1, "surface_lightmap",
+         "00000000", "000000b6", "00000241"),
+        ("cull-back", 84, 0, 1, 2, 0, 1, "surface_lightmap",
+         "00000000", "000000b6", "00000242"),
+        ("fog", 100, 0, 1, 0, 1, 1, "surface_lightmap_fog",
+         "00000000", "000000b6", "00000240"),
+        ("lightmap-off", 4, 0, 1, 0, 0, 0, "surface",
+         "00000000", "000000b6", "00000240"),
+    )
+    matrix_frames = [
+        f"GOLDSRC_STATE_MATRIX_FRAME schema=1 frame={index * 300} slot=0 "
+        f"case={index} name={name} key={key} blend={blend} "
+        f"depth_write={depth} cull={cull} fog={fog} lightmap={lightmap} "
+        f"shader={shader} blend_cx={blend_cx} depth_cx={depth_cx} "
+        f"raster_cx={raster_cx}"
+        for index, (name, key, blend, depth, cull, fog, lightmap, shader,
+                    blend_cx, depth_cx, raster_cx) in enumerate(matrix)
+    ]
+    matrix_readbacks = [
+        f"GOLDSRC_STATE_MATRIX_READBACK schema=1 frame={index * 300 + slot} "
+        f"slot={slot} case={index} name={item[0]} key={item[1]} "
+        f"hash={0x100 + index * 2 + slot:016x} bright_pixels=1 "
+        "fence=zero videoout_token=exact"
+        for index, item in enumerate(matrix) for slot in range(2)
+    ]
     messages = [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"BSP_TEXTURE_PATH_BOOT schema=1 slice=dynamic-lightmap target=gfx1013 fw=12.02 transient_slots=2 ownership=fence+videoout bundle_sha256={BUNDLE_SHA} bundle_bytes=42 soak_frames=10000",
         "GOLDSRC_VIEWPORT_READY schema=1 framebuffer=1920x1080 inset_viewport=320,180+1280x720 inset_scissor=400,220+1120x640 restore=full-frame registers=8",
         "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=99 shader_variants=9 native_slots=9 base_depth=000000b6 base_raster=00000240 state_register_bytes=2376 target=gfx1013",
+        "GOLDSRC_STATE_MATRIX_READY schema=1 cases=9 hold_frames=300 readback_slots=2 coverage=blend+depth-write+cull+fog+lightmap",
+        *matrix_frames,
+        *matrix_readbacks,
         "GOLDSRC_VIEWPORT_FRAME schema=1 frame=0 slot=0 sequence=full-clear,inset-opaque,inset-alpha,full-restore inset_scissor_tl=80dc0190 inset_scissor_br=035c05f0 full_scissor_tl=80000000 full_scissor_br=04380780",
         "GOLDSRC_STATE_FRAME schema=1 frame=0 slot=0 opaque_key=68 opaque_pass=0 opaque_shader=surface_lightmap opaque_blend=00000000 opaque_depth=000000b6 opaque_raster=00000240 alpha_key=71 alpha_pass=1 alpha_shader=masked_lightmap alpha_blend=00000000 alpha_depth=000000b6 alpha_raster=00000240",
         "RESOURCE_FRAME_READY frame=0 slot=0 transient_bytes=1",
@@ -37,6 +76,7 @@ def make_evidence(directory: Path) -> Path:
         "DYNAMIC_LIGHTMAP_READBACK pattern0=3333333333333333 pattern1=4444444444444444 gpu_buffer0=1111111111111111 gpu_buffer1=2222222222222222 buffers_distinct=true surrounding=stable guards=intact frames=10000",
         "GOLDSRC_PIPELINE_GATE_COMPLETE schema=1 frames=10000 semantic_permutations=99 shader_variants=9 opaque_key=68 opaque_shader=surface_lightmap alpha_key=71 alpha_shader=masked_lightmap framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
         "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1 frames=10000 sequence=full-clear,inset-opaque,inset-alpha,full-restore framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
+        "GOLDSRC_STATE_MATRIX_COMPLETE schema=1 frames=10000 cases=9 readbacks=18 both_slots=true control_pairs=distinct coverage=opaque+alpha+additive+alpha-test+depth-write+cull-front-back-none+fog+lightmap tokens=exact guards=intact errors=0",
         "RESOURCE_POOL_RETIRED token=10099 reclaimed=6 completion=fence+videoout",
     ]
     rows = []
@@ -64,12 +104,15 @@ def make_evidence(directory: Path) -> Path:
     return path
 
 
-def run(path: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([
+def run(path: Path, *, matrix: bool = False) -> subprocess.CompletedProcess[str]:
+    command = [
         "python3", str(VALIDATOR), str(path),
         "--bundle-sha256", BUNDLE_SHA, "--bundle-bytes", "42",
         "--require-viewport",
-    ], text=True, capture_output=True, check=False)
+    ]
+    if matrix:
+        command.append("--require-matrix")
+    return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
 def main() -> int:
@@ -78,6 +121,8 @@ def main() -> int:
         path = make_evidence(root)
         valid = run(path)
         assert valid.returncode == 0, valid.stderr
+        valid_matrix = run(path, matrix=True)
+        assert valid_matrix.returncode == 0, valid_matrix.stderr
         log = root / "synthetic.log"
         changed = log.read_text().replace(
             "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1",

@@ -35,6 +35,14 @@ def number(item: dict[str, str], key: str) -> int:
         raise AssertionError from exc
 
 
+def hex_number(item: dict[str, str], key: str) -> int:
+    try:
+        return int(item[key], 16)
+    except (KeyError, ValueError) as exc:
+        fail(f"invalid hexadecimal field: {key}")
+        raise AssertionError from exc
+
+
 def one(messages: list[str], prefix: str) -> dict[str, str]:
     matches = [fields(message) for message in messages
                if message.startswith(prefix + " ")]
@@ -105,7 +113,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
 
 
 def validate(path: Path, *, bundle_sha256: str,
-             bundle_bytes: int, require_viewport: bool) -> dict[str, object]:
+             bundle_bytes: int, require_viewport: bool,
+             require_matrix: bool) -> dict[str, object]:
     messages, data = load(path.resolve())
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
     if boot.get("schema") != "1" or boot.get("target") != "gfx1013" or \
@@ -154,6 +163,77 @@ def validate(path: Path, *, bundle_sha256: str,
                 frame.get("full_scissor_tl") != "80000000" or \
                 frame.get("full_scissor_br") != "04380780":
             fail("mid-frame viewport/scissor sequence mismatch")
+    if require_matrix:
+        expected = (
+            ("opaque", 68, 0, 1, 0, 0, 1, "surface_lightmap",
+             "00000000", "000000b6", "00000240"),
+            ("alpha", 65, 1, 0, 0, 0, 1, "surface_lightmap",
+             "65010504", "000000b2", "00000240"),
+            ("additive", 66, 2, 0, 0, 0, 1, "surface_lightmap",
+             "61010104", "000000b2", "00000240"),
+            ("alpha-test", 71, 3, 1, 0, 0, 1, "masked_lightmap",
+             "00000000", "000000b6", "00000240"),
+            ("depth-write-off", 64, 0, 0, 0, 0, 1,
+             "surface_lightmap", "00000000", "000000b2", "00000240"),
+            ("cull-front", 76, 0, 1, 1, 0, 1, "surface_lightmap",
+             "00000000", "000000b6", "00000241"),
+            ("cull-back", 84, 0, 1, 2, 0, 1, "surface_lightmap",
+             "00000000", "000000b6", "00000242"),
+            ("fog", 100, 0, 1, 0, 1, 1, "surface_lightmap_fog",
+             "00000000", "000000b6", "00000240"),
+            ("lightmap-off", 4, 0, 1, 0, 0, 0, "surface",
+             "00000000", "000000b6", "00000240"),
+        )
+        matrix_ready = one(messages, "GOLDSRC_STATE_MATRIX_READY")
+        if matrix_ready.get("schema") != "1" or \
+                number(matrix_ready, "cases") != len(expected) or \
+                number(matrix_ready, "hold_frames") != 300 or \
+                number(matrix_ready, "readback_slots") != 2 or \
+                matrix_ready.get("coverage") != \
+                "blend+depth-write+cull+fog+lightmap":
+            fail("state-matrix ready contract mismatch")
+        state_rows = many(messages, "GOLDSRC_STATE_MATRIX_FRAME")
+        for index, item in enumerate(expected):
+            rows = [row for row in state_rows if row.get("case") == str(index)]
+            if not rows:
+                fail(f"missing state-matrix draw case {index}")
+            row = rows[0]
+            name, key, blend, depth, cull, fog, lightmap, shader, \
+                blend_cx, depth_cx, raster_cx = item
+            if row.get("schema") != "1" or row.get("name") != name or \
+                    number(row, "key") != key or \
+                    number(row, "blend") != blend or \
+                    number(row, "depth_write") != depth or \
+                    number(row, "cull") != cull or \
+                    number(row, "fog") != fog or \
+                    number(row, "lightmap") != lightmap or \
+                    row.get("shader") != shader or \
+                    row.get("blend_cx") != blend_cx or \
+                    row.get("depth_cx") != depth_cx or \
+                    row.get("raster_cx") != raster_cx:
+                fail(f"state-matrix draw case {index} mismatch")
+        readbacks = many(messages, "GOLDSRC_STATE_MATRIX_READBACK")
+        if len(readbacks) != len(expected) * 2:
+            fail("state-matrix readback count mismatch")
+        hashes: dict[tuple[int, int], str] = {}
+        for row in readbacks:
+            index = number(row, "case")
+            slot = number(row, "slot")
+            if index >= len(expected) or slot >= 2 or \
+                    (index, slot) in hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != expected[index][0] or \
+                    number(row, "key") != expected[index][1] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("state-matrix GPU readback mismatch")
+            hashes[index, slot] = row["hash"]
+        for index in range(1, len(expected)):
+            for slot in range(2):
+                if hashes[index, slot] == hashes[0, slot]:
+                    fail("state-matrix feature/control framebuffer collision")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -207,6 +287,21 @@ def validate(path: Path, *, bundle_sha256: str,
                 viewport_complete.get("guards") != "intact" or \
                 number(viewport_complete, "errors") != 0:
             fail("viewport completion contract mismatch")
+    if require_matrix:
+        matrix_complete = one(messages, "GOLDSRC_STATE_MATRIX_COMPLETE")
+        if matrix_complete.get("schema") != "1" or \
+                number(matrix_complete, "frames") != 10_000 or \
+                number(matrix_complete, "cases") != 9 or \
+                number(matrix_complete, "readbacks") != 18 or \
+                matrix_complete.get("both_slots") != "true" or \
+                matrix_complete.get("control_pairs") != "distinct" or \
+                matrix_complete.get("coverage") != \
+                "opaque+alpha+additive+alpha-test+depth-write+" \
+                "cull-front-back-none+fog+lightmap" or \
+                matrix_complete.get("tokens") != "exact" or \
+                matrix_complete.get("guards") != "intact" or \
+                number(matrix_complete, "errors") != 0:
+            fail("state-matrix completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -216,6 +311,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "sha256": hashlib.sha256(data).hexdigest(),
         "frames": 10_000,
         "viewport": require_viewport,
+        "matrix": require_matrix,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -227,12 +323,14 @@ def main() -> int:
     parser.add_argument("--bundle-sha256", required=True)
     parser.add_argument("--bundle-bytes", required=True, type=int)
     parser.add_argument("--require-viewport", action="store_true")
+    parser.add_argument("--require-matrix", action="store_true")
     args = parser.parse_args()
     try:
         result = validate(args.manifest,
                           bundle_sha256=args.bundle_sha256,
                           bundle_bytes=args.bundle_bytes,
-                          require_viewport=args.require_viewport)
+                          require_viewport=args.require_viewport,
+                          require_matrix=args.require_matrix)
     except EvidenceError as exc:
         raise SystemExit(f"Phase 4 evidence validation failed: {exc}") from exc
     print(json.dumps(result, sort_keys=True))

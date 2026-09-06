@@ -76,6 +76,41 @@ gate closes actual opaque/masked binding and mid-frame viewport/scissor only;
 it does not claim the remaining render-state matrix or later Phase 4 scene
 features.
 
+## Phase 4 complete render-state matrix gate
+
+The next artifact selected nine deterministic GoldSrc cases through the real
+BSP draw path: opaque, alpha, additive, alpha test, depth-write off, cull
+front, cull back, fog and lightmap off. Each case remained selected for 300
+frames and rendered into both backbuffers. The title captured each framebuffer
+hash only after its GPU fence and exact VideoOut token retired:
+
+- Run: `20260906T223113472Z_PPSA99996_ps5-xash3d_0x7dfb90d3b053`
+- Native ELF SHA-256:
+  `d914bcf26b5aa3e0ca17eb3c99a10cdb3abb929bf89f9817e96f7640f9baf2e6`
+- Signed fSELF SHA-256:
+  `31de1cf508c26f36217bb04aaa87140e191a71880a95e124a504d29c62441b9a`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript SHA-256:
+  `d875d6793d92407e297daef313c7ad24ab84d5ada3abc0b15fd04f2381805ef3`
+- Requested/completed: 10,000/10,000; structured records: 274
+- State evidence: nine actual state keys and shader selections; 18 unique
+  slot/case readbacks; every feature image distinct from the same-slot opaque
+  control
+- Renderer errors: 0; fence and VideoOut tokens: exact; guards intact; six
+  allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` helper eventually removed the parked title after
+  its first external-verification window elapsed; independent status then
+  observed no BigApp and all four console services healthy
+
+Private captures from the exact artifact have SHA-256
+`9268d8b18a2b1dc1333996308f9a9c6ed1be8251e77f703a5d3103bb7c15dcf8`
+for the ordinary lightmapped scene and
+`ac85ad1d8082bfafa9cf4b99e75f2a8ba0254c531572f2d2ddaf19b43bc05539`
+for the fog-selected scene. This closes Phase 4's pipeline-state matrix, not
+the later 2D, scene-object or visibility work.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

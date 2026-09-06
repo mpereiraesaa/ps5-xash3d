@@ -21,6 +21,11 @@ typedef struct BspResourceConstants {
     float debug_values[12];
 } BspResourceConstants;
 
+typedef struct BspResourceGoldSrcConstants {
+    float render_color[4];
+    float fog_color_density[4];
+} BspResourceGoldSrcConstants;
+
 typedef struct BspOverlayConstants {
     float color[4];
     float debug_values[28];
@@ -48,5 +53,16 @@ int bsp_resource_frame_build(
     const float camera_position[3], const float camera_forward[3],
     float aspect_ratio, uint64_t frame_index,
     enum ps5_gfx1013_filter base_filter);
+
+int bsp_resource_frame_build_configured(
+    BspResourceFrame *out, Ps5TransientRing *ring, uint32_t slot_index,
+    const void *gpu_mapping, size_t gpu_mapping_bytes,
+    const BspBundleView *bundle, uint64_t lightmap_pixels_gpu_address,
+    const BspBundleVertex clear_vertices[3],
+    const uint16_t clear_indices[3],
+    const float camera_position[3], const float camera_forward[3],
+    float aspect_ratio, uint64_t frame_index,
+    enum ps5_gfx1013_filter base_filter,
+    const BspResourceGoldSrcConstants *goldsrc_constants);
 
 #endif

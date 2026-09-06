@@ -106,6 +106,16 @@ Input continuity and presentation-spike criteria are not inherited from the
 old noclip gate when they are unrelated to the render-state variable under
 test.
 
+The complete matrix adds `GOLDSRC_STATE_MATRIX_READY`, transition-time
+`GOLDSRC_STATE_MATRIX_FRAME`, exactly 18
+`GOLDSRC_STATE_MATRIX_READBACK` records and one
+`GOLDSRC_STATE_MATRIX_COMPLETE`. Each draw record binds its semantic case,
+stable key, shader variant and raw blend/depth/raster CX values. Each readback
+is taken once per case and backbuffer only after fence zero plus the exact
+VideoOut token. Acceptance requires all nine cases, both slots, nonzero visible
+pixels, a distinct feature/control hash for every non-opaque case, inherited
+resource/lightmap ownership and zero renderer errors through a gap-free BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

@@ -115,8 +115,9 @@
 - [x] Bind the real opaque and masked-lightmap Phase 4 variants in BSP draw
   composition and pass the 10,000-frame FW 12.02 viewport/scissor hardware
   gate with full-frame restoration, exact ownership and zero errors.
-- [ ] Exercise alpha blend, additive, depth-write, cull, fog and lightmap
-  switches through actual draws and paired framebuffer evidence on FW 12.02.
+- [x] Exercise alpha blend, additive, alpha test, depth-write on/off, cull
+  front/back/none, fog on/off and lightmap on/off through actual draws and 18
+  post-retirement framebuffer readbacks in a 10,000-frame FW 12.02 gate.
 - [ ] Add and prove the orthographic 2D HUD/console/menu/font path, lightstyles
   and dynamic lights, transient sprites/particles, studio models and brush
   entities.

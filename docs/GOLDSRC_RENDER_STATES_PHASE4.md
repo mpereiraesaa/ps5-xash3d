@@ -100,7 +100,24 @@ required viewport marker. The transcript SHA-256 is
 A compositor-visible capture from the exact inset artifact confirmed the
 mid-frame state on screen before exact-title closure.
 
-This closes the native binding and viewport/scissor checkpoint, not Phase 4.
-Actual draw/readback gates for alpha blend, additive, depth-write, all cull
-modes, fog and lightmap off remain open, followed by the 2D, lighting,
-sprite/particle, studio, brush-entity and culling gates.
+The complete state-matrix gate is now closed too. Nine deterministic cases hold
+the same camera for 300 frames each while selecting opaque, alpha, additive,
+alpha-test, depth-write off, cull front, cull back, fog and lightmap-off states.
+Every case renders through the real BSP draw path on both backbuffers. Its
+constant buffer supplies an explicit render color and fog color/density, and
+the framebuffer hash is captured only after both the GPU fence and exact
+VideoOut token retire. Run
+`20260906T223113472Z_PPSA99996_ps5-xash3d_0x7dfb90d3b053` completed
+10,000/10,000 frames with all nine cases, 18 post-retirement readbacks,
+distinct feature/control images in both slots, intact guards, six reclaimed
+allocations and zero renderer errors. The ELF/fSELF hashes are
+`d914bcf26b5aa3e0ca17eb3c99a10cdb3abb929bf89f9817e96f7640f9baf2e6`
+and `31de1cf508c26f36217bb04aaa87140e191a71880a95e124a504d29c62441b9a`;
+the transcript SHA-256 is
+`d875d6793d92407e297daef313c7ad24ab84d5ada3abc0b15fd04f2381805ef3`.
+Compositor-visible captures confirmed the ordinary lightmapped scene and the
+fog-selected scene from that exact artifact.
+
+This closes implementation gates 1 and 2, not Phase 4. The orthographic 2D,
+lighting, sprite/particle, studio, brush-entity and PVS/frustum gates remain
+open.
