@@ -17,8 +17,8 @@ its own build directory and working tree while sharing the repository history:
 
 ```sh
 git switch main
-git worktree add ../ps5-agc-gears-exp-<topic> -b exp/<topic>
-cd ../ps5-agc-gears-exp-<topic>
+git worktree add ../ps5-xash3d-exp-<topic> -b exp/<topic>
+cd ../ps5-xash3d-exp-<topic>
 make all
 ```
 
@@ -32,7 +32,7 @@ worktree from the primary checkout:
 
 ```sh
 git worktree list
-git worktree remove ../ps5-agc-gears-exp-<topic>
+git worktree remove ../ps5-xash3d-exp-<topic>
 git branch -d exp/<topic>
 ```
 

@@ -34,6 +34,10 @@
 #include "ps5_agc_native.h"
 #include "ps5log/ps5log.h"
 #include "gears_shader_metadata.h"
+
+#define PS5_XASH3D_TITLE_ID "PPSA99996"
+#define PS5_XASH3D_APP_NAME "ps5-xash3d"
+
 #ifdef PS5_BSP_VIEWER
 #include "bsp_build_metadata.h"
 #include "bsp_flat_shader_metadata.h"
@@ -42,6 +46,7 @@
 #ifdef PS5_RESOURCE_FOUNDATION
 #include "bsp_resource_shader_metadata.h"
 #include "bsp_alpha_test_shader_metadata.h"
+
 #include "bsp_sky_shader_metadata.h"
 #include "bsp_overlay_shader_metadata.h"
 #include "pipeline_permutations.h"
@@ -1558,7 +1563,8 @@ int main(void)
         ps5log_default_conf_paths, ps5log_default_conf_path_count,
         &log_config, &log_path);
     const int log_result = config_result == 0
-        ? ps5log_init(&log_config, "PPSA99997", "ps5-agc-gears", boot_token)
+        ? ps5log_init(&log_config, PS5_XASH3D_TITLE_ID,
+                      PS5_XASH3D_APP_NAME, boot_token)
         : 1;
     (void)ps5log_line(PS5LOG_INFO, "LOG_SCHEMA=3");
     (void)ps5log_line(PS5LOG_INFO,

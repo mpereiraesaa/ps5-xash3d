@@ -178,8 +178,9 @@ fi
     exit 2
 }
 
+title_id=PPSA99996
 build="$root/build/native"
-dist="$root/dist/PPSA99997"
+dist="$root/dist/$title_id"
 rm -rf -- "$build" "$dist"
 mkdir -p "$build/obj" "$build/import-stubs" "$dist/sce_sys" \
          "$dist/sce_module"

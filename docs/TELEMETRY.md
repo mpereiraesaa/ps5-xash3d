@@ -124,5 +124,5 @@ ignored native artifact:
 PS5LOG_DEV_CONF=/absolute/private/dev.conf make native
 ```
 
-The builder copies that file to `dist/PPSA99997/dev.conf`; it never copies it
+The builder copies that file to `dist/PPSA99996/dev.conf`; it never copies it
 into the source tree.

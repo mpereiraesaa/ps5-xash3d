@@ -7,9 +7,9 @@
   "attribute": 0,
   "attribute2": 0,
   "attribute3": 0,
-  "conceptId": "99997",
+  "conceptId": "99996",
   "contentBadgeType": 1,
-  "contentId": "UP9000-PPSA99997_00-PS5AGCGEARS00001",
+  "contentId": "UP9000-PPSA99996_00-PS5XASH3D000001",
   "contentVersion": "01.000.000",
   "downloadDataSize": 256,
   "gameIntent": {
@@ -22,7 +22,7 @@
   "localizedParameters": {
     "defaultLanguage": "en-US",
     "en-US": {
-      "titleName": "AGC Gears"
+      "titleName": "PS5 Xash3D"
     }
   },
   "masterVersion": "01.00",
@@ -32,6 +32,6 @@
   },
   "requiredSystemSoftwareVersion": "0x0000000000000000",
   "sdkVersion": "0x0000000000000000",
-  "titleId": "PPSA99997",
+  "titleId": "PPSA99996",
   "versionFileUri": ""
 }
