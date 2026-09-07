@@ -151,6 +151,17 @@ combined/isolated images, CPU skinning in the transient ring, shared BSP-pool
 residency, exact fence plus VideoOut retirement, six reclaimed resources,
 intact guards, zero errors and the dedicated gap-free completion BYE.
 
+The brush gate adds `GOLDSRC_BRUSH_READY`, transition/bookend
+`GOLDSRC_BRUSH_FRAME` and `GOLDSRC_BRUSH_DRAW` records, exactly ten
+`GOLDSRC_BRUSH_READBACK` records and `GOLDSRC_BRUSH_COMPLETE`. The ready row
+binds the real model/entity counts and selected entity, source-mode, classname,
+draw and index tuples. Frame rows expose changing independent transform hashes
+and brush-only transient bytes; draw rows prove opaque key 4, alpha key 1 and
+additive key 2 with exact per-instance counts. Acceptance requires five modes
+on both slots, distinct feature/control and combined/isolated images, real BSP
+submodels, exact fence plus VideoOut retirement, six reclaimed resources,
+intact guards, zero errors and the dedicated gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

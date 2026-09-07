@@ -24,6 +24,8 @@ _Static_assert(sizeof(BspBundleImage) == 16u, "bundle image ABI");
 _Static_assert(sizeof(BspBundleLightmapFace) == 32u,
                "bundle lightmap face ABI");
 _Static_assert(sizeof(BspBundleTexture) == 48u, "bundle texture ABI");
+_Static_assert(sizeof(BspBundleBrushModel) == 64u, "brush model ABI");
+_Static_assert(sizeof(BspBundleBrushEntity) == 96u, "brush entity ABI");
 
 static uint32_t align_u32(uint32_t value, uint32_t alignment)
 {
@@ -193,6 +195,8 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
     const ChunkView *lightmap_sample_chunk = 0;
     const ChunkView *texture_metadata_chunk = 0;
     const ChunkView *texture_pixels_chunk = 0;
+    const ChunkView *brush_model_chunk = 0;
+    const ChunkView *brush_entity_chunk = 0;
     for (uint32_t index = 0; index < chunk_count; ++index) {
         if (tag_equal(chunks[index].tag, "VERT")) vertex_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "INDX")) index_chunk = &chunks[index];
@@ -203,6 +207,8 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         if (tag_equal(chunks[index].tag, "LMSP")) lightmap_sample_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "TEXM")) texture_metadata_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "TEXP")) texture_pixels_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "BMOD")) brush_model_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "BENT")) brush_entity_chunk = &chunks[index];
     }
     if (!vertex_chunk || !index_chunk || !draw_chunk ||
         vertex_chunk->stride != sizeof(BspBundleVertex) ||
@@ -275,6 +281,8 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
     }
     if (!!texture_metadata_chunk != !!texture_pixels_chunk)
         return BSP_BUNDLE_GEOMETRY_INVALID;
+    if (!!brush_model_chunk != !!brush_entity_chunk)
+        return BSP_BUNDLE_GEOMETRY_INVALID;
     const BspBundleTexture *textures = 0;
     if (texture_metadata_chunk) {
         if (texture_metadata_chunk->stride != sizeof(BspBundleTexture) ||
@@ -306,6 +314,57 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
                 if (texture->offset < prior->offset + prior->bytes)
                     return BSP_BUNDLE_GEOMETRY_INVALID;
             }
+        }
+    }
+    const BspBundleBrushModel *brush_models = 0;
+    const BspBundleBrushEntity *brush_entities = 0;
+    if (brush_model_chunk) {
+        if (brush_model_chunk->stride != sizeof(BspBundleBrushModel) ||
+            brush_entity_chunk->stride != sizeof(BspBundleBrushEntity) ||
+            brush_model_chunk->count < 2u)
+            return BSP_BUNDLE_GEOMETRY_INVALID;
+        brush_models = (const BspBundleBrushModel *)(
+            data + brush_model_chunk->offset);
+        brush_entities = (const BspBundleBrushEntity *)(
+            data + brush_entity_chunk->offset);
+        for (uint32_t index = 0u; index < brush_model_chunk->count; ++index) {
+            const BspBundleBrushModel *const model = &brush_models[index];
+            if (model->model_index != index || model->face_count == 0u ||
+                model->first_face > UINT32_MAX - model->face_count ||
+                (index == 0u && model->first_face != 0u))
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+            for (uint32_t component = 0u; component < 3u; ++component)
+                if (!__builtin_isfinite(model->mins[component]) ||
+                    !__builtin_isfinite(model->maxs[component]) ||
+                    !__builtin_isfinite(model->origin[component]) ||
+                    model->mins[component] > model->maxs[component] ||
+                    model->reserved[component] != 0.0f)
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+        }
+        for (uint32_t index = 0u; index < brush_entity_chunk->count; ++index) {
+            const BspBundleBrushEntity *const entity = &brush_entities[index];
+            if (entity->model_index == 0u ||
+                entity->model_index >= brush_model_chunk->count ||
+                entity->first_face !=
+                    brush_models[entity->model_index].first_face ||
+                entity->face_count !=
+                    brush_models[entity->model_index].face_count ||
+                entity->render_mode > 5u || entity->classname_hash == 0u ||
+                entity->render_color[3] < 0.0f ||
+                entity->render_color[3] > 1.0f ||
+                entity->reserved[0] != 0u || entity->reserved[1] != 0u ||
+                entity->reserved[2] != 0u)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+            for (uint32_t component = 0u; component < 3u; ++component)
+                if (!__builtin_isfinite(entity->mins[component]) ||
+                    !__builtin_isfinite(entity->maxs[component]) ||
+                    !__builtin_isfinite(entity->origin[component]) ||
+                    !__builtin_isfinite(entity->angles[component]) ||
+                    !__builtin_isfinite(entity->render_color[component]) ||
+                    entity->mins[component] > entity->maxs[component] ||
+                    entity->render_color[component] < 0.0f ||
+                    entity->render_color[component] > 1.0f)
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
         }
     }
 
@@ -379,6 +438,12 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         view->texture_count = texture_metadata_chunk->count;
         view->texture_pixels = data + texture_pixels_chunk->offset;
         view->texture_pixel_bytes = texture_pixels_chunk->bytes;
+    }
+    if (brush_model_chunk) {
+        view->brush_models = brush_models;
+        view->brush_model_count = brush_model_chunk->count;
+        view->brush_entities = brush_entities;
+        view->brush_entity_count = brush_entity_chunk->count;
     }
     for (uint32_t vertex = 0; vertex < vertex_chunk->count; ++vertex) {
         const BspBundleVertex *const item = &view->vertices[vertex];

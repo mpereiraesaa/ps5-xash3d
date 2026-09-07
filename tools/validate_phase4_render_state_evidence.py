@@ -96,7 +96,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
                 "reason=goldsrc-phase4-2d-soak-complete",
                 "reason=goldsrc-phase4-lighting-soak-complete",
                 "reason=goldsrc-phase4-sprite-particle-soak-complete",
-                "reason=goldsrc-phase4-studio-soak-complete")):
+                "reason=goldsrc-phase4-studio-soak-complete",
+                "reason=goldsrc-phase4-brush-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -124,6 +125,7 @@ def validate(path: Path, *, bundle_sha256: str,
              require_lighting: bool,
              require_sprite_particles: bool,
              require_studio: bool,
+             require_brush: bool,
              studio_sha256: str | None,
              studio_bytes: int | None) -> dict[str, object]:
     messages, data = load(path.resolve())
@@ -153,6 +155,10 @@ def validate(path: Path, *, bundle_sha256: str,
             boot.get("studio_sha256") != studio_sha256 or
             number(boot, "studio_bytes") != studio_bytes):
         fail("studio boot contract mismatch")
+    if require_brush and (
+            boot.get("slice") != "goldsrc-brush" or
+            boot.get("input_gate") != "not-required"):
+        fail("brush boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -560,6 +566,99 @@ def validate(path: Path, *, bundle_sha256: str,
                         studio_hashes[1, slot], studio_hashes[2, slot],
                         studio_hashes[3, slot]}:
                 fail("studio feature/control framebuffer collision")
+    if require_brush:
+        brush_ready = one(messages, "GOLDSRC_BRUSH_READY")
+        if brush_ready.get("schema") != "1" or \
+                number(brush_ready, "models") != 95 or \
+                number(brush_ready, "entities") != 94 or \
+                brush_ready.get("modes") != \
+                    "control+opaque+alpha+additive+combined" or \
+                number(brush_ready, "hold_frames") != 600 or \
+                brush_ready.get("entity_indices") != "1,26,46" or \
+                brush_ready.get("source_modes") != "0,2,5" or \
+                brush_ready.get("draws") != "16,6,6" or \
+                brush_ready.get("indices") != "120,36,24" or \
+                brush_ready.get("transforms") != "independent" or \
+                brush_ready.get("animated") != "true" or \
+                brush_ready.get("geometry") != "real-bsp-submodels" or \
+                brush_ready.get("texture_residency") != "shared-bsp" or \
+                brush_ready.get("camera") != "locked-relative" or \
+                brush_ready.get("ownership") != "fence+videoout":
+            fail("brush ready contract mismatch")
+        hashes = brush_ready.get("classname_hashes", "").split(",")
+        if len(hashes) != 3 or any(
+                len(value) != 8 or int(value, 16) == 0 for value in hashes):
+            fail("brush classname hash contract mismatch")
+        names = ("control", "opaque", "alpha", "additive", "combined")
+        brush_frames = many(messages, "GOLDSRC_BRUSH_FRAME")
+        transform_hashes: set[str] = set()
+        for mode, name in enumerate(names):
+            rows = [row for row in brush_frames
+                    if number(row, "mode") == mode]
+            if not rows or {number(row, "slot") for row in rows} != {0, 1}:
+                fail(f"brush frame coverage mismatch for mode {mode}")
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        hex_number(row, "transform_hash") == 0 or \
+                        not 0 < number(row, "transient_bytes") <= 4096 or \
+                        row.get("transforms") != "independent" or \
+                        row.get("geometry") != "real-bsp-submodels":
+                    fail("brush frame contract mismatch")
+                transform_hashes.add(row["transform_hash"])
+        if len(transform_hashes) < 2:
+            fail("brush transforms did not change")
+        brush_draws = many(messages, "GOLDSRC_BRUSH_DRAW")
+        expected_draws = (
+            (0, 0, 0, 0, 0, 0),
+            (4, 0, 0, 1, 16, 120),
+            (0, 1, 0, 1, 6, 36),
+            (0, 0, 2, 1, 6, 24),
+            (4, 1, 2, 3, 28, 180),
+        )
+        for mode, name in enumerate(names):
+            rows = [row for row in brush_draws
+                    if number(row, "mode") == mode]
+            if not rows:
+                fail(f"missing brush draw mode {mode}")
+            opaque, alpha, additive, instances, draws, indices = \
+                expected_draws[mode]
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "opaque_key") != opaque or \
+                        number(row, "alpha_key") != alpha or \
+                        number(row, "additive_key") != additive or \
+                        number(row, "instances") != instances or \
+                        number(row, "draws") != draws or \
+                        number(row, "indices") != indices or \
+                        number(row, "texture_binds") != draws or \
+                        row.get("depth_write") != "opaque-only" or \
+                        row.get("cull") != "none" or \
+                        row.get("lightmap") != "false" or \
+                        row.get("ownership") != "fence+videoout":
+                    fail("brush draw contract mismatch")
+        brush_readbacks = many(messages, "GOLDSRC_BRUSH_READBACK")
+        if len(brush_readbacks) != 10:
+            fail("brush readback count mismatch")
+        brush_hashes: dict[tuple[int, int], str] = {}
+        for row in brush_readbacks:
+            mode = number(row, "mode")
+            slot = number(row, "slot")
+            if mode >= 5 or slot >= 2 or (mode, slot) in brush_hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != names[mode] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("brush GPU readback mismatch")
+            brush_hashes[mode, slot] = row["hash"]
+        for slot in range(2):
+            if any(brush_hashes[mode, slot] == brush_hashes[0, slot]
+                   for mode in range(1, 5)) or \
+                    brush_hashes[4, slot] in {
+                        brush_hashes[1, slot], brush_hashes[2, slot],
+                        brush_hashes[3, slot]}:
+                fail("brush feature/control framebuffer collision")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -713,6 +812,28 @@ def validate(path: Path, *, bundle_sha256: str,
                 complete_studio.get("guards") != "intact" or \
                 number(complete_studio, "errors") != 0:
             fail("studio completion contract mismatch")
+    if require_brush:
+        complete_brush = one(messages, "GOLDSRC_BRUSH_COMPLETE")
+        if complete_brush.get("schema") != "1" or \
+                number(complete_brush, "frames") != 10_000 or \
+                number(complete_brush, "modes") != 5 or \
+                number(complete_brush, "readbacks") != 10 or \
+                complete_brush.get("both_slots") != "true" or \
+                complete_brush.get("control_pairs") != "distinct" or \
+                complete_brush.get("combined_pairs") != "distinct" or \
+                complete_brush.get("transform_changes") != "true" or \
+                complete_brush.get("entities") != "real-bsp-submodels" or \
+                complete_brush.get("transforms") != "independent" or \
+                complete_brush.get("render_modes") != \
+                    "opaque+alpha+additive" or \
+                complete_brush.get("depth_write") != "opaque-only" or \
+                complete_brush.get("texture_residency") != "shared-bsp" or \
+                complete_brush.get("camera") != "locked-proof-view" or \
+                complete_brush.get("input_dependency") != "none" or \
+                complete_brush.get("tokens") != "exact" or \
+                complete_brush.get("guards") != "intact" or \
+                number(complete_brush, "errors") != 0:
+            fail("brush completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -727,6 +848,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "lighting": require_lighting,
         "sprite_particles": require_sprite_particles,
         "studio": require_studio,
+        "brush": require_brush,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -743,6 +865,7 @@ def main() -> int:
     parser.add_argument("--require-lighting", action="store_true")
     parser.add_argument("--require-sprite-particles", action="store_true")
     parser.add_argument("--require-studio", action="store_true")
+    parser.add_argument("--require-brush", action="store_true")
     parser.add_argument("--studio-sha256")
     parser.add_argument("--studio-bytes", type=int)
     args = parser.parse_args()
@@ -757,6 +880,7 @@ def main() -> int:
                           require_sprite_particles=
                               args.require_sprite_particles,
                           require_studio=args.require_studio,
+                          require_brush=args.require_brush,
                           studio_sha256=args.studio_sha256,
                           studio_bytes=args.studio_bytes)
     except EvidenceError as exc:

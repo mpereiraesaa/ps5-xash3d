@@ -23,7 +23,11 @@ def tiny_bsp(*, multistyle: bool = False) -> bytes:
     entities = (
         b'{\n"classname" "worldspawn"\n}\n'
         b'{\n"classname" "info_player_start"\n'
-        b'"origin" "32 16 8"\n"angle" "90"\n}\n\0'
+        b'"origin" "32 16 8"\n"angle" "90"\n}\n'
+        b'{\n"classname" "func_wall"\n"model" "*1"\n'
+        b'"origin" "16 8 4"\n"angles" "0 45 0"\n'
+        b'"rendermode" "2"\n"renderamt" "128"\n'
+        b'"rendercolor" "255 128 64"\n}\n\0'
     )
     mip_offsets = (40, 4136, 5160, 5416)
     mip0 = bytes(index & 255 for index in range(64 * 64))
@@ -49,6 +53,10 @@ def tiny_bsp(*, multistyle: bool = False) -> bytes:
         (0, 1), (1, 2), (2, 3), (3, 0),
     ))
     surfedges = b"".join(struct.pack("<i", value) for value in range(4))
+    models = b"".join(BAKER.MODEL.pack(
+        0.0, 0.0, 0.0, 64.0, 64.0, 0.0,
+        0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 1)
+        for _ in range(2))
     contents = {
         BAKER.LUMP_ENTITIES: entities,
         BAKER.LUMP_TEXTURES: bytes(texture),
@@ -58,6 +66,7 @@ def tiny_bsp(*, multistyle: bool = False) -> bytes:
         BAKER.LUMP_LIGHTING: lighting,
         BAKER.LUMP_EDGES: edges,
         BAKER.LUMP_SURFEDGES: surfedges,
+        BAKER.LUMP_MODELS: models,
     }
     output = bytearray(BAKER.BSP_HEADER_BYTES)
     struct.pack_into("<I", output, 0, BAKER.BSP_VERSION)
@@ -102,12 +111,12 @@ def main() -> int:
     second = BAKER.bake(source)
     assert first == second
     assert hashlib.sha256(first).hexdigest() == (
-        "5f7cf094a042967c6c5d559055245b5ec94d60ae748e35d1f902279517291209"
+        "0a9bae5cdb380971397becb1aeeae7d0e0b3eae2a142375ddbb061c1293026e4"
     )
 
     header = BAKER.BUNDLE_HEADER.unpack_from(first)
     assert header[0] == BAKER.BUNDLE_MAGIC and header[1] == 3
-    assert header[3] == len(first) and header[11] == 9
+    assert header[3] == len(first) and header[11] == 11
     assert header[5:8] == (32.0, 36.0, -16.0)
     assert abs(header[8]) < 1e-6 and abs(header[9]) < 1e-6
     assert abs(header[10] + 1.0) < 1e-6
@@ -122,6 +131,8 @@ def main() -> int:
     assert directory[b"LMSP"][2:] == (75, 1)
     assert directory[b"TEXM"][2:] == (1, BAKER.TEXTURE.size)
     assert directory[b"TEXP"][2:] == (32512, 1)
+    assert directory[b"BMOD"][2:] == (2, BAKER.BRUSH_MODEL.size)
+    assert directory[b"BENT"][2:] == (1, BAKER.BRUSH_ENTITY.size)
     assert directory[b"LMPX"][0] % 256 == 0
     assert directory[b"TEXP"][0] % 256 == 0
     vertex_offset = directory[b"VERT"][0]
@@ -159,6 +170,12 @@ def main() -> int:
     assert first[mip0_at:mip0_at + 4] == bytes((0, 1, 255, 255))
     assert first[mip0_at + 255 * 4:mip0_at + 256 * 4] == \
         bytes((255, 0, 0, 0))
+    brush = BAKER.BRUSH_ENTITY.unpack_from(first, directory[b"BENT"][0])
+    assert brush[:4] == (1, 0, 1, 2)
+    assert brush[10:13] == (16.0, 4.0, -8.0)
+    expected_color = (1.0, 128.0 / 255.0, 64.0 / 255.0, 128.0 / 255.0)
+    assert all(abs(actual - expected) < 1e-6
+               for actual, expected in zip(brush[16:20], expected_color))
 
     texture_lump_offset = struct.unpack_from(
         "<I", source, 4 + BAKER.LUMP_TEXTURES * 8)[0]

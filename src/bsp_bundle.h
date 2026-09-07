@@ -80,6 +80,31 @@ typedef struct BspBundleMipLevel {
     uint32_t row_pitch;
 } BspBundleMipLevel;
 
+typedef struct BspBundleBrushModel {
+    uint32_t model_index;
+    uint32_t first_face;
+    uint32_t face_count;
+    uint32_t visleafs;
+    float mins[3];
+    float maxs[3];
+    float origin[3];
+    float reserved[3];
+} BspBundleBrushModel;
+
+typedef struct BspBundleBrushEntity {
+    uint32_t model_index;
+    uint32_t first_face;
+    uint32_t face_count;
+    uint32_t render_mode;
+    float mins[3];
+    float maxs[3];
+    float origin[3];
+    float angles[3];
+    float render_color[4];
+    uint32_t classname_hash;
+    uint32_t reserved[3];
+} BspBundleBrushEntity;
+
 typedef struct BspBundleView {
     const void *data;
     size_t bytes;
@@ -100,6 +125,10 @@ typedef struct BspBundleView {
     uint32_t texture_count;
     const uint8_t *texture_pixels;
     uint32_t texture_pixel_bytes;
+    const BspBundleBrushModel *brush_models;
+    uint32_t brush_model_count;
+    const BspBundleBrushEntity *brush_entities;
+    uint32_t brush_entity_count;
     float camera_position[3];
     float camera_forward[3];
 } BspBundleView;

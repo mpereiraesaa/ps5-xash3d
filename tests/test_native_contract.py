@@ -342,6 +342,28 @@ def main() -> None:
     if "bsp-phase4-studio-native-release" not in makefile or \
             "GOLDSRC_STUDIO_GATE=1" not in makefile:
         raise SystemExit("Phase 4 studio release target missing")
+    for item in (
+        "GOLDSRC_BRUSH_GATE requires GOLDSRC_PHASE4=1",
+        "-DPS5_GOLDSRC_BRUSH_GATE=1",
+        "src/goldsrc_brush_entities.c",
+    ):
+        if item not in builder:
+            raise SystemExit(f"Phase 4 brush build contract missing: {item}")
+    for item in (
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-brush",
+        "GOLDSRC_BRUSH_READY schema=1 models=%u entities=%u",
+        "GOLDSRC_BRUSH_FRAME schema=1 frame=%llu slot=%u",
+        "GOLDSRC_BRUSH_DRAW schema=1 frame=%llu slot=%u",
+        "GOLDSRC_BRUSH_READBACK schema=1 frame=%llu",
+        "BSP_LOOP_BEGIN mode=goldsrc-brush-soak buffers=2",
+        "GOLDSRC_BRUSH_COMPLETE schema=1 frames=%llu modes=%u",
+        'ps5log_close("goldsrc-phase4-brush-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 4 brush runtime contract missing: {item}")
+    if "bsp-phase4-brush-native-release" not in makefile or \
+            "GOLDSRC_BRUSH_GATE=1" not in makefile:
+        raise SystemExit("Phase 4 brush release target missing")
     for item in ("PS5_STUDIO_BUNDLE_SHA256", "PS5_STUDIO_BUNDLE_BYTES"):
         if item not in studio_metadata:
             raise SystemExit(f"studio metadata contract missing: {item}")

@@ -4,6 +4,7 @@
 #include "bsp_sky.h"
 #include "bsp_texture_descriptor.h"
 #include "goldsrc_lightmap_lighting.h"
+#include "goldsrc_brush_entities.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,6 +127,24 @@ int main(int argc, char **argv)
     }
     printf("bundle valid: bytes=%zu vertices=%u indices=%u draws=%u",
            view.bytes, view.vertex_count, view.index_count, view.draw_count);
+    if (view.brush_models && view.brush_entities) {
+        GoldSrcBrushPlan brush;
+        if (goldsrc_brush_plan_build(&brush, &view) != 0) {
+            fprintf(stderr, "brush entity plan failed\n");
+            free(data);
+            return 1;
+        }
+        printf(" brush_models=%u brush_entities=%u "
+               "brush_selection=%u,%u,%u brush_source_modes=%u,%u,%u "
+               "brush_draws=%u,%u,%u brush_indices=%u,%u,%u",
+               view.brush_model_count, view.brush_entity_count,
+               brush.entity_indices[0], brush.entity_indices[1],
+               brush.entity_indices[2], brush.source_render_modes[0],
+               brush.source_render_modes[1], brush.source_render_modes[2],
+               brush.draw_counts[0], brush.draw_counts[1],
+               brush.draw_counts[2], brush.index_counts[0],
+               brush.index_counts[1], brush.index_counts[2]);
+    }
     if (view.lightmap_image)
         printf(" lightmap=%ux%u lightmap_pixels=%u lightmap_faces=%u "
                "lightmap_samples=%u",

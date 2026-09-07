@@ -248,5 +248,29 @@ Chiaki was closed by its exact isolated PID. Exact-title closure left no BigApp,
 all services healthy, `PPSA99996` and frozen Gears `PPSA99997` present, and
 `PPSA99998` absent.
 
-This closes implementation gates 1–6, not Phase 4. Brush entities and
-PVS/frustum culling remain open. `PPSA99998` remains absent.
+The brush-entity gate is now closed as well. The BSP baker preserves all 95
+model face ranges and bounds plus 94 real `model=*n` entities with source
+origin, angles, classname hash, `rendermode`, `renderamt` and `rendercolor`.
+The runtime selected actual source modes 0/2/5 (entities 1/26/46), drew their
+16/6/6 face batches with independent animated model matrices, and isolated
+opaque, alpha, additive and combined compositions without duplicating geometry
+or textures into a private proof format.
+
+Run `20260907T010315223Z_PPSA99996_ps5-xash3d_0x86475c3277bb` completed
+10,000/10,000 frames on FW 12.02. It issued 0/16/6/6/28 brush draws and
+0/120/36/24/180 indices across its five modes, captured exactly ten
+post-retirement readbacks, observed changing transform hashes, and kept all
+feature/control plus combined/isolated same-slot images distinct. It ended
+with six allocations reclaimed, guards intact, zero renderer errors and a
+gap-free 286-record BYE. Exact artifacts:
+
+- native ELF: `2bb4e66983d4e4e015369fe21b44b7573f8f037e63d6eaf3fd816cd6912f98da`;
+- signed fSELF: `5cd37ec664b377d2136c0bcc111d6705cc97f4207290748913713b0b140184d5`;
+- private BSP bundle: `a7039ea765d860939bc140791c0cd3653a4c51c6348e497c7f45d13000b64afe`
+  (9,588,992 bytes);
+- transcript/manifest: `77ae24def4cf11f8c52fedbde625ada6a98bd47013059c3ada334089bfb09bf5` /
+  `7ebbdb420918ec40f31641f7bfa287fa60760fb641568654cd0de8ce6f8f22df`.
+
+Exact-title closure left no BigApp and all four services healthy. This closes
+implementation gates 1–7, not Phase 4. PVS/frustum culling and the complete
+combined soak remain open. `PPSA99998` remains absent.

@@ -262,6 +262,38 @@ The compositor-visible combined capture has SHA-256
 This closes Phase 4 Studio models only; brush entities and PVS/frustum culling
 remain open.
 
+## Phase 4 transformed brush-entity gate
+
+The next artifact extended the BSP bundle with all 95 model records and 94
+real brush-entity records. It selected entities 1/26/46 whose source
+`rendermode` values are 0/2/5, then rendered their actual face ranges under
+independent animated transforms in control, opaque, alpha, additive and
+combined modes:
+
+- Run: `20260907T010315223Z_PPSA99996_ps5-xash3d_0x86475c3277bb`
+- Native ELF SHA-256:
+  `2bb4e66983d4e4e015369fe21b44b7573f8f037e63d6eaf3fd816cd6912f98da`
+- Signed fSELF SHA-256:
+  `5cd37ec664b377d2136c0bcc111d6705cc97f4207290748913713b0b140184d5`
+- Private BSP bundle SHA-256/bytes:
+  `a7039ea765d860939bc140791c0cd3653a4c51c6348e497c7f45d13000b64afe` /
+  9,588,992
+- Transcript/manifest SHA-256:
+  `77ae24def4cf11f8c52fedbde625ada6a98bd47013059c3ada334089bfb09bf5` /
+  `7ebbdb420918ec40f31641f7bfa287fa60760fb641568654cd0de8ce6f8f22df`
+- Requested/completed: 10,000/10,000; structured records: 286
+- Per-instance draws/indices: 16/120, 6/36 and 6/24
+- Mode totals: 0/0, 16/120, 6/36, 6/24 and 28/180
+- Readbacks: five modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Animation: first/final transform hashes differed
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` title closed; no BigApp and all four services
+  healthy; frozen Gears retained and `PPSA99998` absent
+
+This closes Phase 4 brush entities only. PVS/frustum culling and the complete
+combined Phase 4 soak remain open.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

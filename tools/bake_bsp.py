@@ -29,6 +29,7 @@ LUMP_FACES = 7
 LUMP_LIGHTING = 8
 LUMP_EDGES = 12
 LUMP_SURFEDGES = 13
+LUMP_MODELS = 14
 
 BUNDLE_MAGIC = b"PS5BSP\0\0"
 BUNDLE_VERSION = 3
@@ -40,6 +41,9 @@ INDEX = struct.Struct("<H")
 IMAGE = struct.Struct("<4I")
 TEXTURE = struct.Struct("<12I")
 LIGHTMAP_FACE = struct.Struct("<7I4B")
+MODEL = struct.Struct("<9f7i")
+BRUSH_MODEL = struct.Struct("<4I12f")
+BRUSH_ENTITY = struct.Struct("<4I16f4I")
 
 MAX_INPUT_BYTES = 512 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
@@ -110,6 +114,16 @@ class AtlasPlacement:
     y: int
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class BrushModel:
+    mins: tuple[float, float, float]
+    maxs: tuple[float, float, float]
+    origin: tuple[float, float, float]
+    visleafs: int
+    first_face: int
+    face_count: int
 
 
 @dataclass(frozen=True)
@@ -342,12 +356,113 @@ def _entity_pairs(block: str) -> dict[str, str]:
             for i in range(0, len(tokens), 2)}
 
 
+def _entities(entity_bytes: bytes) -> list[dict[str, str]]:
+    text = entity_bytes.rstrip(b"\0").decode("latin-1")
+    return [_entity_pairs(block)
+            for block in re.findall(r"\{([^{}]*)\}", text, re.DOTALL)]
+
+
+def _vec3(value: str, label: str) -> tuple[float, float, float]:
+    try:
+        result = tuple(float(item) for item in value.split())
+    except ValueError as error:
+        raise BakeError(f"{label} is invalid") from error
+    if len(result) != 3 or not all(math.isfinite(item) for item in result):
+        raise BakeError(f"{label} is invalid")
+    return result
+
+
+def _convert_point(value: tuple[float, float, float]
+                   ) -> tuple[float, float, float]:
+    return value[0], value[2], -value[1]
+
+
+def _convert_bounds(mins: tuple[float, float, float],
+                    maxs: tuple[float, float, float]
+                    ) -> tuple[tuple[float, float, float],
+                               tuple[float, float, float]]:
+    return ((mins[0], mins[2], -maxs[1]),
+            (maxs[0], maxs[2], -mins[1]))
+
+
+def _brush_chunks(models: list[BrushModel], entities: list[dict[str, str]],
+                  face_count: int) -> tuple[bytes, bytes]:
+    if not models or models[0].first_face != 0 or models[0].face_count <= 0:
+        raise BakeError("BSP world model is invalid")
+    model_blob = bytearray()
+    for index, model in enumerate(models):
+        if model.first_face < 0 or model.face_count <= 0 or \
+                model.first_face > face_count - model.face_count or \
+                model.visleafs < 0 or \
+                not all(math.isfinite(value) for value in
+                        (*model.mins, *model.maxs, *model.origin)):
+            raise BakeError(f"BSP model {index} is invalid")
+        mins, maxs = _convert_bounds(model.mins, model.maxs)
+        origin = _convert_point(model.origin)
+        model_blob += BRUSH_MODEL.pack(
+            index, model.first_face, model.face_count, model.visleafs,
+            *mins, *maxs, *origin, 0.0, 0.0, 0.0)
+
+    entity_blob = bytearray()
+    seen_models: set[int] = set()
+    for entity in entities:
+        reference = entity.get("model", "")
+        if not reference.startswith("*") or not reference[1:].isdigit():
+            continue
+        model_index = int(reference[1:])
+        if model_index <= 0 or model_index >= len(models) or \
+                model_index in seen_models:
+            if model_index in seen_models:
+                raise BakeError(f"brush model {reference} has duplicate entities")
+            raise BakeError(f"brush entity references invalid model {reference}")
+        seen_models.add(model_index)
+        model = models[model_index]
+        classname = entity.get("classname", "")
+        if not classname:
+            raise BakeError(f"brush entity {reference} has no classname")
+        origin = _convert_point(_vec3(entity.get("origin", "0 0 0"),
+                                      f"brush entity {reference} origin"))
+        if "angles" in entity:
+            angles = _vec3(entity["angles"],
+                           f"brush entity {reference} angles")
+        else:
+            try:
+                yaw = float(entity.get("angle", "0"))
+            except ValueError as error:
+                raise BakeError(
+                    f"brush entity {reference} angle is invalid") from error
+            if not math.isfinite(yaw):
+                raise BakeError(f"brush entity {reference} angle is invalid")
+            angles = (0.0, yaw, 0.0)
+        try:
+            render_mode = int(entity.get("rendermode", "0"), 10)
+            render_amount = float(entity.get("renderamt", "255"))
+        except ValueError as error:
+            raise BakeError(
+                f"brush entity {reference} render fields are invalid") from error
+        if render_mode < 0 or render_mode > 5 or \
+                not math.isfinite(render_amount) or \
+                render_amount < 0.0 or render_amount > 255.0:
+            raise BakeError(f"brush entity {reference} render fields are invalid")
+        color = _vec3(entity.get("rendercolor", "255 255 255"),
+                      f"brush entity {reference} rendercolor")
+        if any(value < 0.0 or value > 255.0 for value in color):
+            raise BakeError(f"brush entity {reference} rendercolor is invalid")
+        mins, maxs = _convert_bounds(model.mins, model.maxs)
+        entity_blob += BRUSH_ENTITY.pack(
+            model_index, model.first_face, model.face_count, render_mode,
+            *mins, *maxs, *origin, *angles,
+            *(value / 255.0 for value in color), render_amount / 255.0,
+            _fnv1a32(classname.encode("latin-1")), 0, 0, 0)
+    if not entity_blob:
+        raise BakeError("BSP contains no brush entities")
+    return bytes(model_blob), bytes(entity_blob)
+
+
 def _spawn_camera(entity_bytes: bytes) -> tuple[tuple[float, float, float],
                                                  tuple[float, float, float]]:
-    text = entity_bytes.rstrip(b"\0").decode("latin-1")
     selected: dict[str, str] | None = None
-    for block in re.findall(r"\{([^{}]*)\}", text, re.DOTALL):
-        values = _entity_pairs(block)
+    for values in _entities(entity_bytes):
         if values.get("classname") in ("info_player_start", "info_player_deathmatch"):
             selected = values
             if values.get("classname") == "info_player_start":
@@ -584,15 +699,21 @@ def bake(data: bytes) -> bytes:
         raise BakeError("face count exceeds the host baker limit")
     faces = [Face(row[2], row[3], row[4], tuple(row[5:9]), row[9])
              for row in raw_faces]
+    raw_models = _records(data, lumps[LUMP_MODELS], MODEL, "model")
+    models = [BrushModel(tuple(row[0:3]), tuple(row[3:6]),
+                         tuple(row[6:9]), row[13], row[14], row[15])
+              for row in raw_models]
+    entity_bytes = data[lumps[LUMP_ENTITIES].offset:
+                        lumps[LUMP_ENTITIES].offset + lumps[LUMP_ENTITIES].size]
+    brush_models, brush_entities = _brush_chunks(
+        models, _entities(entity_bytes), len(faces))
     base_textures = _parse_base_textures(data, lumps[LUMP_TEXTURES])
     texture_sizes = [(texture.width, texture.height)
                      for texture in base_textures]
     texture_metadata, texture_pixels = _texture_chunks(base_textures)
     lighting = data[lumps[LUMP_LIGHTING].offset:
                     lumps[LUMP_LIGHTING].offset + lumps[LUMP_LIGHTING].size]
-    camera, forward = _spawn_camera(
-        data[lumps[LUMP_ENTITIES].offset:
-             lumps[LUMP_ENTITIES].offset + lumps[LUMP_ENTITIES].size])
+    camera, forward = _spawn_camera(entity_bytes)
 
     geometry: list[FaceGeometry] = []
     renderable: list[bool] = []
@@ -675,6 +796,9 @@ def bake(data: bytes) -> bytes:
     chunks += [
         Chunk(b"TEXM", texture_metadata, len(base_textures), TEXTURE.size),
         Chunk(b"TEXP", texture_pixels, len(texture_pixels), 1, 256),
+        Chunk(b"BMOD", brush_models, len(models), BRUSH_MODEL.size),
+        Chunk(b"BENT", brush_entities,
+              len(brush_entities) // BRUSH_ENTITY.size, BRUSH_ENTITY.size),
     ]
     return _chunk_bytes(chunks, camera, forward)
 

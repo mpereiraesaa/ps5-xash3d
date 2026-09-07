@@ -103,6 +103,8 @@ src/goldsrc_studio_bundle.c
 src/goldsrc_studio_bundle.h
 src/goldsrc_studio_model.c
 src/goldsrc_studio_model.h
+src/goldsrc_brush_entities.c
+src/goldsrc_brush_entities.h
 src/goldsrc_shader_catalog.h
 src/goldsrc_pipeline_cache.c
 src/goldsrc_pipeline_cache.h
@@ -171,6 +173,7 @@ tests/test_goldsrc_lightmap_lighting.c
 tests/test_goldsrc_sprite_particles.c
 tests/test_goldsrc_studio_bundle.c
 tests/test_goldsrc_studio_model.c
+tests/test_goldsrc_brush_entities.c
 tests/test_goldsrc_pipeline_cache.c
 tests/test_gears_renderer.c
 tests/test_ps5_surface.c
