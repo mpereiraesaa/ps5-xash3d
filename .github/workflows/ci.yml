@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Validate shell sources
         run: bash -n tools/build_native.sh tools/package_release.sh
       - name: Build and run host contracts

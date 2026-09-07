@@ -1,0 +1,42 @@
+/*
+ * Symbol visibility for the Xash3D engine boot executable.
+ *
+ * Extends the native foundation policy (replacement C++ allocation operators
+ * stay internal) with the two libc interpositions of sys_ps5.c. They must not
+ * appear in the dynamic symbol table: the native converter refuses
+ * application exports, and only the statically linked engine is meant to
+ * bind to them.
+ */
+
+{
+    local:
+        _Zn*;
+        _Zd*;
+        write;
+        ioctl;
+        recvfrom;
+        gethostname;
+        getaddrinfo;
+        freeaddrinfo;
+        getcwd;
+        chdir;
+        realpath;
+        open;
+        stat;
+        lstat;
+        mkdir;
+        rmdir;
+        unlink;
+        remove;
+        rename;
+        utime;
+        access;
+        opendir;
+        readdir;
+        closedir;
+        __wrap_malloc;
+        __wrap_free;
+        __wrap_realloc;
+        __wrap_calloc;
+        PS5_*;
+};

@@ -1,0 +1,3 @@
+# filesystem_stdio entry points looked up by FS_LoadProgs
+GetFSAPI
+CreateInterface

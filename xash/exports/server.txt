@@ -1,0 +1,4 @@
+# hlsdk-portable server entry points looked up by SV_LoadProgs
+GiveFnptrsToDll
+GetEntityAPI
+GetEntityAPI2
