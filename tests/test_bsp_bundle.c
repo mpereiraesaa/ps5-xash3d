@@ -10,7 +10,13 @@ enum { HEADER = 160, VERTEX_OFFSET = 160, INDEX_OFFSET = 256,
        LIGHT_INDEX_OFFSET = 384, LIGHT_DRAW_OFFSET = 400,
        LIGHT_IMAGE_OFFSET = 432, LIGHT_PIXELS_OFFSET = 512,
        TEXTURE_METADATA_OFFSET = 768, TEXTURE_PIXELS_OFFSET = 1024,
-       LIGHT_FILE_BYTES = 1280 };
+       LIGHT_FILE_BYTES = 1280,
+       STYLED_HEADER = 352, STYLED_VERTEX_OFFSET = 352,
+       STYLED_INDEX_OFFSET = 448, STYLED_DRAW_OFFSET = 464,
+       STYLED_IMAGE_OFFSET = 496, STYLED_PIXELS_OFFSET = 512,
+       STYLED_FACE_OFFSET = 768, STYLED_SAMPLES_OFFSET = 800,
+       STYLED_TEXTURE_OFFSET = 816, STYLED_TEXTURE_PIXELS_OFFSET = 1024,
+       STYLED_FILE_BYTES = 1280 };
 
 static void put_u32(uint8_t *at, uint32_t value)
 {
@@ -146,6 +152,73 @@ static void make_light_bundle(uint8_t data[LIGHT_FILE_BYTES])
     light_checksums(data);
 }
 
+static void styled_checksums(uint8_t *data)
+{
+    descriptor(data, 0u, "VERT", STYLED_VERTEX_OFFSET, 96u, 3u, 32u);
+    descriptor(data, 1u, "INDX", STYLED_INDEX_OFFSET, 6u, 3u, 2u);
+    descriptor(data, 2u, "DRAW", STYLED_DRAW_OFFSET, 32u, 1u, 32u);
+    descriptor(data, 3u, "LMHD", STYLED_IMAGE_OFFSET, 16u, 1u, 16u);
+    descriptor(data, 4u, "LMPX", STYLED_PIXELS_OFFSET, 256u, 64u, 4u);
+    descriptor(data, 5u, "LMFM", STYLED_FACE_OFFSET, 32u, 1u, 32u);
+    descriptor(data, 6u, "LMSP", STYLED_SAMPLES_OFFSET, 3u, 3u, 1u);
+    descriptor(data, 7u, "TEXM", STYLED_TEXTURE_OFFSET, 48u, 1u, 48u);
+    descriptor(data, 8u, "TEXP", STYLED_TEXTURE_PIXELS_OFFSET,
+               256u, 256u, 1u);
+    put_u32(data + 20u, crc32_bytes(data + STYLED_HEADER,
+                                    STYLED_FILE_BYTES - STYLED_HEADER));
+}
+
+static void make_styled_bundle(uint8_t data[STYLED_FILE_BYTES])
+{
+    memset(data, 0, STYLED_FILE_BYTES);
+    memcpy(data, "PS5BSP\0\0", 8u);
+    put_u32(data + 8u, 3u);
+    put_u32(data + 12u, STYLED_HEADER);
+    put_u32(data + 16u, STYLED_FILE_BYTES);
+    put_f32(data + 44u, -1.0f);
+    put_u32(data + 48u, 9u);
+    BspBundleVertex *const vertices =
+        (BspBundleVertex *)(data + STYLED_VERTEX_OFFSET);
+    vertices[1].position[0] = 1.0f;
+    vertices[2].position[1] = 1.0f;
+    put_u16(data + STYLED_INDEX_OFFSET, 0u);
+    put_u16(data + STYLED_INDEX_OFFSET + 2u, 1u);
+    put_u16(data + STYLED_INDEX_OFFSET + 4u, 2u);
+    BspBundleDraw *const draw =
+        (BspBundleDraw *)(data + STYLED_DRAW_OFFSET);
+    draw->index_count = 3u;
+    draw->lightmap = 0u;
+    draw->face_id = 7u;
+    BspBundleImage *const image =
+        (BspBundleImage *)(data + STYLED_IMAGE_OFFSET);
+    image->width = 64u;
+    image->height = 1u;
+    image->row_pitch = 256u;
+    image->format = BSP_BUNDLE_IMAGE_RGBA8_UNORM;
+    memset(data + STYLED_PIXELS_OFFSET, 0xff, 256u);
+    BspBundleLightmapFace *const face =
+        (BspBundleLightmapFace *)(data + STYLED_FACE_OFFSET);
+    face->face_id = 7u;
+    face->width = 1u;
+    face->height = 1u;
+    face->sample_bytes = 3u;
+    face->styles[0] = 0u;
+    face->styles[1] = face->styles[2] = face->styles[3] = 255u;
+    data[STYLED_SAMPLES_OFFSET] = 1u;
+    data[STYLED_SAMPLES_OFFSET + 1u] = 2u;
+    data[STYLED_SAMPLES_OFFSET + 2u] = 3u;
+    BspBundleTexture *const texture =
+        (BspBundleTexture *)(data + STYLED_TEXTURE_OFFSET);
+    texture->bytes = 256u;
+    texture->width = 1u;
+    texture->height = 1u;
+    texture->row_pitch = 256u;
+    texture->format = BSP_BUNDLE_IMAGE_RGBA8_UNORM;
+    texture->name_hash = 1u;
+    texture->mip_count = 1u;
+    styled_checksums(data);
+}
+
 int main(void)
 {
     const BspBundleTexture mip_texture = {
@@ -238,6 +311,27 @@ int main(void)
     texture->offset = 1u;
     light_checksums(light.bytes);
     assert(bsp_bundle_open(light.bytes, sizeof(light.bytes), &view) ==
+           BSP_BUNDLE_GEOMETRY_INVALID);
+
+    union { uint64_t align; uint8_t bytes[STYLED_FILE_BYTES]; } styled;
+    make_styled_bundle(styled.bytes);
+    assert(bsp_bundle_open(styled.bytes, sizeof(styled.bytes), &view) ==
+           BSP_BUNDLE_OK);
+    assert(view.lightmap_faces && view.lightmap_face_count == 1u &&
+           view.lightmap_samples && view.lightmap_sample_bytes == 3u &&
+           view.lightmap_faces[0].face_id == 7u &&
+           view.lightmap_faces[0].styles[0] == 0u &&
+           view.lightmap_samples[2] == 3u);
+    BspBundleLightmapFace *const styled_face =
+        (BspBundleLightmapFace *)(styled.bytes + STYLED_FACE_OFFSET);
+    styled_face->styles[2] = 32u;
+    styled_checksums(styled.bytes);
+    assert(bsp_bundle_open(styled.bytes, sizeof(styled.bytes), &view) ==
+           BSP_BUNDLE_GEOMETRY_INVALID);
+    styled_face->styles[2] = 255u;
+    styled_face->sample_bytes = 6u;
+    styled_checksums(styled.bytes);
+    assert(bsp_bundle_open(styled.bytes, sizeof(styled.bytes), &view) ==
            BSP_BUNDLE_GEOMETRY_INVALID);
     return 0;
 }

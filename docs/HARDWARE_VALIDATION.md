@@ -40,6 +40,260 @@ close ends the TCP stream without an application BYE, so this manifest is
 expected to record a gap-free EOF with `bye=false`; it is not used as Phase 3
 completion evidence.
 
+## Phase 4 native binding and viewport/scissor gate
+
+The first Phase 4 hardware checkpoint bound the generated GoldSrc pipeline
+catalog in the real BSP draw path, selected opaque-lightmap key 68 and
+masked-lightmap alpha-test key 71, and changed viewport plus scissor between
+draws before restoring the full-frame state:
+
+- Run: `20260906T220730780Z_PPSA99996_ps5-xash3d_0x7cb052db2ae7`
+- Native ELF SHA-256:
+  `a2e2a303aa428733c11128521b19c20b14cc1cf59efab54fad7307ab3eda9679`
+- Signed fSELF SHA-256:
+  `e36eb2fe00ff33e23f491c4c53d3744b9d6df801361b054dee3d851e1e65e1e4`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript SHA-256:
+  `daee720296ea418ec0e9d887de0937400291b7351b24228d15763b2c03d68708`
+- Requested/completed: 10,000/10,000; maximum frames in flight: two
+- Pipeline catalog: 99 semantic entries, nine native shader variants and both
+  required BSP keys observed
+- Viewport/scissor: 1920×1080 full state, 1280×720 inset viewport, 1120×640
+  nested scissor and full restoration observed in every sampled frame
+- Presentation intervals over budget: 0; renderer errors: 0
+- Fence and VideoOut tokens: exact; guards intact; six allocations reclaimed
+- Closure: exact-title helper left no active BigApp and all console services
+  healthy
+
+A compositor-visible capture from the exact artifact showed the BSP world
+inside the inset rectangle and the final overlay after the full-frame restore.
+The fail-closed Phase 4 validator also required all Phase 3 resource,
+lightmap, upload-accounting and alternating-readback invariants. Controller
+connection and movement were observations, not acceptance conditions. This
+gate closes actual opaque/masked binding and mid-frame viewport/scissor only;
+it does not claim the remaining render-state matrix or later Phase 4 scene
+features.
+
+## Phase 4 complete render-state matrix gate
+
+The next artifact selected nine deterministic GoldSrc cases through the real
+BSP draw path: opaque, alpha, additive, alpha test, depth-write off, cull
+front, cull back, fog and lightmap off. Each case remained selected for 300
+frames and rendered into both backbuffers. The title captured each framebuffer
+hash only after its GPU fence and exact VideoOut token retired:
+
+- Run: `20260906T223113472Z_PPSA99996_ps5-xash3d_0x7dfb90d3b053`
+- Native ELF SHA-256:
+  `d914bcf26b5aa3e0ca17eb3c99a10cdb3abb929bf89f9817e96f7640f9baf2e6`
+- Signed fSELF SHA-256:
+  `31de1cf508c26f36217bb04aaa87140e191a71880a95e124a504d29c62441b9a`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript SHA-256:
+  `d875d6793d92407e297daef313c7ad24ab84d5ada3abc0b15fd04f2381805ef3`
+- Requested/completed: 10,000/10,000; structured records: 274
+- State evidence: nine actual state keys and shader selections; 18 unique
+  slot/case readbacks; every feature image distinct from the same-slot opaque
+  control
+- Renderer errors: 0; fence and VideoOut tokens: exact; guards intact; six
+  allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` helper eventually removed the parked title after
+  its first external-verification window elapsed; independent status then
+  observed no BigApp and all four console services healthy
+
+Private captures from the exact artifact have SHA-256
+`9268d8b18a2b1dc1333996308f9a9c6ed1be8251e77f703a5d3103bb7c15dcf8`
+for the ordinary lightmapped scene and
+`ac85ad1d8082bfafa9cf4b99e75f2a8ba0254c531572f2d2ddaf19b43bc05539`
+for the fog-selected scene. This closes Phase 4's pipeline-state matrix, not
+the later 2D, scene-object or visibility work.
+
+## Phase 4 orthographic blended 2D gate
+
+The next artifact exercised the compiled `screen_2d` shader through semantic
+alpha key 129 and additive key 130. A procedural 128×32 RGBA8 atlas, projection
+constants, vertex/index data and descriptors were rebuilt in the active
+transient slot each frame. The visible layout combined a translucent console,
+menu and HUD, 78 readable bitmap glyph quads and an additive crosshair over the
+live BSP world:
+
+- Run: `20260906T225115588Z_PPSA99996_ps5-xash3d_0x7f137394ac44`
+- Native ELF SHA-256:
+  `b7b2ef1e9cf4679bbe5edea37a8511aecdac3352252c7d48ffea0d6e70ac3dde`
+- Signed fSELF SHA-256:
+  `f391dbbae2f90a34f64a3593418be137a4efd5099651254724144bf1665404b2`
+- Private bundle SHA-256/bytes:
+  `7536b8a28be3b815f93b35f035f9f957952e379722657194e1ab15172f9604e1` /
+  8,741,888
+- Transcript/manifest SHA-256:
+  `12c94237d1aa4fb5e762372549e7e803f2df7781468b862af5a70a513237ac39` /
+  `254087254ae7358b02f5465fe1aeb00e281eccbbfdf6136cb547da35955f6db4`
+- Requested/completed: 10,000/10,000; structured records: 224
+- Draw shape: two 2D batches and 522 indices per frame; 4 HUD, 2 console, 3
+  menu and 78 font quads
+- Per-frame transient use: 47,312 bytes total, including 34,612 bytes for the
+  deterministic 2D atlas/layout
+- Renderer errors: 0; fence and VideoOut tokens: exact; guards intact; six
+  allocations reclaimed; gap-free BYE
+- Closure: the direct Chiaki stream was stopped by its exact process and the
+  exact-title helper removed `PPSA99996`; independent status observed no
+  BigApp and all four console services healthy
+
+The first Remote Play frame arrived black during stream negotiation and was
+rejected. The accepted RGB capture from the same parked artifact has SHA-256
+`7102eadff45ee1b3c8598d02e5480fba1bc736494a0f80dfd7dbe46b936ee383`
+and visibly shows all four 2D component classes over the map. This closes the
+orthographic 2D gate only; lighting and the remaining Phase 4 scene/visibility
+features are still open.
+
+## Phase 4 BSP lightstyles and dynamic-light gate
+
+The next artifact extended the compatible version-3 bundle with all original
+BSP lightstyle sample planes. It selected wall face 203 (draw 379; styles
+0/33/35), rebuilt its 11×16 atlas patch from real samples and alternated base,
+animated lightstyle, face-local radial dynamic light and the combined result:
+
+- Run: `20260906T233103794Z_PPSA99996_ps5-xash3d_0x813f7d9b54cf`
+- Native ELF SHA-256:
+  `7cf6d6b7c0e4ace01781de5f8c63f18b8a7be09b2b5113cdd0c1bf215f0f62dd`
+- Signed fSELF SHA-256:
+  `dd66e6c4659b8bc4453720c003c549683c884d40d9906c3b7e9859f6fff14506`
+- Private enriched bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Transcript/manifest SHA-256:
+  `f1c69e8d1825275da6716aeff6f0620c516f8fb4e708a45b18f8e19cd00e620b` /
+  `197c0086ac8e72e91ff01465c513a029d95c39e690e2d611231a35c12cd10060`
+- Requested/completed: 10,000/10,000; structured records: 266
+- BSP lighting source: 3,052 lightmapped faces, 734,229 sample bytes, 528
+  styled faces and 1,084 style layers
+- Upload path: two initial full-slot uploads, then a 704-byte bounded patch in
+  a 61,484-byte aligned acquire span
+- Readbacks: four modes × two slots, all taken after fence zero and exact
+  VideoOut ownership; every same-slot mode hash was distinct
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` helper left no BigApp and all four services
+  healthy; the obsolete `PPSA99998` title remained absent
+
+Four compositor-visible CLI-stream captures accompanied the exact run, with
+SHA-256 values `6fbb3283006e563631d29f22c1e2e39fadb795b8cad6a90733f1baca70964890`,
+`d08ac11fdfacb55e6aeeae6d2c375b9e219a627c673918fd1a2cdef5ade1e18d`,
+`8dd5ba9ad6d416c17365b5255b5e4099c16f264f0119d67095cf0c12cea476b1`
+and `145b5d9b1ee5b9bfa822f228ae21dc71cc89f77c7d76f31ef98995bde448f4ba`.
+Chiaki reused the existing registered entry and its exact isolated PID was
+closed after capture; no pairing, client-window control or focus assumption
+was involved. This closes Phase 4 lighting only. Sprites/particles, studio
+models, brush entities and visibility remain open.
+
+## Phase 4 transient sprite/particle gate
+
+The next artifact added a 64×32 procedural RGBA8 atlas plus camera-facing
+transient geometry: one sprite quad, 24 source-alpha smoke quads and 48
+additive spark quads. Four deterministic modes isolated control, sprite,
+particles and their combined image:
+
+- Run: `20260906T235831459Z_PPSA99996_ps5-xash3d_0x82bf1cd8fb89`
+- Native ELF SHA-256:
+  `b88df7b004495d828db7a594d1579a56fe4925578d384bef01b95b8ae5d63778`
+- Signed fSELF SHA-256:
+  `33e804f669a7acdddaf8a38a6a3f51ee6b0ae2d946bd0fc97a347596d33dcf2a`
+- Private bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Transcript/manifest SHA-256:
+  `e6d77a34f5276f59c12ac987f67a7720394b88c2788ee06e72f9f6ec8b9d4a05` /
+  `6df527c58ea91bd060f3c570eda910d383b40a2018b5cb17751d128256a35899`
+- Requested/completed: 10,000/10,000; structured records: 284
+- Draw/index modes: 0/0, 1/6, 2/432 and 3/438
+- Transient effect allocation: 18,772 bytes per framebuffer slot and frame
+- Readbacks: four modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: the isolated Chiaki PID and exact `PPSA99996` title were closed;
+  no BigApp remained and all four console services were healthy
+
+The accepted compositor-visible sprite, particles and combined captures have
+SHA-256 values `da592df0f150849fe1008ab57115e0ff14c6d742e1a9fe06b09f06b73a2cb980`,
+`d11be0a14328f34714aa380a112926a6e4b362a18992d38712aa5edda5155b75`
+and `7034111a275c25f02e78e089ca4f4aa6c0853fa121b9281e6b3e19cc979ff730`.
+The registered Chiaki entry was reused without pairing or opening its main
+client. This closes Phase 4 sprites/particles only; studio models, brush
+entities and PVS/frustum culling remain open. `PPSA99998` remains absent.
+
+## Phase 4 animated Studio-model gate
+
+The next artifact baked a privately owned GoldSrc Studio v10 model into a
+checked runtime bundle, then animated and CPU-skinned its embedded seven-frame
+`fire` sequence into each current transient-ring slot. Five deterministic modes
+isolated control, textured, normal-generated chrome, additive and the combined
+three-instance image:
+
+- Run: `20260907T003611716Z_PPSA99996_ps5-xash3d_0x84cd5cd0ac8a`
+- Native ELF SHA-256:
+  `a78675524a21b2a7b2264e3b271a4b80954333b01cd82456ee4fda3da7af1e52`
+- Signed fSELF SHA-256:
+  `0e0614f13bef7a0121ac6bde5cde0480f4e1162e8c6c6e8bfd008df71cd4dace`
+- Private BSP bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Private Studio bundle SHA-256/bytes:
+  `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31` /
+  93,952
+- Transcript/manifest SHA-256:
+  `2cf010f8b95529265e9095efe2a4882e31965b3afaa459c02f829333d7acf03d` /
+  `fe93f51167b551f47e82831d272513a7886a25564947f82e3b6c7d68791f6290`
+- Requested/completed: 10,000/10,000; structured records: 286
+- Bundle ABI: 8 bones, 7 frames at 33 fps, 134 vertices, 282 indices,
+  4 draws, 4 embedded textures and one chrome material
+- Draw/index modes: 0/0, 4/282, 4/282, 4/282 and 12/846
+- Readbacks: five modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Animation: first/final pose hashes differed; per-frame pose and skinned hashes
+  were nonzero
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: isolated Chiaki PID and exact `PPSA99996` title closed; no BigApp,
+  all four services healthy, frozen Gears retained and `PPSA99998` absent
+
+The compositor-visible combined capture has SHA-256
+`5ec51fbc6a4efec1ec7620dcb24b608fccf61e6478ca73f0d3b537ce14fa65df`.
+This closes Phase 4 Studio models only; brush entities and PVS/frustum culling
+remain open.
+
+## Phase 4 transformed brush-entity gate
+
+The next artifact extended the BSP bundle with all 95 model records and 94
+real brush-entity records. It selected entities 1/26/46 whose source
+`rendermode` values are 0/2/5, then rendered their actual face ranges under
+independent animated transforms in control, opaque, alpha, additive and
+combined modes:
+
+- Run: `20260907T010315223Z_PPSA99996_ps5-xash3d_0x86475c3277bb`
+- Native ELF SHA-256:
+  `2bb4e66983d4e4e015369fe21b44b7573f8f037e63d6eaf3fd816cd6912f98da`
+- Signed fSELF SHA-256:
+  `5cd37ec664b377d2136c0bcc111d6705cc97f4207290748913713b0b140184d5`
+- Private BSP bundle SHA-256/bytes:
+  `a7039ea765d860939bc140791c0cd3653a4c51c6348e497c7f45d13000b64afe` /
+  9,588,992
+- Transcript/manifest SHA-256:
+  `77ae24def4cf11f8c52fedbde625ada6a98bd47013059c3ada334089bfb09bf5` /
+  `7ebbdb420918ec40f31641f7bfa287fa60760fb641568654cd0de8ce6f8f22df`
+- Requested/completed: 10,000/10,000; structured records: 286
+- Per-instance draws/indices: 16/120, 6/36 and 6/24
+- Mode totals: 0/0, 16/120, 6/36, 6/24 and 28/180
+- Readbacks: five modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Animation: first/final transform hashes differed
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: exact `PPSA99996` title closed; no BigApp and all four services
+  healthy; frozen Gears retained and `PPSA99998` absent
+
+This closes Phase 4 brush entities only. PVS/frustum culling and the complete
+combined Phase 4 soak remain open.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:
@@ -305,6 +559,74 @@ The gate reused the already proven noclip input path only for
 connected/read-error continuity. It did not require another DualSense movement
 or Remote Play handoff, and Chiaki used its existing registered console entry.
 See `BSP_RESOURCE_FOUNDATION_PHASE2.md` for the exact resource contract.
+
+## Phase 4 PVS/frustum gate
+
+- Run: `20260907T013429215Z_PPSA99996_ps5-xash3d_0x87fbad4e6ed0`
+- Native ELF SHA-256:
+  `fe5bd0f54a700c828a0de215404191276d190d99c735b8ecff1f1912f69980e0`
+- Signed fSELF SHA-256:
+  `423a8a353c2779825f2fe34ff15e0c4eb49b4d3a3b324f59db13d2a5f6090259`
+- Private `c1a0e` bundle SHA-256/bytes:
+  `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa` /
+  9,971,952
+- Transcript/server-manifest SHA-256:
+  `3252fea371c41a8de03e287fa358dbd638ee406f81bb4f8d5549c80163e94d29` /
+  `6ff1227399b3367c4308d205791545266389a969fa8c3e66269164641757a8ce`
+- Requested/completed: 10,000/10,000
+- World tree: 1,323 nodes, 683 leaves, 86-byte PVS rows
+- Visibility references/draw bounds: 2,610/3,210
+- Selected draws, control/PVS/frustum/combined: 1,952/646/414/362
+- Post-retirement readbacks: 8, both slots and all four modes
+- Maximum bright-pixel delta/tolerance: 22/64
+- GPU fences/VideoOut tokens: zero/exact before readback and reuse
+- Resource guards/reclaimed allocations/renderer errors: intact/6/0
+- Teardown: gap-free BYE at sequence 284, exact `PPSA99996` closure, no
+  remaining BigApp and four healthy payload services
+
+The fail-closed validator accepted the immutable manifest against the exact
+private bundle identity. The gate deliberately locked the camera, so
+controller state was observed but not a success dependency. No Remote Play
+capture was required: actual post-retirement framebuffer measurements bind the
+visibility reduction to stable visible output. `PPSA99998` remained absent.
+
+## Phase 4 final integrated gate
+
+- Run: `20260907T020656141Z_PPSA99996_ps5-xash3d_0x89c0f978ef68`
+- Native ELF SHA-256:
+  `d5499ae773f72e99a2eb7082206a04cb7deb00e43d6bbd463d7ecceb6c685dee`
+- Signed fSELF SHA-256:
+  `8af678d50024aa09caeae82abc97101d9f4fd859a7f7ac11420e783461054de0`
+- Private BSP bundle SHA-256/bytes:
+  `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa` /
+  9,971,952
+- Private Studio bundle SHA-256/bytes:
+  `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31` /
+  93,952
+- Transcript/server-manifest SHA-256:
+  `0bbccaee2e59eb8f516a29296300fb4f061fa2151aa22ceadf3c511a2b298f9f` /
+  `a08dd9d7b851f75e8f22d875358cac76f933246a50821c38759fb2c9c16feebe`
+- Requested/completed: 60,000/60,000 in one process
+- Final combined draws: world 362, brush 69, Studio 12, effects 3, screen 2
+- Final brush scene: five real submodels, including `func_water` entity 65
+  (35 draws/312 indices) and `glass_med` entity 27 (6 draws/36 indices)
+- Final dynamic work: 48 lit luxels, 704-byte atlas patch and 86,810 transient
+  bytes inside each 131,072-byte retired slot
+- Post-retirement framebuffer readbacks: 2, both slots
+- GPU fences/VideoOut tokens: zero/exact before readback and reuse
+- Resource guards/reclaimed allocations/renderer errors: intact/6/0
+- Teardown: 2,613 gap-free records, dedicated BYE, exact `PPSA99996` closure,
+  no remaining BigApp and four healthy payload services
+
+The final validator accepted the immutable manifest against both exact private
+bundle identities. A compositor-visible capture from this artifact shows the
+map with source water/glass brush content, transient effects, animated Studio
+instances and the blended 2D overlay; its SHA-256 is
+`751d0fee9d54bb815acf3a5edc1ded8981cce0aca3f07b83ae4ff2344a8800a1`.
+World work is filtered by real BSP PVS plus draw-AABB frustum tests; inline
+brush submodels retain their independently transformed render path. Chiaki
+used only its registered CLI entry and closed by exact PID. `PPSA99998`
+remained absent. This gate closes Phase 4.
 
 ## Continuous production-runtime evidence
 

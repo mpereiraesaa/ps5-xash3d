@@ -19,11 +19,15 @@ sys.modules[SPEC.name] = BAKER
 SPEC.loader.exec_module(BAKER)
 
 
-def tiny_bsp() -> bytes:
+def tiny_bsp(*, multistyle: bool = False) -> bytes:
     entities = (
         b'{\n"classname" "worldspawn"\n}\n'
         b'{\n"classname" "info_player_start"\n'
-        b'"origin" "32 16 8"\n"angle" "90"\n}\n\0'
+        b'"origin" "32 16 8"\n"angle" "90"\n}\n'
+        b'{\n"classname" "func_wall"\n"model" "*1"\n'
+        b'"origin" "16 8 4"\n"angles" "0 45 0"\n'
+        b'"rendermode" "2"\n"renderamt" "128"\n'
+        b'"rendercolor" "255 128 64"\n}\n\0'
     )
     mip_offsets = (40, 4136, 5160, 5416)
     mip0 = bytes(index & 255 for index in range(64 * 64))
@@ -40,22 +44,45 @@ def tiny_bsp() -> bytes:
         (64.0, 64.0, 0.0), (0.0, 64.0, 0.0),
     ))
     texinfo = struct.pack("<8fii", 1, 0, 0, 0, 0, 1, 0, 0, 0, 0)
-    face = struct.pack("<Hhihh4Bi", 0, 0, 0, 4, 0, 0, 255, 255, 255, 0)
-    lighting = b"".join(bytes((value, value + 1, value + 2))
-                        for value in range(0, 75, 3))
+    planes = struct.pack("<4fi", 1.0, 0.0, 0.0, 32.0, 0)
+    visibility = b"\x01"
+    nodes = struct.pack("<i2h6h2H", 0, -2, -1,
+                        0, 0, 0, 64, 64, 64, 0, 1)
+    face = struct.pack("<Hhihh4Bi", 0, 0, 0, 4, 0, 0,
+                       32 if multistyle else 255, 255, 255, 0)
+    lighting_plane = b"".join(bytes((value, value + 1, value + 2))
+                               for value in range(0, 75, 3))
+    lighting = lighting_plane + (lighting_plane[::-1] if multistyle else b"")
+    leaves = b"".join((
+        struct.pack("<ii6h2H4B", -2, -1,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        struct.pack("<ii6h2H4B", -1, 0,
+                    0, 0, 0, 64, 64, 64, 0, 1, 0, 0, 0, 0),
+    ))
+    marksurfaces = struct.pack("<H", 0)
     edges = b"".join(struct.pack("<2H", *edge) for edge in (
         (0, 1), (1, 2), (2, 3), (3, 0),
     ))
     surfedges = b"".join(struct.pack("<i", value) for value in range(4))
+    models = b"".join(BAKER.MODEL.pack(
+        0.0, 0.0, 0.0, 64.0, 64.0, 0.0,
+        0.0, 0.0, 0.0, 0, 0, 0, 0, 1, 0, 1)
+        for _ in range(2))
     contents = {
         BAKER.LUMP_ENTITIES: entities,
+        BAKER.LUMP_PLANES: planes,
         BAKER.LUMP_TEXTURES: bytes(texture),
         BAKER.LUMP_VERTICES: vertices,
+        BAKER.LUMP_VISIBILITY: visibility,
+        BAKER.LUMP_NODES: nodes,
         BAKER.LUMP_TEXINFO: texinfo,
         BAKER.LUMP_FACES: face,
         BAKER.LUMP_LIGHTING: lighting,
+        BAKER.LUMP_LEAVES: leaves,
+        BAKER.LUMP_MARKSURFACES: marksurfaces,
         BAKER.LUMP_EDGES: edges,
         BAKER.LUMP_SURFEDGES: surfedges,
+        BAKER.LUMP_MODELS: models,
     }
     output = bytearray(BAKER.BSP_HEADER_BYTES)
     struct.pack_into("<I", output, 0, BAKER.BSP_VERSION)
@@ -100,12 +127,12 @@ def main() -> int:
     second = BAKER.bake(source)
     assert first == second
     assert hashlib.sha256(first).hexdigest() == (
-        "b68cba3218caa281f596f683e8cd5ba019a939b937bfc068f6d97b1a83811476"
+        "02bc5133a6fdcf74cff3d33878664f247304e22e40ed0194b54a85d7faf5ea5e"
     )
 
     header = BAKER.BUNDLE_HEADER.unpack_from(first)
     assert header[0] == BAKER.BUNDLE_MAGIC and header[1] == 3
-    assert header[3] == len(first) and header[11] == 7
+    assert header[3] == len(first) and header[11] == 18
     assert header[5:8] == (32.0, 36.0, -16.0)
     assert abs(header[8]) < 1e-6 and abs(header[9]) < 1e-6
     assert abs(header[10] + 1.0) < 1e-6
@@ -116,8 +143,19 @@ def main() -> int:
     assert directory[b"DRAW"][2:] == (1, BAKER.DRAW.size)
     assert directory[b"LMHD"][2:] == (1, BAKER.IMAGE.size)
     assert directory[b"LMPX"][2:] == (448, 4)
+    assert directory[b"LMFM"][2:] == (1, BAKER.LIGHTMAP_FACE.size)
+    assert directory[b"LMSP"][2:] == (75, 1)
     assert directory[b"TEXM"][2:] == (1, BAKER.TEXTURE.size)
     assert directory[b"TEXP"][2:] == (32512, 1)
+    assert directory[b"BMOD"][2:] == (2, BAKER.BRUSH_MODEL.size)
+    assert directory[b"BENT"][2:] == (1, BAKER.BRUSH_ENTITY.size)
+    assert directory[b"VHDR"][2:] == (1, BAKER.VISIBILITY_HEADER.size)
+    assert directory[b"VPLN"][2:] == (1, BAKER.VISIBILITY_PLANE.size)
+    assert directory[b"VNOD"][2:] == (1, BAKER.VISIBILITY_NODE.size)
+    assert directory[b"VLEF"][2:] == (2, BAKER.VISIBILITY_LEAF.size)
+    assert directory[b"VDRW"][2:] == (1, 4)
+    assert directory[b"VPVS"][2:] == (2, 1)
+    assert directory[b"DBND"][2:] == (1, BAKER.DRAW_BOUNDS.size)
     assert directory[b"LMPX"][0] % 256 == 0
     assert directory[b"TEXP"][0] % 256 == 0
     vertex_offset = directory[b"VERT"][0]
@@ -131,6 +169,17 @@ def main() -> int:
     assert BAKER.DRAW.unpack_from(first, draw_offset)[:5] == (0, 6, 0, 0, 0)
     light_header = BAKER.IMAGE.unpack_from(first, directory[b"LMHD"][0])
     assert light_header == (64, 7, 256, BAKER.IMAGE_FORMAT_RGBA8_UNORM)
+    light_face = BAKER.LIGHTMAP_FACE.unpack_from(
+        first, directory[b"LMFM"][0])
+    assert light_face == (0, 1, 1, 5, 5, 0, 75, 0, 255, 255, 255)
+    assert first[directory[b"LMSP"][0]:directory[b"LMSP"][0] + 6] == \
+        bytes((0, 1, 2, 3, 4, 5))
+    styled = BAKER.bake(tiny_bsp(multistyle=True))
+    styled_directory = chunks(styled)
+    styled_face = BAKER.LIGHTMAP_FACE.unpack_from(
+        styled, styled_directory[b"LMFM"][0])
+    assert styled_face == (0, 1, 1, 5, 5, 0, 150, 0, 32, 255, 255)
+    assert styled_directory[b"LMSP"][2:] == (150, 1)
     texture_header = BAKER.TEXTURE.unpack_from(first, directory[b"TEXM"][0])
     assert texture_header == (
         0, 32512, 64, 64, 256, BAKER.IMAGE_FORMAT_RGBA8_UNORM,
@@ -144,6 +193,12 @@ def main() -> int:
     assert first[mip0_at:mip0_at + 4] == bytes((0, 1, 255, 255))
     assert first[mip0_at + 255 * 4:mip0_at + 256 * 4] == \
         bytes((255, 0, 0, 0))
+    brush = BAKER.BRUSH_ENTITY.unpack_from(first, directory[b"BENT"][0])
+    assert brush[:4] == (1, 0, 1, 2)
+    assert brush[10:13] == (16.0, 4.0, -8.0)
+    expected_color = (1.0, 128.0 / 255.0, 64.0 / 255.0, 128.0 / 255.0)
+    assert all(abs(actual - expected) < 1e-6
+               for actual, expected in zip(brush[16:20], expected_color))
 
     texture_lump_offset = struct.unpack_from(
         "<I", source, 4 + BAKER.LUMP_TEXTURES * 8)[0]

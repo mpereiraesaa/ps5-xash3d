@@ -30,6 +30,7 @@ static int slice(Ps5TransientRing *ring, uint32_t slot, size_t bytes,
 static int constants(Ps5TransientRing *ring, uint32_t slot,
                      const void *gpu_mapping, size_t gpu_mapping_bytes,
                      const float mvp[16], const float control[4],
+                     const float fog_color_density[4],
                      uint64_t frame_index, const uint32_t **table_out)
 {
     Ps5TransientSlice data_slice;
@@ -45,8 +46,11 @@ static int constants(Ps5TransientRing *ring, uint32_t slot,
     memset(data, 0, sizeof(*data));
     memcpy(data->mvp, mvp, sizeof(data->mvp));
     memcpy(data->control, control, sizeof(data->control));
-    data->debug_values[0] = (float)(frame_index & UINT64_C(0xffff));
-    data->debug_values[1] = (float)slot;
+    if (fog_color_density)
+        memcpy(data->debug_values, fog_color_density,
+               4u * sizeof(float));
+    data->debug_values[4] = (float)(frame_index & UINT64_C(0xffff));
+    data->debug_values[8] = (float)slot;
     if (ps5_gfx1013_build_constant_vsharp(
             table.words, (uintptr_t)data, sizeof(*data)) != 0)
         return -1;
@@ -105,7 +109,7 @@ static int overlay_constants(
     return 0;
 }
 
-int bsp_resource_frame_build(
+int bsp_resource_frame_build_configured(
     BspResourceFrame *out, Ps5TransientRing *ring, uint32_t slot_index,
     const void *gpu_mapping, size_t gpu_mapping_bytes,
     const BspBundleView *bundle, uint64_t lightmap_pixels_gpu_address,
@@ -113,7 +117,8 @@ int bsp_resource_frame_build(
     const uint16_t clear_indices[3],
     const float camera_position[3], const float camera_forward[3],
     float aspect_ratio, uint64_t frame_index,
-    enum ps5_gfx1013_filter base_filter)
+    enum ps5_gfx1013_filter base_filter,
+    const BspResourceGoldSrcConstants *goldsrc_constants)
 {
     if (!out || !ring || slot_index >= ring->slot_count || !bundle ||
         !bundle->vertices || !bundle->textures || !clear_vertices ||
@@ -128,13 +133,18 @@ int bsp_resource_frame_build(
         1, 0, 0, 0, 0, 1, 0, 0,
         0, 0, 1, 0, 0, 0, 0, 1,
     };
-    const float map_control[4] = {0, 0, 0, 1};
+    /* Also aliases Phase 4's render_color at the same 128-byte ABI. */
+    const float default_map_control[4] = {1, 1, 1, 1};
     const float clear_control[4] = {0.02f, 0.02f, 0.025f, 0};
+    const float *const map_control = goldsrc_constants
+        ? goldsrc_constants->render_color : default_map_control;
+    const float *const fog_color_density = goldsrc_constants
+        ? goldsrc_constants->fog_color_density : NULL;
     if (constants(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
-                  map_mvp, map_control, frame_index,
+                  map_mvp, map_control, fog_color_density, frame_index,
                   &out->map_constant_table) != 0 ||
         constants(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
-                  identity, clear_control, frame_index,
+                  identity, clear_control, NULL, frame_index,
                   &out->clear_constant_table) != 0 ||
         vertex_table(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
                      bundle->vertices, sizeof(BspBundleVertex),
@@ -190,4 +200,21 @@ int bsp_resource_frame_build(
     out->overlay_index_count = BSP_RESOURCE_OVERLAY_INDICES;
     out->transient_bytes = ring->slots[slot_index].used;
     return 0;
+}
+
+int bsp_resource_frame_build(
+    BspResourceFrame *out, Ps5TransientRing *ring, uint32_t slot_index,
+    const void *gpu_mapping, size_t gpu_mapping_bytes,
+    const BspBundleView *bundle, uint64_t lightmap_pixels_gpu_address,
+    const BspBundleVertex clear_vertices[3],
+    const uint16_t clear_indices[3],
+    const float camera_position[3], const float camera_forward[3],
+    float aspect_ratio, uint64_t frame_index,
+    enum ps5_gfx1013_filter base_filter)
+{
+    return bsp_resource_frame_build_configured(
+        out, ring, slot_index, gpu_mapping, gpu_mapping_bytes, bundle,
+        lightmap_pixels_gpu_address, clear_vertices, clear_indices,
+        camera_position, camera_forward, aspect_ratio, frame_index,
+        base_filter, NULL);
 }

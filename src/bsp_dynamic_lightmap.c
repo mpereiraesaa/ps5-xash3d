@@ -6,6 +6,8 @@
 
 enum { BSP_DYNAMIC_LIGHTMAP_GUARD_WORD = 0xd17e6a5bu };
 
+static int fill_pattern(uint8_t *rgba, size_t rgba_bytes, void *opaque);
+
 static float dot3(const float a[3], const float b[3])
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -342,18 +344,44 @@ int bsp_dynamic_lightmap_update_pattern(
         ring->slots[slot_index].state != PS5_TRANSIENT_OPEN ||
         !bsp_dynamic_lightmap_guards_intact(slot, layout))
         return -1;
+    const uint8_t value = pattern == 0u ? 255u : 24u;
+    return bsp_dynamic_lightmap_update_composed(
+        slot, layout, ring, slot_index, frame_index, pattern,
+        fill_pattern, (void *)(uintptr_t)value, update);
+}
+
+static int fill_pattern(uint8_t *rgba, size_t rgba_bytes, void *opaque)
+{
+    if (!rgba || rgba_bytes == 0u || rgba_bytes % 4u != 0u)
+        return -1;
+    const uint8_t value = (uint8_t)(uintptr_t)opaque;
+    for (size_t pixel = 0u; pixel < rgba_bytes; pixel += 4u) {
+        rgba[pixel] = value;
+        rgba[pixel + 1u] = value;
+        rgba[pixel + 2u] = value;
+        rgba[pixel + 3u] = 255u;
+    }
+    return 0;
+}
+
+int bsp_dynamic_lightmap_update_composed(
+    BspDynamicLightmapSlot *slot, const BspDynamicLightmapLayout *layout,
+    Ps5TransientRing *ring, uint32_t slot_index, uint64_t frame_index,
+    uint32_t pattern, BspDynamicLightmapComposer composer, void *opaque,
+    BspDynamicLightmapUpdate *update)
+{
+    if (!slot || !slot->initialized || !layout_valid(layout) || !ring ||
+        !composer || !update || slot_index >= ring->slot_count ||
+        ring->slots[slot_index].state != PS5_TRANSIENT_OPEN ||
+        !bsp_dynamic_lightmap_guards_intact(slot, layout))
+        return -1;
     Ps5TransientSlice staging;
     if (ps5_transient_ring_allocate(ring, slot_index, layout->patch_bytes,
                                     256u, &staging) != PS5_TRANSIENT_OK)
         return -2;
-    const uint8_t value = pattern == 0u ? 255u : 24u;
     uint8_t *const packed = staging.cpu;
-    for (size_t pixel = 0u; pixel < layout->patch_bytes; pixel += 4u) {
-        packed[pixel] = value;
-        packed[pixel + 1u] = value;
-        packed[pixel + 2u] = value;
-        packed[pixel + 3u] = 255u;
-    }
+    if (composer(packed, layout->patch_bytes, opaque) != 0)
+        return -2;
     for (uint32_t row = 0u; row < layout->patch_height; ++row) {
         uint8_t *const destination = slot->pixels + layout->dirty_offset +
                                      (size_t)row * layout->row_pitch;

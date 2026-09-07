@@ -93,6 +93,101 @@ telemetry, but are not success criteria because the input path did not change
 after its earlier hardware gate. This keeps the accounting proof from silently
 becoming another DualSense movement proof.
 
+The Phase 4 native-binding checkpoint adds `GOLDSRC_PIPELINES_READY` after all
+99 semantic cache entries and nine native shader slots are valid.
+`GOLDSRC_STATE_FRAME` identifies the selected opaque and masked BSP keys,
+passes, shader variants and dynamic register hashes. The viewport/scissor gate
+adds `GOLDSRC_VIEWPORT_READY`, sampled `GOLDSRC_VIEWPORT_FRAME`,
+`GOLDSRC_VIEWPORT_GATE_COMPLETE` and `GOLDSRC_PIPELINE_GATE_COMPLETE`.
+Acceptance requires the exact full/inset/scissor/restore plans, both real BSP
+state keys, the complete catalog and every inherited Phase 3 resource,
+readback, guard, fence and VideoOut invariant across exactly 10,000 frames.
+Input continuity and presentation-spike criteria are not inherited from the
+old noclip gate when they are unrelated to the render-state variable under
+test.
+
+The complete matrix adds `GOLDSRC_STATE_MATRIX_READY`, transition-time
+`GOLDSRC_STATE_MATRIX_FRAME`, exactly 18
+`GOLDSRC_STATE_MATRIX_READBACK` records and one
+`GOLDSRC_STATE_MATRIX_COMPLETE`. Each draw record binds its semantic case,
+stable key, shader variant and raw blend/depth/raster CX values. Each readback
+is taken once per case and backbuffer only after fence zero plus the exact
+VideoOut token. Acceptance requires all nine cases, both slots, nonzero visible
+pixels, a distinct feature/control hash for every non-opaque case, inherited
+resource/lightmap ownership and zero renderer errors through a gap-free BYE.
+
+The orthographic gate adds `GOLDSRC_2D_READY`, two bookend
+`GOLDSRC_2D_FRAME` records and `GOLDSRC_2D_COMPLETE`. The frame records bind
+screen-space state keys 129/130 to `screen_2d`, report the alpha/additive draw
+and index counts, separate HUD/console/menu/font quad counts, deterministic
+atlas/layout hashes and the transient bytes owned by that frame slot. The
+strict validator requires identical nonzero atlas/layout hashes in both
+bookends, exactly two batches and 522 indices, the expected component counts,
+10,000 clean frames, exact fence plus VideoOut retirement, intact guards, six
+reclaimed resources and the dedicated gap-free completion BYE.
+
+The lighting gate adds `GOLDSRC_LIGHTING_READY`, transition samples in
+`GOLDSRC_LIGHTING_FRAME`, exactly eight `GOLDSRC_LIGHTING_READBACK` records and
+`GOLDSRC_LIGHTING_COMPLETE`. The ready record binds an actual BSP face, draw,
+style IDs, source-sample hash, atlas rectangle and proof camera. Each frame
+identifies base, lightstyle, dynamic-light or combined composition, including
+the style tick/scale, dynamic luxel count, patch hash and exact bounded upload.
+Each mode is read back once per slot only after fence zero and the exact
+VideoOut token. Acceptance requires real BSP sample planes, all four modes,
+both slots, four distinct same-slot images, a converged final base patch,
+inherited resource ownership, intact guards, zero errors and the dedicated
+gap-free completion BYE.
+
+The Studio gate adds `GOLDSRC_STUDIO_READY`, transition/bookend
+`GOLDSRC_STUDIO_FRAME` and `GOLDSRC_STUDIO_DRAW` records, exactly ten
+`GOLDSRC_STUDIO_READBACK` records and `GOLDSRC_STUDIO_COMPLETE`. The ready
+record binds the private bundle SHA/size from boot to its bone, frame, geometry,
+draw, texture and chrome counts. Frame rows expose interpolation endpoints,
+blend, pose/skinned hashes and exact transient bytes; draw rows prove isolated
+opaque and additive state keys plus instance, draw, index and texture-bind
+counts. Acceptance requires control, textured, chrome, additive and combined
+modes on both slots, changing poses, distinct feature/control and
+combined/isolated images, CPU skinning in the transient ring, shared BSP-pool
+residency, exact fence plus VideoOut retirement, six reclaimed resources,
+intact guards, zero errors and the dedicated gap-free completion BYE.
+
+The brush gate adds `GOLDSRC_BRUSH_READY`, transition/bookend
+`GOLDSRC_BRUSH_FRAME` and `GOLDSRC_BRUSH_DRAW` records, exactly ten
+`GOLDSRC_BRUSH_READBACK` records and `GOLDSRC_BRUSH_COMPLETE`. The ready row
+binds the real model/entity counts and selected entity, source-mode, classname,
+draw and index tuples. Frame rows expose changing independent transform hashes
+and brush-only transient bytes; draw rows prove opaque key 4, alpha key 1 and
+additive key 2 with exact per-instance counts. Acceptance requires five modes
+on both slots, distinct feature/control and combined/isolated images, real BSP
+submodels, exact fence plus VideoOut retirement, six reclaimed resources,
+intact guards, zero errors and the dedicated gap-free completion BYE.
+
+The visibility gate adds `GOLDSRC_VISIBILITY_READY`, transition/bookend
+`GOLDSRC_VISIBILITY_FRAME` and `GOLDSRC_VISIBILITY_DRAW`, exactly eight
+`GOLDSRC_VISIBILITY_READBACK` rows and `GOLDSRC_VISIBILITY_COMPLETE`. The ready
+row binds the baked world-tree, PVS-row, leaf-reference and draw-bound counts.
+Frame rows expose camera leaf, visible leaves, control/selected class counts,
+independent PVS/frustum rejection counts and the transient mask hash. Draw rows
+bind those counts to the actual filtered opaque, alpha-test and sky passes.
+Acceptance requires both slots for control, PVS, frustum and intersection;
+strict draw reductions; a nonzero framebuffer whose bright-pixel difference
+from control stays within the declared 64-pixel tolerance; exact fence plus
+VideoOut retirement; six reclaimed resources; intact guards; zero errors; and
+the dedicated gap-free completion BYE.
+
+The final integrated gate adds `GOLDSRC_PHASE4_SCENE_READY`,
+`GOLDSRC_PHASE4_FINAL_READY`, four bookend `GOLDSRC_PHASE4_FINAL_FRAME` rows,
+two `GOLDSRC_PHASE4_FINAL_READBACK` rows and
+`GOLDSRC_PHASE4_FINAL_COMPLETE`. The scene row binds the selected real water
+and glass entities to their source modes, draw and index counts. Final frame
+rows bind the simultaneous lighting, effects, Studio, brush, visibility and
+2D modes to exact draw counts, changing pose/transform hashes and transient
+bytes. Acceptance requires the 60,000-frame process, a 600-frame combined
+window, both retired slots, real water/glass, all Phase 4 component bookends,
+the inherited pool/ring/lightmap/pipeline/2D completion markers, exact
+fence/VideoOut ownership, intact guards, six reclaimed allocations, zero
+errors and `goldsrc-phase4-final-soak-complete` as the gap-free BYE reason.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

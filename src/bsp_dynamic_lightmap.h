@@ -50,6 +50,9 @@ typedef struct BspDynamicLightmapUpdate {
     uint8_t first_upload;
 } BspDynamicLightmapUpdate;
 
+typedef int (*BspDynamicLightmapComposer)(uint8_t *rgba, size_t rgba_bytes,
+                                          void *opaque);
+
 int bsp_dynamic_lightmap_select(const BspBundleView *bundle,
                                 BspDynamicLightmapLayout *layout);
 int bsp_dynamic_lightmap_allocation_bytes(
@@ -66,6 +69,13 @@ int bsp_dynamic_lightmap_update_pattern(
     BspDynamicLightmapSlot *slot, const BspDynamicLightmapLayout *layout,
     Ps5TransientRing *ring, uint32_t slot_index, uint64_t frame_index,
     uint32_t pattern, BspDynamicLightmapUpdate *update);
+/* Compose a tightly packed RGBA8 rectangle directly into the transient
+ * staging slice, then commit that bounded rectangle to the active atlas. */
+int bsp_dynamic_lightmap_update_composed(
+    BspDynamicLightmapSlot *slot, const BspDynamicLightmapLayout *layout,
+    Ps5TransientRing *ring, uint32_t slot_index, uint64_t frame_index,
+    uint32_t pattern, BspDynamicLightmapComposer composer, void *opaque,
+    BspDynamicLightmapUpdate *update);
 int bsp_dynamic_lightmap_guards_intact(
     const BspDynamicLightmapSlot *slot,
     const BspDynamicLightmapLayout *layout);

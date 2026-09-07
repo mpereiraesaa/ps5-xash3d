@@ -115,12 +115,40 @@ def main() -> int:
     for value in overlay_required:
         if value not in overlay:
             raise SystemExit(f"BSP overlay shader contract is missing: {value}")
+    goldsrc_template = (ROOT / "shaders/goldsrc_surface.template.pipe").read_text(
+        encoding="utf-8"
+    )
+    for value in (
+        "uniform GoldSrcDrawConstants", "vec4 render_color;",
+        "vec4 fog_color_density;",
+        "color = vec4(surface, base.a * render_color.a);",
+        "binding[0].stride = 32",
+    ):
+        if value not in goldsrc_template:
+            raise SystemExit(f"GoldSrc shader template contract is missing: {value}")
+    for value in ("@MASK_BLOCK@", "@LIGHTMAP_EXPR@", "@FOG_BLOCK@"):
+        if goldsrc_template.count(value) != 1:
+            raise SystemExit(f"GoldSrc shader template token is invalid: {value}")
+    screen = (ROOT / "shaders/goldsrc_screen_2d.pipe").read_text(
+        encoding="utf-8"
+    )
+    for value in (
+        "uniform ScreenConstants", "mat4 projection;", "vec4 color_scale;",
+        "layout(location = 0) in vec2 in_position;",
+        "layout(location = 2) in vec4 in_color;",
+        "out_color = texture(image, uv) * color;",
+        "binding[0].stride = 32", "attribute[2].offset = 16",
+    ):
+        if screen.count(value) != 1:
+            raise SystemExit(f"GoldSrc 2D shader contract is missing: {value}")
     for name, pipe in (("resource", resource), ("alpha-test", alpha_test),
-                       ("sky", sky), ("overlay", overlay)):
+                       ("sky", sky), ("overlay", overlay),
+                       ("GoldSrc template", goldsrc_template),
+                       ("GoldSrc screen", screen)):
         for value in forbidden:
             if value in pipe:
                 raise SystemExit(f"BSP {name} shader contains forbidden value: {value}")
-    print("shader source contract passed: gears, BSP flat/textured/resource/alpha/sky/overlay ABIs")
+    print("shader source contract passed: gears, BSP and GoldSrc Phase 4 ABIs")
     return 0
 
 

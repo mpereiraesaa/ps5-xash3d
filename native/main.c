@@ -5,6 +5,16 @@
 #include "../src/gears_mesh.h"
 #include "../src/gears_renderer.h"
 #include "../src/gears_rt_clear.h"
+#include "../src/goldsrc_pipeline_cache.h"
+#include "../src/goldsrc_shader_catalog.h"
+#include "../src/goldsrc_state_matrix.h"
+#include "../src/goldsrc_2d.h"
+#include "../src/goldsrc_lightmap_lighting.h"
+#include "../src/goldsrc_sprite_particles.h"
+#include "../src/goldsrc_studio_bundle.h"
+#include "../src/goldsrc_studio_model.h"
+#include "../src/goldsrc_brush_entities.h"
+#include "../src/goldsrc_visibility.h"
 #include "../src/bsp_bundle.h"
 #include "../src/bsp_command_plan.h"
 #include "../src/bsp_flat_scene.h"
@@ -27,10 +37,13 @@
 #include "../src/ps5_pipeline.h"
 #include "../src/ps5_resource_pool.h"
 #include "../src/ps5_shader_header.h"
+#include "../src/ps5_shader_pipeline_slot.h"
+#include "../src/ps5_goldsrc_pipeline_runtime.h"
 #include "../src/ps5_submission.h"
 #include "../src/ps5_transient_ring.h"
 #include "../src/ps5_surface.h"
 #include "../src/ps5_videoout.h"
+#include "../src/ps5_viewport_scissor.h"
 #include "ps5_agc_native.h"
 #include "ps5log/ps5log.h"
 #include "gears_shader_metadata.h"
@@ -50,6 +63,12 @@
 #include "bsp_sky_shader_metadata.h"
 #include "bsp_overlay_shader_metadata.h"
 #include "pipeline_permutations.h"
+#ifdef PS5_GOLDSRC_PHASE4
+#include "goldsrc_shader_catalog_generated.h"
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+#include "studio_build_metadata.h"
+#endif
+#endif
 #endif
 #endif
 #endif
@@ -130,6 +149,14 @@ enum {
     SKY_LINKED_CX_OFFSET = 0xe000u,
     SKY_LINKED_UC_OFFSET = 0xe200u,
     SKY_PIPELINE_OFFSET = 0xf000u,
+#ifdef PS5_GOLDSRC_PHASE4
+    GOLDSRC_SHADER_SLOTS_OFFSET = 0x10000u,
+    GOLDSRC_STATE_REGISTERS_OFFSET = 0x34000u,
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    GOLDSRC_VIEWPORT_INSET_OFFSET = 0x35000u,
+    GOLDSRC_VIEWPORT_FULL_OFFSET = 0x35040u,
+#endif
+#endif
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
 #endif
@@ -146,7 +173,12 @@ enum {
     GUARD_WORD = 0x51a6c3d9u,
     BSP_FIXED_COMMAND_DWORDS = 4096u,
     BSP_MAX_BUNDLE_BYTES = 64u * 1024u * 1024u,
-#ifdef PS5_TEXTURE_FINAL_GATE
+    STUDIO_MAX_BUNDLE_BYTES = 16u * 1024u * 1024u,
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    BSP_GATE_FRAME_COUNT = 60000u,
+    BSP_NOCLIP_MIN_MOVING_FRAMES = 600u,
+    BSP_NOCLIP_MIN_LOOKING_FRAMES = 120u,
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     BSP_GATE_FRAME_COUNT = 60000u,
     BSP_NOCLIP_MIN_MOVING_FRAMES = 600u,
     BSP_NOCLIP_MIN_LOOKING_FRAMES = 120u,
@@ -179,6 +211,11 @@ struct native_resources {
     int64_t depth_offset;
     void *bsp;
     int64_t bsp_offset;
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    void *studio;
+    size_t studio_bytes;
+    size_t studio_offset;
+#endif
 #ifdef PS5_RESOURCE_FOUNDATION
     void *resource_heap;
     int64_t resource_heap_offset;
@@ -227,6 +264,70 @@ struct native_renderer {
     struct ps5_pipeline_registers *overlay_pipelines[2];
     struct ps5_pipeline_registers *alpha_test_pipelines[2];
     struct ps5_pipeline_registers *sky_pipelines[2];
+#ifdef PS5_GOLDSRC_PHASE4
+    Ps5ShaderPipelineSlotResult
+        goldsrc_shader_slots[GOLDSRC_SHADER_VARIANT_COUNT];
+    GoldSrcPipelineCache goldsrc_pipeline_cache;
+    Ps5GoldSrcPipelineRuntime goldsrc_pipeline_runtime;
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+    uint64_t goldsrc_matrix_hashes[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
+    uint64_t goldsrc_matrix_bright[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
+    uint8_t goldsrc_matrix_seen[GOLDSRC_STATE_MATRIX_CASE_COUNT][2];
+#endif
+#ifdef PS5_GOLDSRC_2D_GATE
+    GoldSrc2DFrame goldsrc_2d_frames[2];
+#endif
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    GoldSrcLightmapLightingPlan goldsrc_lighting_plan;
+    GoldSrcLightmapLightingUpdate goldsrc_lighting_updates[2];
+    uint64_t goldsrc_lighting_hashes[GOLDSRC_LIGHTING_MODE_COUNT][2];
+    uint64_t goldsrc_lighting_bright[GOLDSRC_LIGHTING_MODE_COUNT][2];
+    uint8_t goldsrc_lighting_seen[GOLDSRC_LIGHTING_MODE_COUNT][2];
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    GoldSrcSpriteParticleFrame goldsrc_effect_frames[2];
+    uint64_t goldsrc_effect_hashes[GOLDSRC_EFFECT_MODE_COUNT][2];
+    uint64_t goldsrc_effect_bright[GOLDSRC_EFFECT_MODE_COUNT][2];
+    uint8_t goldsrc_effect_seen[GOLDSRC_EFFECT_MODE_COUNT][2];
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    GoldSrcStudioBundleView goldsrc_studio_bundle;
+    GoldSrcStudioFrame goldsrc_studio_frames[2];
+    uint64_t goldsrc_studio_hashes[GOLDSRC_STUDIO_MODE_COUNT][2];
+    uint64_t goldsrc_studio_bright[GOLDSRC_STUDIO_MODE_COUNT][2];
+    uint8_t goldsrc_studio_seen[GOLDSRC_STUDIO_MODE_COUNT][2];
+    uint64_t goldsrc_studio_first_pose_hash;
+    uint64_t goldsrc_studio_last_pose_hash;
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    GoldSrcBrushPlan goldsrc_brush_plan;
+    GoldSrcBrushFrame goldsrc_brush_frames[2];
+    uint64_t goldsrc_brush_hashes[GOLDSRC_BRUSH_MODE_COUNT][2];
+    uint64_t goldsrc_brush_bright[GOLDSRC_BRUSH_MODE_COUNT][2];
+    uint8_t goldsrc_brush_seen[GOLDSRC_BRUSH_MODE_COUNT][2];
+    uint64_t goldsrc_brush_first_transform_hash;
+    uint64_t goldsrc_brush_last_transform_hash;
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    GoldSrcVisibilityPlan goldsrc_visibility_plan;
+    GoldSrcVisibilityFrame goldsrc_visibility_frames[2];
+    uint64_t goldsrc_visibility_hashes[GOLDSRC_VISIBILITY_MODE_COUNT][2];
+    uint64_t goldsrc_visibility_bright[GOLDSRC_VISIBILITY_MODE_COUNT][2];
+    uint8_t goldsrc_visibility_seen[GOLDSRC_VISIBILITY_MODE_COUNT][2];
+    uint32_t goldsrc_visibility_draw_counts[GOLDSRC_VISIBILITY_MODE_COUNT];
+    uint32_t goldsrc_visibility_leaf_counts[GOLDSRC_VISIBILITY_MODE_COUNT];
+    uint8_t goldsrc_visibility_counts_seen[GOLDSRC_VISIBILITY_MODE_COUNT];
+#endif
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    uint64_t goldsrc_phase4_final_hashes[2];
+    uint64_t goldsrc_phase4_final_bright[2];
+    uint8_t goldsrc_phase4_final_seen[2];
+#endif
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    ps5_agc_register *goldsrc_viewport_inset;
+    ps5_agc_register *goldsrc_viewport_full;
+#endif
+#endif
     BspAlphaTestPlan alpha_test_plan;
     BspSkyPlan sky_plan;
     Ps5TransientRing transient_ring;
@@ -422,10 +523,19 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
 #ifdef PS5_TEXTURE_PATH
 static int init_dynamic_lightmaps(void)
 {
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    if (goldsrc_lightmap_lighting_plan(
+            &renderer.bsp_bundle, 65536u,
+            &renderer.goldsrc_lighting_plan) != 0)
+        return -1;
+    renderer.dynamic_lightmap_layout =
+        renderer.goldsrc_lighting_plan.layout;
+#else
     if (bsp_dynamic_lightmap_select(
             &renderer.bsp_bundle,
             &renderer.dynamic_lightmap_layout) != 0)
         return -1;
+#endif
     size_t allocation_bytes = 0u;
     if (bsp_dynamic_lightmap_allocation_bytes(
             &renderer.dynamic_lightmap_layout, &allocation_bytes) != 0)
@@ -499,6 +609,20 @@ static int load_bsp_bundle(void)
         return -2;
     }
     const size_t file_bytes = (size_t)status.st_size;
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    const int studio_fd = open("/app0/model.ps5mdl", O_RDONLY);
+    struct stat studio_status;
+    if (studio_fd < 0 || fstat(studio_fd, &studio_status) != 0 ||
+        studio_status.st_size <= 0 ||
+        (uint64_t)studio_status.st_size > STUDIO_MAX_BUNDLE_BYTES ||
+        (uint64_t)studio_status.st_size != PS5_STUDIO_BUNDLE_BYTES) {
+        (void)close(fd);
+        if (studio_fd >= 0)
+            (void)close(studio_fd);
+        return -2;
+    }
+    const size_t studio_file_bytes = (size_t)studio_status.st_size;
+#endif
     BspRuntimePlan upper;
     const uint32_t maximum_draws =
         (uint32_t)(file_bytes / sizeof(BspBundleDraw));
@@ -513,18 +637,39 @@ static int load_bsp_bundle(void)
 #endif
     if (upper_result != 0) {
         (void)close(fd);
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+        (void)close(studio_fd);
+#endif
         return -3;
     }
+    size_t allocation_bytes = upper.allocation_bytes;
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    if (allocation_bytes > SIZE_MAX - 255u) {
+        (void)close(fd);
+        (void)close(studio_fd);
+        return -3;
+    }
+    resources.studio_offset = (allocation_bytes + 255u) & ~(size_t)255u;
+    if (studio_file_bytes > SIZE_MAX - resources.studio_offset) {
+        (void)close(fd);
+        (void)close(studio_fd);
+        return -3;
+    }
+    allocation_bytes = resources.studio_offset + studio_file_bytes;
+#endif
     int result;
 #ifdef PS5_RESOURCE_FOUNDATION
-    result = init_resource_heap(upper.allocation_bytes, file_bytes);
+    result = init_resource_heap(allocation_bytes, file_bytes);
 #else
     result = allocate_direct(&resources.bsp, &resources.bsp_offset,
-                             upper.allocation_bytes,
+                             allocation_bytes,
                              BSP_RUNTIME_ALLOCATION_ALIGNMENT);
 #endif
     if (result != 0) {
         (void)close(fd);
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+        (void)close(studio_fd);
+#endif
         return result;
     }
 #ifndef PS5_RESOURCE_FOUNDATION
@@ -536,6 +681,18 @@ static int load_bsp_bundle(void)
     const int close_result = close(fd);
     if (result != 0 || close_result != 0)
         return -4;
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    resources.studio = (uint8_t *)resources.bsp + resources.studio_offset;
+    resources.studio_bytes = studio_file_bytes;
+    result = read_exact(studio_fd, resources.studio, studio_file_bytes);
+    const int studio_close_result = close(studio_fd);
+    if (result != 0 || studio_close_result != 0 ||
+        goldsrc_studio_bundle_open(
+            resources.studio, resources.studio_bytes,
+            &renderer.goldsrc_studio_bundle) !=
+            GOLDSRC_STUDIO_BUNDLE_OK)
+        return -4;
+#endif
     if (bsp_bundle_open(resources.bsp, file_bytes,
                         &renderer.bsp_bundle) != BSP_BUNDLE_OK)
         return -5;
@@ -707,6 +864,9 @@ static const struct ps5_videoout_ops video_ops = {
     sceVideoOutUnregisterBuffers
 };
 
+static uint64_t readback_hash(const void *data, size_t bytes);
+static uint64_t bright_pixel_count(const void *data, size_t bytes);
+
 #ifdef PS5_RESOURCE_FOUNDATION
 static int resource_compose_fail(struct native_renderer *state,
                                  uint32_t slot, int result)
@@ -714,6 +874,40 @@ static int resource_compose_fail(struct native_renderer *state,
     (void)ps5_transient_ring_abort_unsubmitted(&state->transient_ring, slot);
     return result;
 }
+
+#ifdef PS5_GOLDSRC_PHASE4
+static int bind_goldsrc_pipeline(
+    struct native_renderer *state, uint32_t **cursor, uint32_t *end,
+    const GoldSrcRenderState *render_state, uint32_t framebuffer_slot,
+    Ps5GoldSrcPipelineBinding *binding)
+{
+    if (!state || !cursor || !*cursor || !end || *cursor > end ||
+        ps5_goldsrc_pipeline_runtime_bind(
+            &state->goldsrc_pipeline_runtime, render_state,
+            framebuffer_slot, binding) != 0)
+        return -1;
+    int result = ps5_native_set_indirect(
+        cursor, (uint32_t)(end - *cursor), binding->pipeline->cx,
+        PS5_PIPELINE_CX_REGISTERS, state->resources->shader,
+        SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->pipeline->uc,
+            PS5_PIPELINE_UC_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_UC);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->pipeline->sh,
+            PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), binding->dynamic_cx,
+            PS5_GOLDSRC_RENDER_REGISTER_COUNT, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    return result;
+}
+#endif
 #endif
 
 static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
@@ -724,6 +918,27 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_BSP_NOCLIP
     if (update_noclip_camera(state, frame) != 0)
         return -9;
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    memcpy(state->noclip.position, state->bsp_bundle.camera_position,
+           sizeof(state->noclip.position));
+    memcpy(state->noclip.forward, state->bsp_bundle.camera_forward,
+           sizeof(state->noclip.forward));
+#elif defined(PS5_GOLDSRC_LIGHTING_GATE)
+    memcpy(state->noclip.position,
+           state->goldsrc_lighting_plan.target_position,
+           sizeof(state->noclip.position));
+    memcpy(state->noclip.forward,
+           state->goldsrc_lighting_plan.target_forward,
+           sizeof(state->noclip.forward));
+#elif defined(PS5_GOLDSRC_SPRITE_PARTICLE_GATE) || \
+      defined(PS5_GOLDSRC_STUDIO_GATE) || \
+      defined(PS5_GOLDSRC_BRUSH_GATE) || \
+      defined(PS5_GOLDSRC_VISIBILITY_GATE)
+    memcpy(state->noclip.position, state->bsp_bundle.camera_position,
+           sizeof(state->noclip.position));
+    memcpy(state->noclip.forward, state->bsp_bundle.camera_forward,
+           sizeof(state->noclip.forward));
+#endif
 #endif
 #ifdef PS5_RESOURCE_FOUNDATION
     const uint32_t resource_slot = frame->buffer;
@@ -733,13 +948,30 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             completed != 0u) != PS5_TRANSIENT_OK)
         return -8;
 #ifdef PS5_TEXTURE_PATH
-#if defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
-    defined(PS5_TEXTURE_SKY_GATE)
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    const uint32_t lighting_mode =
+        goldsrc_lighting_mode(frame->frame_index);
+    if (goldsrc_lightmap_lighting_update(
+            &state->goldsrc_lighting_plan,
+            &state->dynamic_lightmap_slots[resource_slot],
+            &state->transient_ring, resource_slot, frame->frame_index,
+            lighting_mode,
+            &state->dynamic_lightmap_updates[resource_slot],
+            &state->goldsrc_lighting_updates[resource_slot]) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+#elif defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
+    defined(PS5_TEXTURE_SKY_GATE) || defined(PS5_GOLDSRC_VISIBILITY_GATE)
     if (bsp_dynamic_lightmap_update_pattern(
             &state->dynamic_lightmap_slots[resource_slot],
             &state->dynamic_lightmap_layout, &state->transient_ring,
             resource_slot, frame->frame_index,
-            (uint32_t)((frame->frame_index >> 1) & 1u),
+            (uint32_t)(
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+                0u
+#else
+                (frame->frame_index >> 1) & 1u
+#endif
+            ),
             &state->dynamic_lightmap_updates[resource_slot]) != 0)
         return resource_compose_fail(state, resource_slot, -9);
 #else
@@ -763,7 +995,25 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         ? PS5_GFX1013_FILTER_ANISOTROPIC_4X
         : PS5_GFX1013_FILTER_TRILINEAR;
 #endif
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+    const uint32_t matrix_index =
+        goldsrc_state_matrix_index(frame->frame_index);
+    const GoldSrcStateMatrixCase *const matrix_case =
+        goldsrc_state_matrix_case(matrix_index);
+    if (!matrix_case)
+        return resource_compose_fail(state, resource_slot, -9);
+    const BspResourceGoldSrcConstants matrix_constants = {
+        {matrix_case->render_color[0], matrix_case->render_color[1],
+         matrix_case->render_color[2], matrix_case->render_color[3]},
+        {matrix_case->fog_color_density[0],
+         matrix_case->fog_color_density[1],
+         matrix_case->fog_color_density[2],
+         matrix_case->fog_color_density[3]},
+    };
+    if (bsp_resource_frame_build_configured(
+#else
     if (bsp_resource_frame_build(
+#endif
             &state->resource_frames[resource_slot],
             &state->transient_ring, resource_slot,
             state->resources->resource_heap,
@@ -775,9 +1025,93 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                 (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
             frame->frame_index,
-            base_filter) != 0) {
+            base_filter
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+            , &matrix_constants
+#endif
+            ) != 0) {
         return resource_compose_fail(state, resource_slot, -9);
     }
+#ifdef PS5_GOLDSRC_2D_GATE
+    if (goldsrc_2d_frame_build(
+            &state->goldsrc_2d_frames[resource_slot],
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->resources->surface.width,
+            state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    if (goldsrc_sprite_particle_frame_build(
+            &state->goldsrc_effect_frames[resource_slot],
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->noclip.position, state->noclip.forward,
+            (float)state->resources->surface.width /
+                (float)state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    if (goldsrc_studio_frame_build(
+            &state->goldsrc_studio_frames[resource_slot],
+            &state->goldsrc_studio_bundle,
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->noclip.position, state->noclip.forward,
+            (float)state->resources->surface.width /
+                (float)state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+    if (frame->frame_index == 0u)
+        state->goldsrc_studio_first_pose_hash =
+            state->goldsrc_studio_frames[resource_slot].pose_hash;
+    state->goldsrc_studio_last_pose_hash =
+        state->goldsrc_studio_frames[resource_slot].pose_hash;
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    if (goldsrc_brush_frame_build(
+            &state->goldsrc_brush_frames[resource_slot],
+            &state->goldsrc_brush_plan, &state->bsp_bundle,
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->noclip.position, state->noclip.forward,
+            (float)state->resources->surface.width /
+                (float)state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+    if (frame->frame_index == 0u)
+        state->goldsrc_brush_first_transform_hash =
+            state->goldsrc_brush_frames[resource_slot].transform_hash;
+    state->goldsrc_brush_last_transform_hash =
+        state->goldsrc_brush_frames[resource_slot].transform_hash;
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    if (goldsrc_visibility_frame_build(
+            &state->goldsrc_visibility_frames[resource_slot],
+            &state->goldsrc_visibility_plan, &state->bsp_bundle,
+            &state->transient_ring, resource_slot,
+            state->noclip.position, state->noclip.forward,
+            (float)state->resources->surface.width /
+                (float)state->resources->surface.height,
+            frame->frame_index) != 0)
+        return resource_compose_fail(state, resource_slot, -9);
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+#endif
     Ps5TransientSlot *const transient_slot =
         &state->transient_ring.slots[resource_slot];
     const void *const transient_begin = state->transient_ring.base +
@@ -843,6 +1177,156 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             (unsigned long long)texture_upload.total_bytes,
             (unsigned long long)transient_slot->used,
             (unsigned long long)texture_upload.cumulative_total_bytes);
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    if (frame->frame_index % GOLDSRC_LIGHTING_HOLD_FRAMES < 2u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcLightmapLightingUpdate *const lighting =
+            &state->goldsrc_lighting_updates[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_LIGHTING_FRAME schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s style_tick=%u animated_scale=%u "
+            "dynamic_luxels=%u dynamic_center=%u,%u "
+            "style_hash=%016llx patch_hash=%016llx "
+            "patch_bytes=%llu upload_bytes=%llu "
+            "dirty_span_bytes=%llu first_upload=%s",
+            (unsigned long long)frame->frame_index, resource_slot,
+            lighting->mode, goldsrc_lighting_mode_name(lighting->mode),
+            lighting->style_tick, lighting->animated_style_scale,
+            lighting->dynamic_luxels, lighting->dynamic_center_x,
+            lighting->dynamic_center_y,
+            (unsigned long long)lighting->style_state_hash,
+            (unsigned long long)
+                state->dynamic_lightmap_updates[resource_slot].patch_hash,
+            (unsigned long long)state->dynamic_lightmap_layout.patch_bytes,
+            (unsigned long long)
+                state->dynamic_lightmap_updates[resource_slot].uploaded_bytes,
+            (unsigned long long)
+                state->dynamic_lightmap_updates[resource_slot]
+                    .written_span_bytes,
+            state->dynamic_lightmap_updates[resource_slot].first_upload
+                ? "true" : "false");
+    }
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    if (frame->frame_index % GOLDSRC_EFFECT_HOLD_FRAMES < 2u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcSpriteParticleFrame *const effects =
+            &state->goldsrc_effect_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_SPRITE_PARTICLE_FRAME schema=1 frame=%llu "
+            "slot=%u mode=%u name=%s sprite_quads=%u "
+            "alpha_particles=%u additive_particles=%u "
+            "sprite_indices=%u alpha_particle_indices=%u "
+            "additive_particle_indices=%u atlas_hash=%016llx "
+            "layout_hash=%016llx transient_bytes=%llu "
+            "geometry=per-frame-transient",
+            (unsigned long long)frame->frame_index, resource_slot,
+            effects->mode,
+            goldsrc_sprite_particle_mode_name(effects->mode),
+            effects->sprite_quads, effects->alpha_particles,
+            effects->additive_particles, effects->sprite_index_count,
+            effects->alpha_particle_index_count,
+            effects->additive_particle_index_count,
+            (unsigned long long)effects->atlas_hash,
+            (unsigned long long)effects->layout_hash,
+            (unsigned long long)effects->transient_bytes);
+    }
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    if (frame->frame_index % GOLDSRC_STUDIO_HOLD_FRAMES < 2u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcStudioFrame *const studio =
+            &state->goldsrc_studio_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_STUDIO_FRAME schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s animation=%u,%u blend_milli=%u "
+            "pose_hash=%016llx skinned_hash=%016llx "
+            "vertices_per_instance=%u indices_per_instance=%u "
+            "draws_per_instance=%u textures=%u transient_bytes=%llu "
+            "skinning=cpu geometry=per-frame-transient",
+            (unsigned long long)frame->frame_index, resource_slot,
+            studio->mode, goldsrc_studio_mode_name(studio->mode),
+            studio->frame0, studio->frame1,
+            (uint32_t)(studio->blend*1000.0f+0.5f),
+            (unsigned long long)studio->pose_hash,
+            (unsigned long long)studio->skinned_hash,
+            studio->vertices_per_instance, studio->indices_per_instance,
+            studio->draw_count, studio->texture_count,
+            (unsigned long long)studio->transient_bytes);
+    }
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    if (frame->frame_index % GOLDSRC_BRUSH_HOLD_FRAMES < 2u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcBrushFrame *const brush =
+            &state->goldsrc_brush_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_BRUSH_FRAME schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s transform_hash=%016llx "
+            "transient_bytes=%llu transforms=independent "
+            "geometry=real-bsp-submodels",
+            (unsigned long long)frame->frame_index, resource_slot,
+            brush->mode, goldsrc_brush_mode_name(brush->mode),
+            (unsigned long long)brush->transform_hash,
+            (unsigned long long)brush->transient_bytes);
+    }
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    if (frame->frame_index % GOLDSRC_VISIBILITY_HOLD_FRAMES < 2u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcVisibilityFrame *const visibility =
+            &state->goldsrc_visibility_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_VISIBILITY_FRAME schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s camera_leaf=%u visible_leaves=%u "
+            "world_draws=%u selected_draws=%u opaque=%u alpha=%u sky=%u "
+            "pvs_culled=%u frustum_culled=%u mask_hash=%016llx "
+            "transient_bytes=%llu",
+            (unsigned long long)frame->frame_index, resource_slot,
+            visibility->mode,
+            goldsrc_visibility_mode_name(visibility->mode),
+            visibility->camera_leaf, visibility->visible_leaves,
+            visibility->world_draws, visibility->selected_draws,
+            visibility->opaque_draws, visibility->alpha_draws,
+            visibility->sky_draws, visibility->pvs_culled,
+            visibility->frustum_culled,
+            (unsigned long long)visibility->mask_hash,
+            (unsigned long long)visibility->transient_bytes);
+    }
+#endif
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    if (frame->frame_index == 59400u || frame->frame_index == 59401u ||
+        frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
+        const GoldSrcLightmapLightingUpdate *const lighting =
+            &state->goldsrc_lighting_updates[resource_slot];
+        const GoldSrcSpriteParticleFrame *const effects =
+            &state->goldsrc_effect_frames[resource_slot];
+        const GoldSrcStudioFrame *const studio =
+            &state->goldsrc_studio_frames[resource_slot];
+        const GoldSrcBrushFrame *const brush =
+            &state->goldsrc_brush_frames[resource_slot];
+        const GoldSrcVisibilityFrame *const visibility =
+            &state->goldsrc_visibility_frames[resource_slot];
+        const GoldSrc2DFrame *const screen =
+            &state->goldsrc_2d_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_PHASE4_FINAL_FRAME schema=1 frame=%llu slot=%u "
+            "lighting=%u effects=%u studio=%u brush=%u visibility=%u "
+            "world_draws=%u brush_draws=69 studio_draws=12 "
+            "effect_draws=3 screen_draws=2 dynamic_luxels=%u "
+            "pose_hash=%016llx transform_hash=%016llx "
+            "screen_layout_hash=%016llx transient_bytes=%llu",
+            (unsigned long long)frame->frame_index, resource_slot,
+            lighting->mode, effects->mode, studio->mode, brush->mode,
+            visibility->mode, visibility->selected_draws,
+            lighting->dynamic_luxels,
+            (unsigned long long)studio->pose_hash,
+            (unsigned long long)brush->transform_hash,
+            (unsigned long long)screen->layout_hash,
+            (unsigned long long)
+                state->transient_ring.slots[resource_slot].used);
+    }
+#endif
 #ifdef PS5_TEXTURE_ACCOUNTING_ENABLED
     if (frame->frame_index < 2u ||
         frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT)
@@ -994,14 +1478,83 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_RESOURCE_FOUNDATION
     BspResourceComposeResult resource_composed = {0};
-    result = bsp_resource_compose_map_pass(
+    const uint8_t *map_draw_mask = 0;
+    uint32_t map_draw_mask_bytes = 0u;
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    map_draw_mask =
+        state->goldsrc_visibility_frames[resource_slot].draw_mask;
+    map_draw_mask_bytes =
+        state->goldsrc_visibility_frames[resource_slot].draw_mask_bytes;
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    result = bsp_resource_compose_clear(
+        &cursor, end, &state->resource_frames[resource_slot],
+        state->clear_indices, state->resources->resource_heap,
+        state->resources->resource_heap_bytes, state->draw_modifier,
+        ps5_native_set_sh_direct, ps5_native_draw_index,
+        &resource_composed);
+    const GoldSrcRenderState opaque_state =
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+        matrix_case->state;
+#else
+    {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+#endif
+    Ps5GoldSrcPipelineBinding opaque_binding;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &opaque_state, frame->buffer,
+            &opaque_binding);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_inset,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+#endif
+    if (result == 0)
+        result = bsp_resource_compose_map_pass_filtered(
+            &cursor, end, &state->resource_frames[resource_slot],
+            &state->bsp_bundle, state->clear_indices,
+            BSP_RESOURCE_DRAW_OPAQUE, 0,
+            map_draw_mask, map_draw_mask_bytes,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            opaque_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &resource_composed);
+#else
+    result = bsp_resource_compose_map_pass_filtered(
         &cursor, end, &state->resource_frames[resource_slot],
         &state->bsp_bundle, state->clear_indices,
         BSP_RESOURCE_DRAW_OPAQUE, 1,
+        map_draw_mask, map_draw_mask_bytes,
         state->resources->resource_heap,
         state->resources->resource_heap_bytes, state->draw_modifier,
         ps5_native_set_sh_direct, ps5_native_draw_index,
         &resource_composed);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    const GoldSrcRenderState alpha_state = {
+        GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    Ps5GoldSrcPipelineBinding alpha_binding;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &alpha_state, frame->buffer,
+            &alpha_binding);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_inset,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+#endif
+#else
     struct ps5_pipeline_registers *alpha_test =
         state->alpha_test_pipelines[frame->buffer];
 #ifdef PS5_TEXTURE_ALPHA_GATE
@@ -1025,15 +1578,86 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             &cursor, (uint32_t)(end - cursor), alpha_test->sh,
             PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
             SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+#endif
     if (result == 0)
-        result = bsp_resource_compose_map_pass(
+        result = bsp_resource_compose_map_pass_filtered(
             &cursor, end, &state->resource_frames[resource_slot],
             &state->bsp_bundle, state->clear_indices,
             BSP_RESOURCE_DRAW_ALPHA_TEST, 0,
+            map_draw_mask, map_draw_mask_bytes,
             state->resources->resource_heap,
-            state->resources->resource_heap_bytes, state->draw_modifier,
+            state->resources->resource_heap_bytes,
+#ifdef PS5_GOLDSRC_PHASE4
+            alpha_binding.draw_modifier,
+#else
+            state->draw_modifier,
+#endif
             ps5_native_set_sh_direct, ps5_native_draw_index,
             &resource_composed);
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor),
+            state->goldsrc_viewport_full,
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT,
+            state->resources->shader, SHADER_BYTES,
+            PS5_NATIVE_REGISTERS_CX);
+    if (result == 0 && frame->frame_index == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_VIEWPORT_FRAME schema=1 frame=%llu slot=%u "
+            "sequence=full-clear,inset-opaque,inset-alpha,full-restore "
+            "inset_scissor_tl=%08x inset_scissor_br=%08x "
+            "full_scissor_tl=%08x full_scissor_br=%08x",
+            (unsigned long long)frame->frame_index, resource_slot,
+            state->goldsrc_viewport_inset[6].value,
+            state->goldsrc_viewport_inset[7].value,
+            state->goldsrc_viewport_full[6].value,
+            state->goldsrc_viewport_full[7].value);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    if (result == 0 && frame->frame_index == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_STATE_FRAME schema=1 frame=%llu slot=%u "
+            "opaque_key=%u opaque_pass=%u opaque_shader=%s "
+            "opaque_blend=%08x opaque_depth=%08x opaque_raster=%08x "
+            "alpha_key=%u alpha_pass=%u alpha_shader=%s "
+            "alpha_blend=%08x alpha_depth=%08x alpha_raster=%08x",
+            (unsigned long long)frame->frame_index, resource_slot,
+            opaque_binding.permutation->key,
+            opaque_binding.permutation->pass,
+            goldsrc_pipeline_shader_variant_name(
+                opaque_binding.permutation->shader),
+            opaque_binding.dynamic_cx[0].value,
+            opaque_binding.dynamic_cx[1].value,
+            opaque_binding.dynamic_cx[2].value,
+            alpha_binding.permutation->key,
+            alpha_binding.permutation->pass,
+            goldsrc_pipeline_shader_variant_name(
+                alpha_binding.permutation->shader),
+            alpha_binding.dynamic_cx[0].value,
+            alpha_binding.dynamic_cx[1].value,
+            alpha_binding.dynamic_cx[2].value);
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+    if (result == 0 &&
+        frame->frame_index % GOLDSRC_STATE_MATRIX_HOLD_FRAMES == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_STATE_MATRIX_FRAME schema=1 frame=%llu slot=%u "
+            "case=%u name=%s key=%u blend=%u depth_write=%u cull=%u "
+            "fog=%u lightmap=%u shader=%s blend_cx=%08x "
+            "depth_cx=%08x raster_cx=%08x",
+            (unsigned long long)frame->frame_index, resource_slot,
+            matrix_index, matrix_case->name,
+            opaque_binding.permutation->key,
+            matrix_case->state.blend, matrix_case->state.depth_write,
+            matrix_case->state.cull, matrix_case->state.fog,
+            matrix_case->state.lightmap,
+            goldsrc_pipeline_shader_variant_name(
+                opaque_binding.permutation->shader),
+            opaque_binding.dynamic_cx[0].value,
+            opaque_binding.dynamic_cx[1].value,
+            opaque_binding.dynamic_cx[2].value);
+#endif
+#endif
 #ifdef PS5_TEXTURE_ALPHA_GATE
     if (result == 0 &&
         (frame->frame_index == 0u ||
@@ -1072,14 +1696,46 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
             SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
     if (result == 0 && sky_enabled)
-        result = bsp_resource_compose_map_pass(
+        result = bsp_resource_compose_map_pass_filtered(
             &cursor, end, &state->resource_frames[resource_slot],
             &state->bsp_bundle, state->clear_indices,
             BSP_RESOURCE_DRAW_SKY, 0,
+            map_draw_mask, map_draw_mask_bytes,
             state->resources->resource_heap,
             state->resources->resource_heap_bytes, state->draw_modifier,
             ps5_native_set_sh_direct, ps5_native_draw_index,
             &resource_composed);
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    if (result == 0 &&
+        (frame->frame_index % GOLDSRC_VISIBILITY_HOLD_FRAMES == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT)) {
+        const GoldSrcVisibilityFrame *const visibility =
+            &state->goldsrc_visibility_frames[resource_slot];
+        if (resource_composed.map_draws != visibility->selected_draws ||
+            resource_composed.opaque_draws != visibility->opaque_draws ||
+            resource_composed.alpha_test_draws != visibility->alpha_draws ||
+            resource_composed.sky_draws != visibility->sky_draws)
+            result = -18;
+        else
+            (void)ps5log_printf(PS5LOG_MARK,
+                "GOLDSRC_VISIBILITY_DRAW schema=1 frame=%llu slot=%u "
+                "mode=%u name=%s draws=%u opaque=%u alpha=%u sky=%u "
+                "pvs=%s frustum=%s ownership=fence+videoout",
+                (unsigned long long)frame->frame_index, resource_slot,
+                visibility->mode,
+                goldsrc_visibility_mode_name(visibility->mode),
+                resource_composed.map_draws,
+                resource_composed.opaque_draws,
+                resource_composed.alpha_test_draws,
+                resource_composed.sky_draws,
+                (visibility->mode == GOLDSRC_VISIBILITY_MODE_PVS ||
+                 visibility->mode == GOLDSRC_VISIBILITY_MODE_COMBINED)
+                    ? "on" : "off",
+                (visibility->mode == GOLDSRC_VISIBILITY_MODE_FRUSTUM ||
+                 visibility->mode == GOLDSRC_VISIBILITY_MODE_COMBINED)
+                    ? "on" : "off");
+    }
+#endif
 #ifdef PS5_TEXTURE_SKY_GATE
     if (result == 0 &&
         (frame->frame_index == 0u ||
@@ -1093,6 +1749,268 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             sky_enabled ? resource_composed.sky_draws : 0u,
             state->sky_plan.draw_count,
             state->dynamic_lightmap_updates[resource_slot].pattern);
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    GoldSrcSpriteParticleComposeResult effect_composed = {0};
+    Ps5GoldSrcPipelineBinding effect_alpha_binding;
+    Ps5GoldSrcPipelineBinding effect_additive_binding;
+    const GoldSrcRenderState effect_alpha_state = {
+        GOLDSRC_BLEND_ALPHA, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 0u,
+    };
+    const GoldSrcRenderState effect_additive_state = {
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 0u,
+    };
+    GoldSrcSpriteParticleFrame *const effects =
+        &state->goldsrc_effect_frames[resource_slot];
+    const int effect_has_sprite =
+        effects->mode == GOLDSRC_EFFECT_MODE_SPRITE ||
+        effects->mode == GOLDSRC_EFFECT_MODE_COMBINED;
+    const int effect_has_particles =
+        effects->mode == GOLDSRC_EFFECT_MODE_PARTICLES ||
+        effects->mode == GOLDSRC_EFFECT_MODE_COMBINED;
+    if (result == 0 && (effect_has_sprite || effect_has_particles))
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &effect_alpha_state, frame->buffer,
+            &effect_alpha_binding);
+    if (result == 0 && effect_has_sprite)
+        result = goldsrc_sprite_particle_compose_range(
+            &cursor, end, effects, effects->sprite_first_index,
+            effects->sprite_index_count,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            effect_alpha_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &effect_composed);
+    if (result == 0 && effect_has_particles)
+        result = goldsrc_sprite_particle_compose_range(
+            &cursor, end, effects, effects->alpha_particle_first_index,
+            effects->alpha_particle_index_count,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            effect_alpha_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &effect_composed);
+    if (result == 0 && effect_has_particles)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &effect_additive_state, frame->buffer,
+            &effect_additive_binding);
+    if (result == 0 && effect_has_particles)
+        result = goldsrc_sprite_particle_compose_range(
+            &cursor, end, effects, effects->additive_particle_first_index,
+            effects->additive_particle_index_count,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            effect_additive_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &effect_composed);
+    if (result == 0 &&
+        (frame->frame_index % GOLDSRC_EFFECT_HOLD_FRAMES == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_SPRITE_PARTICLE_DRAW schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s alpha_key=%u additive_key=%u shader=%s "
+            "draws=%u indices=%u sprite_draws=%u particle_draws=%u "
+            "depth_write=false cull=none lightmap=false "
+            "ownership=fence+videoout",
+            (unsigned long long)frame->frame_index, resource_slot,
+            effects->mode,
+            goldsrc_sprite_particle_mode_name(effects->mode),
+            (effect_has_sprite || effect_has_particles)
+                ? effect_alpha_binding.permutation->key : 0u,
+            effect_has_particles
+                ? effect_additive_binding.permutation->key : 0u,
+            (effect_has_sprite || effect_has_particles)
+                ? goldsrc_pipeline_shader_variant_name(
+                      effect_alpha_binding.permutation->shader)
+                : "none",
+            effect_composed.draws, effect_composed.indices,
+            effect_has_sprite ? 1u : 0u,
+            effect_has_particles ? 2u : 0u);
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    GoldSrcStudioComposeResult studio_composed = {0};
+    Ps5GoldSrcPipelineBinding studio_opaque_binding;
+    Ps5GoldSrcPipelineBinding studio_additive_binding;
+    const GoldSrcRenderState studio_opaque_state = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+    };
+    const GoldSrcRenderState studio_additive_state = {
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 0u,
+    };
+    GoldSrcStudioFrame *const studio =
+        &state->goldsrc_studio_frames[resource_slot];
+    const int studio_has_textured =
+        studio->mode == GOLDSRC_STUDIO_MODE_TEXTURED ||
+        studio->mode == GOLDSRC_STUDIO_MODE_COMBINED;
+    const int studio_has_chrome =
+        studio->mode == GOLDSRC_STUDIO_MODE_CHROME ||
+        studio->mode == GOLDSRC_STUDIO_MODE_COMBINED;
+    const int studio_has_additive =
+        studio->mode == GOLDSRC_STUDIO_MODE_ADDITIVE ||
+        studio->mode == GOLDSRC_STUDIO_MODE_COMBINED;
+    if (result == 0 && (studio_has_textured || studio_has_chrome))
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &studio_opaque_state, frame->buffer,
+            &studio_opaque_binding);
+    if (result == 0 && studio_has_textured)
+        result = goldsrc_studio_compose_instance(
+            &cursor, end, studio, &state->goldsrc_studio_bundle,
+            GOLDSRC_STUDIO_INSTANCE_TEXTURED,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            studio_opaque_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &studio_composed);
+    if (result == 0 && studio_has_chrome)
+        result = goldsrc_studio_compose_instance(
+            &cursor, end, studio, &state->goldsrc_studio_bundle,
+            GOLDSRC_STUDIO_INSTANCE_CHROME,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            studio_opaque_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &studio_composed);
+    if (result == 0 && studio_has_additive)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &studio_additive_state, frame->buffer,
+            &studio_additive_binding);
+    if (result == 0 && studio_has_additive)
+        result = goldsrc_studio_compose_instance(
+            &cursor, end, studio, &state->goldsrc_studio_bundle,
+            GOLDSRC_STUDIO_INSTANCE_ADDITIVE,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            studio_additive_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &studio_composed);
+    if (result == 0 &&
+        (frame->frame_index % GOLDSRC_STUDIO_HOLD_FRAMES == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_STUDIO_DRAW schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s opaque_key=%u additive_key=%u shader=%s "
+            "instances=%u draws=%u indices=%u texture_binds=%u "
+            "depth_write=opaque-only cull=none lightmap=false "
+            "ownership=fence+videoout",
+            (unsigned long long)frame->frame_index, resource_slot,
+            studio->mode, goldsrc_studio_mode_name(studio->mode),
+            (studio_has_textured || studio_has_chrome)
+                ? studio_opaque_binding.permutation->key : 0u,
+            studio_has_additive
+                ? studio_additive_binding.permutation->key : 0u,
+            (studio_has_textured || studio_has_chrome ||
+             studio_has_additive) ? "surface" : "none",
+            (uint32_t)(studio_has_textured + studio_has_chrome +
+                       studio_has_additive),
+            studio_composed.draws, studio_composed.indices,
+            studio_composed.textures);
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    GoldSrcBrushComposeResult brush_composed = {0};
+    Ps5GoldSrcPipelineBinding brush_opaque_binding;
+    Ps5GoldSrcPipelineBinding brush_alpha_binding;
+    Ps5GoldSrcPipelineBinding brush_additive_binding;
+    const GoldSrcRenderState brush_opaque_state = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+    };
+    const GoldSrcRenderState brush_alpha_state = {
+        GOLDSRC_BLEND_ALPHA, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 0u,
+    };
+    const GoldSrcRenderState brush_additive_state = {
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 0u,
+    };
+    GoldSrcBrushFrame *const brush =
+        &state->goldsrc_brush_frames[resource_slot];
+    const int brush_has_opaque =
+        brush->mode == GOLDSRC_BRUSH_MODE_OPAQUE ||
+        brush->mode == GOLDSRC_BRUSH_MODE_COMBINED;
+    const int brush_has_alpha =
+        brush->mode == GOLDSRC_BRUSH_MODE_ALPHA ||
+        brush->mode == GOLDSRC_BRUSH_MODE_COMBINED;
+    const int brush_has_additive =
+        brush->mode == GOLDSRC_BRUSH_MODE_ADDITIVE ||
+        brush->mode == GOLDSRC_BRUSH_MODE_COMBINED;
+    if (result == 0 && brush_has_opaque)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &brush_opaque_state, frame->buffer,
+            &brush_opaque_binding);
+    if (result == 0 && brush_has_opaque)
+        result = goldsrc_brush_compose_instance(
+            &cursor, end, brush, &state->goldsrc_brush_plan,
+            &state->resource_frames[resource_slot], &state->bsp_bundle,
+            GOLDSRC_BRUSH_INSTANCE_OPAQUE,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            brush_opaque_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &brush_composed);
+    if (result == 0 && brush_has_alpha)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &brush_alpha_state, frame->buffer,
+            &brush_alpha_binding);
+    if (result == 0 && brush_has_alpha)
+        result = goldsrc_brush_compose_instance(
+            &cursor, end, brush, &state->goldsrc_brush_plan,
+            &state->resource_frames[resource_slot], &state->bsp_bundle,
+            GOLDSRC_BRUSH_INSTANCE_ALPHA,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            brush_alpha_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &brush_composed);
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    if (result == 0 && brush->mode == GOLDSRC_BRUSH_MODE_COMBINED)
+        result = goldsrc_brush_compose_instance(
+            &cursor, end, brush, &state->goldsrc_brush_plan,
+            &state->resource_frames[resource_slot], &state->bsp_bundle,
+            GOLDSRC_BRUSH_INSTANCE_WATER,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            brush_alpha_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &brush_composed);
+    if (result == 0 && brush->mode == GOLDSRC_BRUSH_MODE_COMBINED)
+        result = goldsrc_brush_compose_instance(
+            &cursor, end, brush, &state->goldsrc_brush_plan,
+            &state->resource_frames[resource_slot], &state->bsp_bundle,
+            GOLDSRC_BRUSH_INSTANCE_GLASS,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            brush_alpha_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &brush_composed);
+#endif
+    if (result == 0 && brush_has_additive)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &brush_additive_state, frame->buffer,
+            &brush_additive_binding);
+    if (result == 0 && brush_has_additive)
+        result = goldsrc_brush_compose_instance(
+            &cursor, end, brush, &state->goldsrc_brush_plan,
+            &state->resource_frames[resource_slot], &state->bsp_bundle,
+            GOLDSRC_BRUSH_INSTANCE_ADDITIVE,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            brush_additive_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &brush_composed);
+    if (result == 0 &&
+        (frame->frame_index % GOLDSRC_BRUSH_HOLD_FRAMES == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_BRUSH_DRAW schema=1 frame=%llu slot=%u "
+            "mode=%u name=%s opaque_key=%u alpha_key=%u additive_key=%u "
+            "instances=%u draws=%u indices=%u texture_binds=%u "
+            "depth_write=opaque-only cull=none lightmap=false "
+            "ownership=fence+videoout",
+            (unsigned long long)frame->frame_index, resource_slot,
+            brush->mode, goldsrc_brush_mode_name(brush->mode),
+            brush_has_opaque
+                ? brush_opaque_binding.permutation->key : 0u,
+            brush_has_alpha
+                ? brush_alpha_binding.permutation->key : 0u,
+            brush_has_additive
+                ? brush_additive_binding.permutation->key : 0u,
+            brush_composed.instances, brush_composed.draws,
+            brush_composed.indices, brush_composed.texture_binds);
 #endif
     struct ps5_pipeline_registers *overlay =
         state->overlay_pipelines[resource_slot];
@@ -1124,11 +2042,80 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->resources->resource_heap_bytes,
             state->overlay_draw_modifier, ps5_native_set_sh_direct,
             ps5_native_draw_index, &resource_composed);
+#ifdef PS5_GOLDSRC_2D_GATE
+    GoldSrc2DComposeResult screen_composed = {0};
+    GoldSrcRenderState screen_alpha_state;
+    GoldSrcRenderState screen_additive_state;
+    Ps5GoldSrcPipelineBinding screen_alpha_binding;
+    Ps5GoldSrcPipelineBinding screen_additive_binding;
+    GoldSrc2DFrame *const screen =
+        &state->goldsrc_2d_frames[resource_slot];
+    if (result == 0 &&
+        (goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA,
+                                 &screen_alpha_state) != 0 ||
+         goldsrc_render_state_2d(GOLDSRC_BLEND_ADDITIVE,
+                                 &screen_additive_state) != 0))
+        result = -1;
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &screen_alpha_state, frame->buffer,
+            &screen_alpha_binding);
+    if (result == 0)
+        result = goldsrc_2d_compose_range(
+            &cursor, end, screen, screen->alpha_first_index,
+            screen->alpha_index_count, state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            screen_alpha_binding.draw_modifier, ps5_native_set_sh_direct,
+            ps5_native_draw_index, &screen_composed);
+    if (result == 0)
+        result = bind_goldsrc_pipeline(
+            state, &cursor, end, &screen_additive_state, frame->buffer,
+            &screen_additive_binding);
+    if (result == 0)
+        result = goldsrc_2d_compose_range(
+            &cursor, end, screen, screen->additive_first_index,
+            screen->additive_index_count,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            screen_additive_binding.draw_modifier,
+            ps5_native_set_sh_direct, ps5_native_draw_index,
+            &screen_composed);
+    if (result == 0 &&
+        (frame->frame_index == 0u ||
+         frame->frame_index + 1u == BSP_GATE_FRAME_COUNT))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "GOLDSRC_2D_FRAME schema=1 frame=%llu slot=%u "
+            "alpha_key=%u additive_key=%u shader=%s draws=%u "
+            "indices=%u hud_quads=%u console_quads=%u menu_quads=%u "
+            "font_quads=%u atlas_hash=%016llx layout_hash=%016llx "
+            "transient_bytes=%llu ownership=fence+videoout",
+            (unsigned long long)frame->frame_index, resource_slot,
+            screen_alpha_binding.permutation->key,
+            screen_additive_binding.permutation->key,
+            goldsrc_pipeline_shader_variant_name(
+                screen_alpha_binding.permutation->shader),
+            screen_composed.draws, screen_composed.indices,
+            screen->hud_quads, screen->console_quads,
+            screen->menu_quads, screen->font_quads,
+            (unsigned long long)screen->atlas_hash,
+            (unsigned long long)screen->layout_hash,
+            (unsigned long long)screen->transient_bytes);
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    const GoldSrcVisibilityFrame *const visibility_expected =
+        &state->goldsrc_visibility_frames[resource_slot];
+    const uint32_t expected_sky_draws =
+        sky_enabled ? visibility_expected->sky_draws : 0u;
+    const uint32_t expected_map_draws =
+        visibility_expected->selected_draws -
+        (sky_enabled ? 0u : visibility_expected->sky_draws);
+#else
     const uint32_t expected_sky_draws =
         sky_enabled ? state->sky_plan.draw_count : 0u;
     const uint32_t expected_map_draws =
         state->bsp_bundle.draw_count -
         (sky_enabled ? 0u : state->sky_plan.draw_count);
+#endif
     if (result != 0 ||
         resource_composed.map_draws != expected_map_draws ||
         resource_composed.sky_draws != expected_sky_draws ||
@@ -1138,6 +2125,27 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             expected_map_draws ||
         resource_composed.overlay_draws != 1u)
         return resource_compose_fail(state, resource_slot, -16);
+#ifdef PS5_GOLDSRC_2D_GATE
+    if (screen_composed.draws != 2u ||
+        screen_composed.indices !=
+            screen->alpha_index_count + screen->additive_index_count)
+        return resource_compose_fail(state, resource_slot, -16);
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    const uint32_t expected_effect_draws =
+        effects->mode == GOLDSRC_EFFECT_MODE_CONTROL ? 0u :
+        effects->mode == GOLDSRC_EFFECT_MODE_SPRITE ? 1u :
+        effects->mode == GOLDSRC_EFFECT_MODE_PARTICLES ? 2u : 3u;
+    const uint32_t expected_effect_indices =
+        (effect_has_sprite ? effects->sprite_index_count : 0u) +
+        (effect_has_particles
+            ? effects->alpha_particle_index_count +
+                  effects->additive_particle_index_count
+            : 0u);
+    if (effect_composed.draws != expected_effect_draws ||
+        effect_composed.indices != expected_effect_indices)
+        return resource_compose_fail(state, resource_slot, -16);
+#endif
 #elif defined(PS5_BSP_TEXTURED)
     BspFlatComposeResult composed = {0, 0};
     result = bsp_textured_compose(
@@ -1276,6 +2284,237 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
                 return -3;
             state->completed_tokens[frame->buffer] = frame->token;
             state->last_completed_token = frame->token;
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+            const uint32_t matrix_index =
+                goldsrc_state_matrix_index(frame->frame_index);
+            if (!state->goldsrc_matrix_seen[matrix_index][frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes = state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_matrix_hashes[matrix_index][frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_matrix_bright[matrix_index][frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_matrix_seen[matrix_index][frame->buffer] = 1u;
+                const GoldSrcStateMatrixCase *const matrix_case =
+                    goldsrc_state_matrix_case(matrix_index);
+                uint32_t matrix_key = 0u;
+                if (!matrix_case || goldsrc_render_state_key(
+                        &matrix_case->state, &matrix_key) != 0)
+                    return -4;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_STATE_MATRIX_READBACK schema=1 frame=%llu "
+                    "slot=%u case=%u name=%s key=%u hash=%016llx "
+                    "bright_pixels=%llu fence=zero videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    matrix_index, matrix_case->name, matrix_key,
+                    (unsigned long long)
+                        state->goldsrc_matrix_hashes[matrix_index]
+                                                     [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_matrix_bright[matrix_index]
+                                                     [frame->buffer]);
+            }
+#endif
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+            const uint32_t lighting_mode =
+                goldsrc_lighting_mode(frame->frame_index);
+            if (!state->goldsrc_lighting_seen[lighting_mode]
+                                                   [frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes = state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_lighting_hashes[lighting_mode]
+                                               [frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_lighting_bright[lighting_mode]
+                                               [frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_lighting_seen[lighting_mode]
+                                             [frame->buffer] = 1u;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_LIGHTING_READBACK schema=1 frame=%llu "
+                    "slot=%u mode=%u name=%s hash=%016llx "
+                    "bright_pixels=%llu fence=zero "
+                    "videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    lighting_mode,
+                    goldsrc_lighting_mode_name(lighting_mode),
+                    (unsigned long long)
+                        state->goldsrc_lighting_hashes[lighting_mode]
+                                                       [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_lighting_bright[lighting_mode]
+                                                       [frame->buffer]);
+            }
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+            const uint32_t effect_mode =
+                goldsrc_sprite_particle_mode(frame->frame_index);
+            if (!state->goldsrc_effect_seen[effect_mode][frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes = state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_effect_hashes[effect_mode][frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_effect_bright[effect_mode][frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_effect_seen[effect_mode][frame->buffer] = 1u;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_SPRITE_PARTICLE_READBACK schema=1 "
+                    "frame=%llu slot=%u mode=%u name=%s "
+                    "hash=%016llx bright_pixels=%llu fence=zero "
+                    "videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    effect_mode,
+                    goldsrc_sprite_particle_mode_name(effect_mode),
+                    (unsigned long long)
+                        state->goldsrc_effect_hashes[effect_mode]
+                                                     [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_effect_bright[effect_mode]
+                                                     [frame->buffer]);
+            }
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+            const uint32_t studio_mode =
+                goldsrc_studio_mode(frame->frame_index);
+            if (!state->goldsrc_studio_seen[studio_mode][frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes =
+                    state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_studio_hashes[studio_mode][frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_studio_bright[studio_mode][frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_studio_seen[studio_mode][frame->buffer] = 1u;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_STUDIO_READBACK schema=1 frame=%llu "
+                    "slot=%u mode=%u name=%s hash=%016llx "
+                    "bright_pixels=%llu fence=zero videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    studio_mode, goldsrc_studio_mode_name(studio_mode),
+                    (unsigned long long)
+                        state->goldsrc_studio_hashes[studio_mode]
+                                                     [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_studio_bright[studio_mode]
+                                                     [frame->buffer]);
+            }
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+            const uint32_t brush_mode =
+                goldsrc_brush_mode(frame->frame_index);
+            if (!state->goldsrc_brush_seen[brush_mode][frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes =
+                    state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_brush_hashes[brush_mode][frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_brush_bright[brush_mode][frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_brush_seen[brush_mode][frame->buffer] = 1u;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_BRUSH_READBACK schema=1 frame=%llu "
+                    "slot=%u mode=%u name=%s hash=%016llx "
+                    "bright_pixels=%llu fence=zero videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    brush_mode, goldsrc_brush_mode_name(brush_mode),
+                    (unsigned long long)
+                        state->goldsrc_brush_hashes[brush_mode]
+                                                    [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_brush_bright[brush_mode]
+                                                   [frame->buffer]);
+            }
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+            const uint32_t visibility_mode =
+                goldsrc_visibility_mode(frame->frame_index);
+            const GoldSrcVisibilityFrame *const visibility =
+                &state->goldsrc_visibility_frames[frame->buffer];
+            if (!state->goldsrc_visibility_seen[visibility_mode]
+                                                   [frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes =
+                    state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_visibility_hashes[visibility_mode]
+                                                    [frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_visibility_bright[visibility_mode]
+                                                    [frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_visibility_seen[visibility_mode]
+                                                  [frame->buffer] = 1u;
+                if (!state->goldsrc_visibility_counts_seen[visibility_mode]) {
+                    state->goldsrc_visibility_draw_counts[visibility_mode] =
+                        visibility->selected_draws;
+                    state->goldsrc_visibility_leaf_counts[visibility_mode] =
+                        visibility->visible_leaves;
+                    state->goldsrc_visibility_counts_seen[visibility_mode] = 1u;
+                }
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_VISIBILITY_READBACK schema=1 frame=%llu "
+                    "slot=%u mode=%u name=%s hash=%016llx "
+                    "bright_pixels=%llu draws=%u fence=zero "
+                    "videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    visibility_mode,
+                    goldsrc_visibility_mode_name(visibility_mode),
+                    (unsigned long long)
+                        state->goldsrc_visibility_hashes[visibility_mode]
+                                                         [frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_visibility_bright[visibility_mode]
+                                                         [frame->buffer],
+                    visibility->selected_draws);
+            }
+#endif
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+            if ((frame->frame_index == 59400u ||
+                 frame->frame_index == 59401u) &&
+                !state->goldsrc_phase4_final_seen[frame->buffer]) {
+                const uint8_t *const pixels =
+                    (const uint8_t *)state->resources->framebuffer +
+                    (size_t)frame->buffer * PS5_SURFACE_BUFFER_STRIDE;
+                const size_t bytes =
+                    state->resources->surface.tiled_footprint;
+                ps5_native_cache_flush((void *)pixels, bytes);
+                state->goldsrc_phase4_final_hashes[frame->buffer] =
+                    readback_hash(pixels, bytes);
+                state->goldsrc_phase4_final_bright[frame->buffer] =
+                    bright_pixel_count(pixels, bytes);
+                state->goldsrc_phase4_final_seen[frame->buffer] = 1u;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GOLDSRC_PHASE4_FINAL_READBACK schema=1 frame=%llu "
+                    "slot=%u hash=%016llx bright_pixels=%llu "
+                    "world_draws=%u brush_draws=69 studio_draws=12 "
+                    "effect_draws=3 screen_draws=2 modes=3,3,4,4,3 "
+                    "fence=zero videoout_token=exact",
+                    (unsigned long long)frame->frame_index, frame->buffer,
+                    (unsigned long long)
+                        state->goldsrc_phase4_final_hashes[frame->buffer],
+                    (unsigned long long)
+                        state->goldsrc_phase4_final_bright[frame->buffer],
+                    state->goldsrc_visibility_frames[frame->buffer]
+                        .selected_draws);
+            }
+#endif
             if (frame->frame_index == 0u ||
                 frame->frame_index + 1u == BSP_GATE_FRAME_COUNT)
                 (void)ps5log_printf(PS5LOG_MARK,
@@ -1508,7 +2747,21 @@ static uint64_t bright_pixel_count(const void *data, size_t bytes)
 static void park_complete(void)
 {
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_TEXTURE_FINAL_GATE
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    ps5log_close("goldsrc-phase4-final-soak-complete");
+#elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
+    ps5log_close("goldsrc-phase4-visibility-soak-complete");
+#elif defined(PS5_GOLDSRC_BRUSH_GATE)
+    ps5log_close("goldsrc-phase4-brush-soak-complete");
+#elif defined(PS5_GOLDSRC_STUDIO_GATE)
+    ps5log_close("goldsrc-phase4-studio-soak-complete");
+#elif defined(PS5_GOLDSRC_SPRITE_PARTICLE_GATE)
+    ps5log_close("goldsrc-phase4-sprite-particle-soak-complete");
+#elif defined(PS5_GOLDSRC_LIGHTING_GATE)
+    ps5log_close("goldsrc-phase4-lighting-soak-complete");
+#elif defined(PS5_GOLDSRC_2D_GATE)
+    ps5log_close("goldsrc-phase4-2d-soak-complete");
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     ps5log_close("bsp-texture-path-final-soak-complete");
 #elif defined(PS5_TEXTURE_ACCOUNTING_GATE)
     ps5log_close("bsp-texture-path-accounting-soak-complete");
@@ -1577,7 +2830,69 @@ int main(void)
                         log_path ? log_path : "unavailable");
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_TEXTURE_FINAL_GATE
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-phase4-final "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%llu "
+        "studio_sha256=%s studio_bytes=%llu soak_frames=%u "
+        "input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256,
+        (unsigned long long)PS5_BSP_BUNDLE_BYTES,
+        PS5_STUDIO_BUNDLE_SHA256,
+        (unsigned long long)PS5_STUDIO_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-visibility "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_BRUSH_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-brush "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_STUDIO_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-studio "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "studio_sha256=%s studio_bytes=%u soak_frames=%u "
+        "input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        PS5_STUDIO_BUNDLE_SHA256, PS5_STUDIO_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_SPRITE_PARTICLE_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-sprite-particles "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_LIGHTING_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-lighting "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_2D_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-2d "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout bundle_sha256=%s bundle_bytes=%u "
+        "soak_frames=%u input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256, PS5_BSP_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     (void)ps5log_printf(PS5LOG_MARK,
         "BSP_TEXTURE_PATH_BOOT schema=1 slice=final "
         "target=gfx1013 fw=12.02 transient_slots=2 "
@@ -2119,6 +3434,234 @@ int main(void)
                                      resources.surface.height) != 0)
         return fail_pre_submit("depth_state", -1);
 
+#ifdef PS5_GOLDSRC_PHASE4
+    if (GOLDSRC_SHADER_SLOTS_OFFSET +
+            GOLDSRC_SHADER_VARIANT_COUNT * PS5_SHADER_PIPELINE_SLOT_BYTES >
+        SHADER_BYTES)
+        return fail_pre_submit("goldsrc_shader_storage", -1);
+    ps5_agc_register phase4_color_targets[2][PS5_PIPELINE_RT_REGISTERS];
+    for (unsigned slot = 0; slot < 2u; ++slot) {
+        const uintptr_t address = (uintptr_t)resources.framebuffer +
+            resources.surface.buffer_offsets[slot];
+        if (ps5_color_build_target(
+                phase4_color_targets[slot], defaults, address,
+                resources.surface.width, resources.surface.height) != 0)
+            return fail_pre_submit("goldsrc_color_target", -1);
+    }
+    for (unsigned variant = 0;
+         variant < GOLDSRC_SHADER_VARIANT_COUNT; ++variant) {
+        const GoldSrcShaderAsset *const asset =
+            &goldsrc_shader_catalog[variant];
+        if (asset->variant != (GoldSrcShaderVariant)variant)
+            return fail_pre_submit("goldsrc_shader_catalog", -1);
+        const Ps5EmbeddedShaderPair embedded = {
+            asset->gs_start,
+            (size_t)(asset->gs_end - asset->gs_start),
+            asset->ps_start,
+            (size_t)(asset->ps_end - asset->ps_start),
+            asset->metadata,
+        };
+        void *const shader_slot = base + GOLDSRC_SHADER_SLOTS_OFFSET +
+            variant * PS5_SHADER_PIPELINE_SLOT_BYTES;
+        result = ps5_shader_pipeline_slot_build(
+            shader_slot, PS5_SHADER_PIPELINE_SLOT_BYTES, &embedded,
+            phase4_color_targets, resources.surface.width,
+            resources.surface.height, sceAgcCreateShader,
+            sceAgcLinkShaders, &renderer.goldsrc_shader_slots[variant]);
+        if (result != 0)
+            return fail_pre_submit("goldsrc_shader_pipeline", result);
+    }
+    if (goldsrc_pipeline_cache_build(
+            &renderer.goldsrc_pipeline_cache, UINT32_C(0x000000b6),
+            UINT32_C(0x00000240)) != 0)
+        return fail_pre_submit("goldsrc_pipeline_cache", -1);
+    const size_t phase4_state_bytes =
+        ps5_goldsrc_pipeline_runtime_register_bytes(
+            renderer.goldsrc_pipeline_cache.count);
+    if (GOLDSRC_STATE_REGISTERS_OFFSET + phase4_state_bytes > SHADER_BYTES ||
+        ps5_goldsrc_pipeline_runtime_init(
+            &renderer.goldsrc_pipeline_runtime,
+            &renderer.goldsrc_pipeline_cache,
+            renderer.goldsrc_shader_slots, GOLDSRC_SHADER_VARIANT_COUNT,
+            base + GOLDSRC_STATE_REGISTERS_OFFSET,
+            SHADER_BYTES - GOLDSRC_STATE_REGISTERS_OFFSET,
+            resources.shader, SHADER_BYTES) != 0)
+        return fail_pre_submit("goldsrc_pipeline_runtime", -1);
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    if (goldsrc_brush_plan_build(&renderer.goldsrc_brush_plan,
+                                 &renderer.bsp_bundle) != 0)
+        return fail_pre_submit("goldsrc_brush_plan", -1);
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    if (goldsrc_brush_phase4_scene_plan_extend(
+            &renderer.goldsrc_brush_plan, &renderer.bsp_bundle) != 0)
+        return fail_pre_submit("goldsrc_phase4_scene_plan", -1);
+#endif
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    if (goldsrc_visibility_plan_build(&renderer.goldsrc_visibility_plan,
+                                      &renderer.bsp_bundle) != 0)
+        return fail_pre_submit("goldsrc_visibility_plan", -1);
+#endif
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+    if (goldsrc_state_matrix_validate() != 0)
+        return fail_pre_submit("goldsrc_state_matrix", -1);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_STATE_MATRIX_READY schema=1 cases=%u hold_frames=%u "
+        "readback_slots=2 coverage=blend+depth-write+cull+fog+lightmap",
+        GOLDSRC_STATE_MATRIX_CASE_COUNT,
+        GOLDSRC_STATE_MATRIX_HOLD_FRAMES);
+#endif
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    if (GOLDSRC_VIEWPORT_FULL_OFFSET +
+            PS5_VIEWPORT_SCISSOR_REGISTER_COUNT * sizeof(ps5_agc_register) >
+        SHADER_BYTES)
+        return fail_pre_submit("goldsrc_viewport_storage", -1);
+    renderer.goldsrc_viewport_inset =
+        (ps5_agc_register *)(base + GOLDSRC_VIEWPORT_INSET_OFFSET);
+    renderer.goldsrc_viewport_full =
+        (ps5_agc_register *)(base + GOLDSRC_VIEWPORT_FULL_OFFSET);
+    const Ps5RectU32 inset_viewport = {320u, 180u, 1280u, 720u};
+    const Ps5RectU32 inset_scissor = {400u, 220u, 1120u, 640u};
+    const Ps5RectU32 full_rect = {
+        0u, 0u, resources.surface.width, resources.surface.height,
+    };
+    if (ps5_viewport_scissor_build(
+            renderer.goldsrc_viewport_inset, &inset_viewport,
+            &inset_scissor, resources.surface.width,
+            resources.surface.height) != 0 ||
+        ps5_viewport_scissor_build(
+            renderer.goldsrc_viewport_full, &full_rect, &full_rect,
+            resources.surface.width, resources.surface.height) != 0)
+        return fail_pre_submit("goldsrc_viewport_build", -1);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VIEWPORT_READY schema=1 framebuffer=%ux%u "
+        "inset_viewport=320,180+1280x720 inset_scissor=400,220+1120x640 "
+        "restore=full-frame registers=%u",
+        resources.surface.width, resources.surface.height,
+        PS5_VIEWPORT_SCISSOR_REGISTER_COUNT);
+#endif
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=%u "
+        "shader_variants=%u native_slots=%u base_depth=000000b6 "
+        "base_raster=00000240 state_register_bytes=%llu target=gfx1013",
+        renderer.goldsrc_pipeline_cache.count,
+        GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT,
+        (unsigned long long)phase4_state_bytes);
+#ifdef PS5_GOLDSRC_2D_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_2D_READY schema=1 framebuffer=%ux%u "
+        "projection=orthographic atlas=%ux%u format=rgba8 "
+        "sampler=point batches=alpha+additive "
+        "components=hud+console+menu+font geometry=per-frame-transient "
+        "ownership=fence+videoout",
+        resources.surface.width, resources.surface.height,
+        GOLDSRC_2D_ATLAS_WIDTH, GOLDSRC_2D_ATLAS_HEIGHT);
+#endif
+#ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_SPRITE_PARTICLE_READY schema=1 atlas=%ux%u "
+        "format=rgba8 modes=control+sprite+particles+combined "
+        "hold_frames=%u sprite_quads=%u alpha_particles=%u "
+        "additive_particles=%u batches=alpha+additive "
+        "geometry=per-frame-transient camera=locked-relative "
+        "ownership=fence+videoout",
+        GOLDSRC_EFFECT_ATLAS_WIDTH, GOLDSRC_EFFECT_ATLAS_HEIGHT,
+        GOLDSRC_EFFECT_HOLD_FRAMES, GOLDSRC_EFFECT_SPRITE_QUADS,
+        GOLDSRC_EFFECT_ALPHA_PARTICLE_QUADS,
+        GOLDSRC_EFFECT_ADDITIVE_PARTICLE_QUADS);
+#endif
+#ifdef PS5_GOLDSRC_STUDIO_GATE
+    const GoldSrcStudioBundleHeader *const studio_header =
+        renderer.goldsrc_studio_bundle.header;
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_STUDIO_READY schema=1 source_fnv64=%016llx "
+        "model_hash=%016llx sequence_hash=%016llx bones=%u frames=%u "
+        "fps_milli=%u vertices=%u indices=%u draws=%u textures=%u "
+        "chrome_textures=%u texture_bytes=%llu "
+        "modes=control+textured+chrome+additive+combined "
+        "hold_frames=%u skinning=cpu geometry=per-frame-transient "
+        "texture_residency=shared-bsp-allocation camera=locked-relative "
+        "ownership=fence+videoout",
+        (unsigned long long)studio_header->source_hash,
+        (unsigned long long)studio_header->model_name_hash,
+        (unsigned long long)studio_header->sequence_name_hash,
+        studio_header->bone_count, studio_header->frame_count,
+        (uint32_t)(studio_header->fps*1000.0f+0.5f),
+        studio_header->vertex_count, studio_header->index_count,
+        studio_header->draw_count, studio_header->texture_count,
+        renderer.goldsrc_studio_bundle.chrome_textures,
+        (unsigned long long)
+            renderer.goldsrc_studio_bundle.texture_pixel_bytes,
+        GOLDSRC_STUDIO_HOLD_FRAMES);
+#endif
+#ifdef PS5_GOLDSRC_BRUSH_GATE
+    const GoldSrcBrushPlan *const brush_plan =
+        &renderer.goldsrc_brush_plan;
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_BRUSH_READY schema=1 models=%u entities=%u "
+        "modes=control+opaque+alpha+additive+combined hold_frames=%u "
+        "entity_indices=%u,%u,%u source_modes=%u,%u,%u "
+        "classname_hashes=%08x,%08x,%08x draws=%u,%u,%u "
+        "indices=%u,%u,%u transforms=independent animated=true "
+        "geometry=real-bsp-submodels texture_residency=shared-bsp "
+        "camera=locked-relative ownership=fence+videoout",
+        renderer.bsp_bundle.brush_model_count,
+        renderer.bsp_bundle.brush_entity_count,
+        GOLDSRC_BRUSH_HOLD_FRAMES,
+        brush_plan->entity_indices[0], brush_plan->entity_indices[1],
+        brush_plan->entity_indices[2],
+        brush_plan->source_render_modes[0],
+        brush_plan->source_render_modes[1],
+        brush_plan->source_render_modes[2],
+        brush_plan->classname_hashes[0],
+        brush_plan->classname_hashes[1],
+        brush_plan->classname_hashes[2],
+        brush_plan->draw_counts[0], brush_plan->draw_counts[1],
+        brush_plan->draw_counts[2],
+        brush_plan->index_counts[0], brush_plan->index_counts[1],
+        brush_plan->index_counts[2]);
+#endif
+#ifdef PS5_GOLDSRC_VISIBILITY_GATE
+    const GoldSrcVisibilityPlan *const visibility_plan =
+        &renderer.goldsrc_visibility_plan;
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VISIBILITY_READY schema=1 planes=%u nodes=%u leaves=%u "
+        "pvs_row_bytes=%u draw_refs=%u world_first_face=%u "
+        "world_face_count=%u draw_bounds=%u "
+        "modes=control+pvs+frustum+combined hold_frames=%u "
+        "camera=locked-bsp-tree ownership=fence+videoout",
+        visibility_plan->planes, visibility_plan->nodes,
+        visibility_plan->leaves, visibility_plan->pvs_row_bytes,
+        visibility_plan->draw_refs, visibility_plan->world_first_face,
+        visibility_plan->world_face_count, renderer.bsp_bundle.draw_count,
+        GOLDSRC_VISIBILITY_HOLD_FRAMES);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PHASE4_SCENE_READY schema=1 water_entity=%u "
+        "water_draws=%u water_indices=%u water_texture=water3 "
+        "water_mode=alpha glass_entity=%u glass_draws=%u glass_indices=%u "
+        "glass_texture=glass_med glass_mode=alpha source=real-bsp-brushes",
+        brush_plan->entity_indices[GOLDSRC_BRUSH_INSTANCE_WATER],
+        brush_plan->draw_counts[GOLDSRC_BRUSH_INSTANCE_WATER],
+        brush_plan->index_counts[GOLDSRC_BRUSH_INSTANCE_WATER],
+        brush_plan->entity_indices[GOLDSRC_BRUSH_INSTANCE_GLASS],
+        brush_plan->draw_counts[GOLDSRC_BRUSH_INSTANCE_GLASS],
+        brush_plan->index_counts[GOLDSRC_BRUSH_INSTANCE_GLASS]);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PHASE4_FINAL_READY schema=1 frames=%u "
+        "combined_window=59400..59999 semantic_permutations=%u "
+        "shader_variants=%u components=lighting+2d+sprites+particles+"
+        "studio+brush+pvs+frustum world_draws=%u brush_draws=69 "
+        "studio_draws=12 effect_draws=3 screen_draws=2 "
+        "skinning=cpu transient=per-slot camera=locked-bsp-tree "
+        "ownership=fence+videoout",
+        BSP_GATE_FRAME_COUNT, renderer.goldsrc_pipeline_cache.count,
+        GOLDSRC_SHADER_VARIANT_COUNT,
+        renderer.goldsrc_visibility_plan.world_face_count);
+#endif
+#endif
+
 #ifdef PS5_BSP_VIEWER
     if (prepare_bsp_scene() != 0)
         return fail_pre_submit("bsp_scene", -1);
@@ -2169,7 +3712,11 @@ int main(void)
         "DYNAMIC_LIGHTMAP_READY image=%ux%u image_bytes=%llu "
         "patch=%u,%u+%ux%u hit_face=%u patch_bytes=%llu "
         "dirty_span_bytes=%llu slots=2 guards=256 "
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+        "selection=largest-styled-face",
+#else
         "selection=center-ray",
+#endif
         renderer.dynamic_lightmap_layout.image_width,
         renderer.dynamic_lightmap_layout.image_height,
         (unsigned long long)renderer.dynamic_lightmap_layout.image_bytes,
@@ -2181,6 +3728,39 @@ int main(void)
         (unsigned long long)renderer.dynamic_lightmap_layout.patch_bytes,
         (unsigned long long)
             renderer.dynamic_lightmap_layout.dirty_span_bytes);
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_LIGHTING_READY schema=1 face=%u draw=%u "
+        "styles=%u styled_faces=%u styled_layers=%u "
+        "atlas=%ux%u patch=%u,%u+%ux%u patch_bytes=%llu "
+        "source_samples=%u source_hash=%016llx "
+        "modes=base+lightstyle+dlight+combined hold_frames=%u "
+        "lightstyle_hz=10 dlight=face-local-radial "
+        "camera=face-normal-standoff target=%.3f,%.3f,%.3f "
+        "forward=%.6f,%.6f,%.6f upload=phase3-bounded",
+        renderer.goldsrc_lighting_plan.layout.hit_face,
+        renderer.goldsrc_lighting_plan.draw_index,
+        renderer.goldsrc_lighting_plan.style_count,
+        renderer.goldsrc_lighting_plan.styled_face_count,
+        renderer.goldsrc_lighting_plan.styled_layer_count,
+        renderer.goldsrc_lighting_plan.layout.image_width,
+        renderer.goldsrc_lighting_plan.layout.image_height,
+        renderer.goldsrc_lighting_plan.layout.patch_x,
+        renderer.goldsrc_lighting_plan.layout.patch_y,
+        renderer.goldsrc_lighting_plan.layout.patch_width,
+        renderer.goldsrc_lighting_plan.layout.patch_height,
+        (unsigned long long)
+            renderer.goldsrc_lighting_plan.layout.patch_bytes,
+        renderer.goldsrc_lighting_plan.face->sample_bytes,
+        (unsigned long long)renderer.goldsrc_lighting_plan.source_hash,
+        GOLDSRC_LIGHTING_HOLD_FRAMES,
+        renderer.goldsrc_lighting_plan.target_position[0],
+        renderer.goldsrc_lighting_plan.target_position[1],
+        renderer.goldsrc_lighting_plan.target_position[2],
+        renderer.goldsrc_lighting_plan.target_forward[0],
+        renderer.goldsrc_lighting_plan.target_forward[1],
+        renderer.goldsrc_lighting_plan.target_forward[2]);
+#endif
 #ifdef PS5_TEXTURE_ACCOUNTING_ENABLED
     const BspTextureResidency *const texture_residency =
         &renderer.texture_accounting.residency;
@@ -2491,7 +4071,55 @@ int main(void)
     input.user = &renderer;
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_TEXTURE_FINAL_GATE
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-phase4-final-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=60000 "
+        "features=lighting+2d+sprites+particles+studio+brush+pvs+frustum "
+        "combined_window=59400..59999 camera=locked-bsp-tree "
+        "geometry=world+entities descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-visibility-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=10000 "
+        "modes=control+pvs+frustum+combined camera=locked-bsp-tree "
+        "geometry=world-model-only descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_BRUSH_GATE)
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-brush-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=10000 "
+        "modes=control+opaque+alpha+additive+combined "
+        "transforms=independent geometry=real-bsp-submodels "
+        "camera=locked-proof-view descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_STUDIO_GATE)
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-studio-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=10000 "
+        "modes=control+textured+chrome+additive+combined "
+        "animation=cpu-skinning geometry=per-frame-transient "
+        "textures=private-bundle camera=locked-proof-view "
+        "descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_SPRITE_PARTICLE_GATE)
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-sprite-particle-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=10000 "
+        "effects=control+sprite+particles+combined "
+        "geometry=per-frame-transient camera=locked-proof-view "
+        "descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_LIGHTING_GATE)
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=goldsrc-lighting-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=10000 "
+        "modes=base+lightstyle+dlight+combined "
+        "lightmap_upload=phase3-bounded descriptors=per-frame "
+        "camera=locked-proof-view overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_TEXTURE_FINAL_GATE)
     (void)ps5log_line(PS5LOG_MARK,
         "BSP_LOOP_BEGIN mode=texture-path-final-soak buffers=2 "
         "color_dma=false depth_dma=true indexed=true frames=60000 "
@@ -2646,7 +4274,8 @@ int main(void)
         (unsigned long long)run.frames_completed,
         (unsigned long long)run.telemetry.errors);
 #endif
-#ifndef PS5_TEXTURE_ACCOUNTING_ENABLED
+#if !defined(PS5_TEXTURE_ACCOUNTING_ENABLED) && \
+    !defined(PS5_GOLDSRC_PHASE4)
     const int input_continuity_valid =
         run.telemetry.errors == 0u &&
         run.telemetry.present_interval_over_budget == 0u &&
@@ -2656,7 +4285,12 @@ int main(void)
 #endif
 #ifdef PS5_RESOURCE_FOUNDATION
     const int resource_valid =
-#ifdef PS5_TEXTURE_ACCOUNTING_ENABLED
+#ifdef PS5_GOLDSRC_PHASE4
+        run.telemetry.errors == 0u &&
+        run.frames_completed == BSP_GATE_FRAME_COUNT &&
+        renderer.pad_read_errors == 0u &&
+        renderer.noclip.sampled_frames == BSP_GATE_FRAME_COUNT &&
+#elif defined(PS5_TEXTURE_ACCOUNTING_ENABLED)
         run.telemetry.errors == 0u &&
         run.telemetry.present_interval_over_budget == 0u &&
         renderer.pad_read_errors == 0u &&
@@ -2672,7 +4306,9 @@ int main(void)
         renderer.last_completed_token != 0u;
 #ifdef PS5_TEXTURE_PATH
     const int dynamic_lightmap_valid = resource_valid &&
+#ifndef PS5_GOLDSRC_LIGHTING_GATE
         first_hash != second_hash &&
+#endif
         bsp_dynamic_lightmap_guards_intact(
             &renderer.dynamic_lightmap_slots[0],
             &renderer.dynamic_lightmap_layout) &&
@@ -2687,7 +4323,24 @@ int main(void)
             renderer.dynamic_lightmap_slots[1].pixels,
             &renderer.dynamic_lightmap_layout) ==
             renderer.dynamic_lightmap_slots[1].surrounding_hash &&
-#if defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
+#if defined(PS5_GOLDSRC_LIGHTING_GATE) || \
+    defined(PS5_GOLDSRC_VISIBILITY_GATE)
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+        renderer.dynamic_lightmap_slots[0].last_pattern ==
+            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 2u) &&
+        renderer.dynamic_lightmap_slots[1].last_pattern ==
+            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 1u) &&
+#else
+        renderer.dynamic_lightmap_slots[0].last_pattern == 0u &&
+        renderer.dynamic_lightmap_slots[1].last_pattern == 0u &&
+#endif
+        bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[0].pixels,
+            &renderer.dynamic_lightmap_layout) ==
+        bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[1].pixels,
+            &renderer.dynamic_lightmap_layout) &&
+#elif defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
     defined(PS5_TEXTURE_SKY_GATE)
         renderer.dynamic_lightmap_slots[0].last_pattern == 1u &&
         renderer.dynamic_lightmap_slots[1].last_pattern == 1u &&
@@ -2707,7 +4360,33 @@ int main(void)
             BSP_GATE_FRAME_COUNT - 1u;
     if (!dynamic_lightmap_valid)
         park("dynamic-lightmap-readback-or-guard-gate-failure");
-#if defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "DYNAMIC_LIGHTMAP_READBACK slot0=%016llx slot1=%016llx "
+        "final_mode=%s slots_equal=true surrounding=stable "
+        "guards=intact frames=%llu",
+        (unsigned long long)bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[0].pixels,
+            &renderer.dynamic_lightmap_layout),
+        (unsigned long long)bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[1].pixels,
+            &renderer.dynamic_lightmap_layout),
+        goldsrc_lighting_mode_name(
+            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 1u)),
+        (unsigned long long)run.frames_completed);
+#elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
+    (void)ps5log_printf(PS5LOG_MARK,
+        "DYNAMIC_LIGHTMAP_READBACK slot0=%016llx slot1=%016llx "
+        "final_pattern=0 slots_equal=true surrounding=stable "
+        "guards=intact frames=%llu",
+        (unsigned long long)bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[0].pixels,
+            &renderer.dynamic_lightmap_layout),
+        (unsigned long long)bsp_dynamic_lightmap_patch_hash(
+            renderer.dynamic_lightmap_slots[1].pixels,
+            &renderer.dynamic_lightmap_layout),
+        (unsigned long long)run.frames_completed);
+#elif defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
     defined(PS5_TEXTURE_SKY_GATE)
     (void)ps5log_printf(PS5LOG_MARK,
         "DYNAMIC_LIGHTMAP_READBACK slot0=%016llx slot1=%016llx "
@@ -2734,6 +4413,356 @@ int main(void)
         (unsigned long long)first_hash,
         (unsigned long long)second_hash,
         (unsigned long long)run.frames_completed);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4
+    const GoldSrcRenderState proved_opaque_state = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    const GoldSrcRenderState proved_alpha_state = {
+        GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 1u, 0u,
+    };
+    const GoldSrcPipelinePermutation *const proved_opaque =
+        goldsrc_pipeline_cache_find(
+            &renderer.goldsrc_pipeline_cache, &proved_opaque_state);
+    const GoldSrcPipelinePermutation *const proved_alpha =
+        goldsrc_pipeline_cache_find(
+            &renderer.goldsrc_pipeline_cache, &proved_alpha_state);
+    if (!proved_opaque || !proved_alpha)
+        park("goldsrc-state-cache-final-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PIPELINE_GATE_COMPLETE schema=1 frames=%llu "
+        "semantic_permutations=%u shader_variants=%u "
+        "opaque_key=%u opaque_shader=%s alpha_key=%u alpha_shader=%s "
+        "framebuffer_distinct=true input_required=false "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        renderer.goldsrc_pipeline_cache.count,
+        GOLDSRC_SHADER_VARIANT_COUNT, proved_opaque->key,
+        goldsrc_pipeline_shader_variant_name(proved_opaque->shader),
+        proved_alpha->key,
+        goldsrc_pipeline_shader_variant_name(proved_alpha->shader),
+        (unsigned long long)run.telemetry.errors);
+#ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
+    int matrix_valid = 1;
+    for (uint32_t matrix_index = 0u;
+         matrix_index < GOLDSRC_STATE_MATRIX_CASE_COUNT; ++matrix_index)
+        for (uint32_t slot = 0u; slot < 2u; ++slot)
+            if (!renderer.goldsrc_matrix_seen[matrix_index][slot] ||
+                renderer.goldsrc_matrix_hashes[matrix_index][slot] == 0u ||
+                renderer.goldsrc_matrix_bright[matrix_index][slot] == 0u ||
+                (matrix_index != 0u &&
+                 renderer.goldsrc_matrix_hashes[matrix_index][slot] ==
+                     renderer.goldsrc_matrix_hashes[0][slot]))
+                matrix_valid = 0;
+    if (!matrix_valid)
+        park("goldsrc-state-matrix-readback-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_STATE_MATRIX_COMPLETE schema=1 frames=%llu cases=%u "
+        "readbacks=%u both_slots=true control_pairs=distinct "
+        "coverage=opaque+alpha+additive+alpha-test+depth-write+"
+        "cull-front-back-none+fog+lightmap tokens=exact guards=intact "
+        "errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_STATE_MATRIX_CASE_COUNT,
+        GOLDSRC_STATE_MATRIX_CASE_COUNT * 2u,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#if defined(PS5_GOLDSRC_LIGHTING_GATE) && \
+    !defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+    int lighting_valid = 1;
+    for (uint32_t mode = 0u; mode < GOLDSRC_LIGHTING_MODE_COUNT; ++mode)
+        for (uint32_t slot = 0u; slot < 2u; ++slot)
+            if (!renderer.goldsrc_lighting_seen[mode][slot] ||
+                renderer.goldsrc_lighting_hashes[mode][slot] == 0u ||
+                renderer.goldsrc_lighting_bright[mode][slot] == 0u ||
+                (mode != GOLDSRC_LIGHTING_MODE_BASE &&
+                 renderer.goldsrc_lighting_hashes[mode][slot] ==
+                     renderer.goldsrc_lighting_hashes
+                         [GOLDSRC_LIGHTING_MODE_BASE][slot]))
+                lighting_valid = 0;
+    if (!lighting_valid)
+        park("goldsrc-lighting-readback-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_LIGHTING_COMPLETE schema=1 frames=%llu modes=%u "
+        "readbacks=%u both_slots=true control_pairs=distinct "
+        "lightstyles=real-bsp-planes animated_hz=10 "
+        "dynamic_lights=face-local-radial atlas_upload=phase3-bounded "
+        "face=%u styles=%u styled_faces=%u styled_layers=%u "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_LIGHTING_MODE_COUNT,
+        GOLDSRC_LIGHTING_MODE_COUNT * 2u,
+        renderer.goldsrc_lighting_plan.layout.hit_face,
+        renderer.goldsrc_lighting_plan.style_count,
+        renderer.goldsrc_lighting_plan.styled_face_count,
+        renderer.goldsrc_lighting_plan.styled_layer_count,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#if defined(PS5_GOLDSRC_SPRITE_PARTICLE_GATE) && \
+    !defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+    int effects_valid = 1;
+    for (uint32_t mode = 0u; mode < GOLDSRC_EFFECT_MODE_COUNT; ++mode)
+        for (uint32_t slot = 0u; slot < 2u; ++slot)
+            if (!renderer.goldsrc_effect_seen[mode][slot] ||
+                renderer.goldsrc_effect_hashes[mode][slot] == 0u ||
+                renderer.goldsrc_effect_bright[mode][slot] == 0u ||
+                (mode != GOLDSRC_EFFECT_MODE_CONTROL &&
+                 renderer.goldsrc_effect_hashes[mode][slot] ==
+                     renderer.goldsrc_effect_hashes
+                         [GOLDSRC_EFFECT_MODE_CONTROL][slot]))
+                effects_valid = 0;
+    for (uint32_t slot = 0u; slot < 2u; ++slot)
+        if (renderer.goldsrc_effect_hashes
+                [GOLDSRC_EFFECT_MODE_COMBINED][slot] ==
+                renderer.goldsrc_effect_hashes
+                    [GOLDSRC_EFFECT_MODE_SPRITE][slot] ||
+            renderer.goldsrc_effect_hashes
+                [GOLDSRC_EFFECT_MODE_COMBINED][slot] ==
+                renderer.goldsrc_effect_hashes
+                    [GOLDSRC_EFFECT_MODE_PARTICLES][slot])
+            effects_valid = 0;
+    if (!effects_valid)
+        park("goldsrc-sprite-particle-readback-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_SPRITE_PARTICLE_COMPLETE schema=1 frames=%llu "
+        "modes=%u readbacks=%u both_slots=true control_pairs=distinct "
+        "combined_pairs=distinct sprite_quads=%u alpha_particles=%u "
+        "additive_particles=%u batches=alpha+additive "
+        "geometry=per-frame-transient camera=locked-proof-view "
+        "input_dependency=none tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_EFFECT_MODE_COUNT, GOLDSRC_EFFECT_MODE_COUNT * 2u,
+        GOLDSRC_EFFECT_SPRITE_QUADS,
+        GOLDSRC_EFFECT_ALPHA_PARTICLE_QUADS,
+        GOLDSRC_EFFECT_ADDITIVE_PARTICLE_QUADS,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#if defined(PS5_GOLDSRC_VISIBILITY_GATE) && \
+    !defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+    int visibility_valid = 1;
+    uint64_t visibility_bright_delta_max = 0u;
+    for (uint32_t mode = 0u; mode < GOLDSRC_VISIBILITY_MODE_COUNT; ++mode) {
+        if (!renderer.goldsrc_visibility_counts_seen[mode] ||
+            renderer.goldsrc_visibility_draw_counts[mode] == 0u)
+            visibility_valid = 0;
+        for (uint32_t slot = 0u; slot < 2u; ++slot) {
+            if (!renderer.goldsrc_visibility_seen[mode][slot] ||
+                renderer.goldsrc_visibility_hashes[mode][slot] == 0u ||
+                renderer.goldsrc_visibility_bright[mode][slot] == 0u)
+                visibility_valid = 0;
+            if (mode != GOLDSRC_VISIBILITY_MODE_CONTROL) {
+                const uint64_t control_bright =
+                    renderer.goldsrc_visibility_bright
+                        [GOLDSRC_VISIBILITY_MODE_CONTROL][slot];
+                const uint64_t mode_bright =
+                    renderer.goldsrc_visibility_bright[mode][slot];
+                const uint64_t delta = mode_bright > control_bright
+                    ? mode_bright - control_bright
+                    : control_bright - mode_bright;
+                if (delta > visibility_bright_delta_max)
+                    visibility_bright_delta_max = delta;
+            }
+        }
+    }
+    const uint32_t visibility_control =
+        renderer.goldsrc_visibility_draw_counts
+            [GOLDSRC_VISIBILITY_MODE_CONTROL];
+    const uint32_t visibility_pvs =
+        renderer.goldsrc_visibility_draw_counts[GOLDSRC_VISIBILITY_MODE_PVS];
+    const uint32_t visibility_frustum =
+        renderer.goldsrc_visibility_draw_counts
+            [GOLDSRC_VISIBILITY_MODE_FRUSTUM];
+    const uint32_t visibility_combined =
+        renderer.goldsrc_visibility_draw_counts
+            [GOLDSRC_VISIBILITY_MODE_COMBINED];
+    if (visibility_pvs >= visibility_control ||
+        visibility_frustum >= visibility_control ||
+        visibility_combined > visibility_pvs ||
+        visibility_combined > visibility_frustum ||
+        visibility_bright_delta_max > 64u)
+        visibility_valid = 0;
+    if (!visibility_valid)
+        park("goldsrc-visibility-readback-or-count-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VISIBILITY_COMPLETE schema=1 frames=%llu modes=%u "
+        "readbacks=%u both_slots=true framebuffer_stable=true "
+        "bright_delta_max=%llu bright_tolerance=64 "
+        "draws=%u,%u,%u,%u reductions=true pvs=real-leaf-rows "
+        "frustum=draw-aabb combined=intersection world_model_only=true "
+        "camera=locked-bsp-tree input_dependency=none tokens=exact "
+        "guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_VISIBILITY_MODE_COUNT,
+        GOLDSRC_VISIBILITY_MODE_COUNT * 2u,
+        (unsigned long long)visibility_bright_delta_max,
+        visibility_control, visibility_pvs, visibility_frustum,
+        visibility_combined, (unsigned long long)run.telemetry.errors);
+#endif
+#if defined(PS5_GOLDSRC_BRUSH_GATE) && \
+    !defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+    int brush_valid =
+        renderer.goldsrc_brush_first_transform_hash != 0u &&
+        renderer.goldsrc_brush_last_transform_hash != 0u &&
+        renderer.goldsrc_brush_first_transform_hash !=
+            renderer.goldsrc_brush_last_transform_hash;
+    for (uint32_t mode = 0u; mode < GOLDSRC_BRUSH_MODE_COUNT; ++mode)
+        for (uint32_t slot = 0u; slot < 2u; ++slot)
+            if (!renderer.goldsrc_brush_seen[mode][slot] ||
+                renderer.goldsrc_brush_hashes[mode][slot] == 0u ||
+                renderer.goldsrc_brush_bright[mode][slot] == 0u ||
+                (mode != GOLDSRC_BRUSH_MODE_CONTROL &&
+                 renderer.goldsrc_brush_hashes[mode][slot] ==
+                     renderer.goldsrc_brush_hashes
+                         [GOLDSRC_BRUSH_MODE_CONTROL][slot]))
+                brush_valid = 0;
+    for (uint32_t slot = 0u; slot < 2u; ++slot)
+        if (renderer.goldsrc_brush_hashes
+                [GOLDSRC_BRUSH_MODE_COMBINED][slot] ==
+                renderer.goldsrc_brush_hashes
+                    [GOLDSRC_BRUSH_MODE_OPAQUE][slot] ||
+            renderer.goldsrc_brush_hashes
+                [GOLDSRC_BRUSH_MODE_COMBINED][slot] ==
+                renderer.goldsrc_brush_hashes
+                    [GOLDSRC_BRUSH_MODE_ALPHA][slot] ||
+            renderer.goldsrc_brush_hashes
+                [GOLDSRC_BRUSH_MODE_COMBINED][slot] ==
+                renderer.goldsrc_brush_hashes
+                    [GOLDSRC_BRUSH_MODE_ADDITIVE][slot])
+            brush_valid = 0;
+    if (!brush_valid)
+        park("goldsrc-brush-readback-or-transform-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_BRUSH_COMPLETE schema=1 frames=%llu modes=%u "
+        "readbacks=%u both_slots=true control_pairs=distinct "
+        "combined_pairs=distinct transform_changes=true "
+        "entities=real-bsp-submodels transforms=independent "
+        "render_modes=opaque+alpha+additive depth_write=opaque-only "
+        "texture_residency=shared-bsp camera=locked-proof-view "
+        "input_dependency=none tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_BRUSH_MODE_COUNT, GOLDSRC_BRUSH_MODE_COUNT * 2u,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#if defined(PS5_GOLDSRC_STUDIO_GATE) && \
+    !defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+    int studio_valid =
+        renderer.goldsrc_studio_first_pose_hash != 0u &&
+        renderer.goldsrc_studio_last_pose_hash != 0u &&
+        renderer.goldsrc_studio_first_pose_hash !=
+            renderer.goldsrc_studio_last_pose_hash;
+    for (uint32_t mode = 0u; mode < GOLDSRC_STUDIO_MODE_COUNT; ++mode)
+        for (uint32_t slot = 0u; slot < 2u; ++slot)
+            if (!renderer.goldsrc_studio_seen[mode][slot] ||
+                renderer.goldsrc_studio_hashes[mode][slot] == 0u ||
+                renderer.goldsrc_studio_bright[mode][slot] == 0u ||
+                (mode != GOLDSRC_STUDIO_MODE_CONTROL &&
+                 renderer.goldsrc_studio_hashes[mode][slot] ==
+                     renderer.goldsrc_studio_hashes
+                         [GOLDSRC_STUDIO_MODE_CONTROL][slot]))
+                studio_valid = 0;
+    for (uint32_t slot = 0u; slot < 2u; ++slot)
+        if (renderer.goldsrc_studio_hashes
+                [GOLDSRC_STUDIO_MODE_COMBINED][slot] ==
+                renderer.goldsrc_studio_hashes
+                    [GOLDSRC_STUDIO_MODE_TEXTURED][slot] ||
+            renderer.goldsrc_studio_hashes
+                [GOLDSRC_STUDIO_MODE_COMBINED][slot] ==
+                renderer.goldsrc_studio_hashes
+                    [GOLDSRC_STUDIO_MODE_CHROME][slot] ||
+            renderer.goldsrc_studio_hashes
+                [GOLDSRC_STUDIO_MODE_COMBINED][slot] ==
+                renderer.goldsrc_studio_hashes
+                    [GOLDSRC_STUDIO_MODE_ADDITIVE][slot])
+            studio_valid = 0;
+    if (!studio_valid)
+        park("goldsrc-studio-readback-or-animation-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_STUDIO_COMPLETE schema=1 frames=%llu modes=%u "
+        "readbacks=%u both_slots=true control_pairs=distinct "
+        "combined_pairs=distinct animation_pose_changes=true "
+        "skinning=cpu textures=per-model chrome=normal-generated "
+        "additive=separate-pipeline geometry=per-frame-transient "
+        "texture_residency=shared-bsp-allocation "
+        "camera=locked-proof-view input_dependency=none "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        GOLDSRC_STUDIO_MODE_COUNT, GOLDSRC_STUDIO_MODE_COUNT * 2u,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+    int phase4_final_valid = run.frames_completed == BSP_GATE_FRAME_COUNT &&
+        run.telemetry.errors == 0u &&
+        renderer.goldsrc_brush_plan.instance_count ==
+            GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT &&
+        renderer.goldsrc_brush_plan.draw_counts
+            [GOLDSRC_BRUSH_INSTANCE_WATER] == 35u &&
+        renderer.goldsrc_brush_plan.index_counts
+            [GOLDSRC_BRUSH_INSTANCE_WATER] == 312u &&
+        renderer.goldsrc_brush_plan.source_render_modes
+            [GOLDSRC_BRUSH_INSTANCE_WATER] == 2u &&
+        renderer.goldsrc_brush_plan.draw_counts
+            [GOLDSRC_BRUSH_INSTANCE_GLASS] == 6u &&
+        renderer.goldsrc_brush_plan.index_counts
+            [GOLDSRC_BRUSH_INSTANCE_GLASS] == 36u &&
+        renderer.goldsrc_studio_first_pose_hash != 0u &&
+        renderer.goldsrc_studio_last_pose_hash != 0u &&
+        renderer.goldsrc_studio_first_pose_hash !=
+            renderer.goldsrc_studio_last_pose_hash &&
+        renderer.goldsrc_brush_first_transform_hash != 0u &&
+        renderer.goldsrc_brush_last_transform_hash != 0u &&
+        renderer.goldsrc_brush_first_transform_hash !=
+            renderer.goldsrc_brush_last_transform_hash;
+    for (uint32_t slot = 0u; slot < 2u; ++slot) {
+        const GoldSrcLightmapLightingUpdate *const lighting =
+            &renderer.goldsrc_lighting_updates[slot];
+        const GoldSrcSpriteParticleFrame *const effects =
+            &renderer.goldsrc_effect_frames[slot];
+        const GoldSrcStudioFrame *const studio =
+            &renderer.goldsrc_studio_frames[slot];
+        const GoldSrcBrushFrame *const brush =
+            &renderer.goldsrc_brush_frames[slot];
+        const GoldSrcVisibilityFrame *const visibility =
+            &renderer.goldsrc_visibility_frames[slot];
+        const GoldSrc2DFrame *const screen =
+            &renderer.goldsrc_2d_frames[slot];
+        if (!renderer.goldsrc_phase4_final_seen[slot] ||
+            renderer.goldsrc_phase4_final_hashes[slot] == 0u ||
+            renderer.goldsrc_phase4_final_bright[slot] == 0u ||
+            lighting->mode != GOLDSRC_LIGHTING_MODE_COMBINED ||
+            lighting->dynamic_luxels == 0u ||
+            effects->mode != GOLDSRC_EFFECT_MODE_COMBINED ||
+            studio->mode != GOLDSRC_STUDIO_MODE_COMBINED ||
+            brush->mode != GOLDSRC_BRUSH_MODE_COMBINED ||
+            visibility->mode != GOLDSRC_VISIBILITY_MODE_COMBINED ||
+            visibility->selected_draws != 362u ||
+            screen->alpha_index_count + screen->additive_index_count !=
+                522u)
+            phase4_final_valid = 0;
+    }
+    if (!phase4_final_valid)
+        park("goldsrc-phase4-final-integrated-gate-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_PHASE4_FINAL_COMPLETE schema=1 frames=%llu "
+        "combined_frames=600 readbacks=2 both_slots=true "
+        "world_draws=362 brush_draws=69 studio_draws=12 "
+        "effect_draws=3 screen_draws=2 lightstyles=real-bsp-planes "
+        "dynamic_lights=face-local-radial sprites=true particles=true "
+        "cpu_skinning=true chrome=true brush_entities=true water=true "
+        "glass=true pvs=true "
+        "frustum=true transient=per-slot animation_changes=true "
+        "ownership=fence+videoout tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        (unsigned long long)run.telemetry.errors);
+#endif
+#ifdef PS5_GOLDSRC_VIEWPORT_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1 frames=%llu "
+        "sequence=full-clear,inset-opaque,inset-alpha,full-restore "
+        "framebuffer_distinct=true input_required=false "
+        "tokens=exact guards=intact errors=%llu",
+        (unsigned long long)run.frames_completed,
+        (unsigned long long)run.telemetry.errors);
+#endif
 #endif
 #ifdef PS5_TEXTURE_SKY_GATE
     (void)ps5log_printf(PS5LOG_MARK,
@@ -2822,7 +4851,9 @@ int main(void)
         "BSP_TEXTURE_PATH_LIGHTMAP_COMPLETE frames=%llu "
         "resident_bytes=%llu uploaded_bytes=%llu "
         "patch=%u,%u+%ux%u hit_face=%u "
-#if defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
+#ifdef PS5_GOLDSRC_LIGHTING_GATE
+        "patterns=base+lightstyle+dlight+combined "
+#elif defined(PS5_TEXTURE_MIP_GATE) || defined(PS5_TEXTURE_ALPHA_GATE) || \
     defined(PS5_TEXTURE_SKY_GATE)
         "patterns=paired "
 #else
@@ -2927,6 +4958,16 @@ int main(void)
         renderer.bsp_bundle.texture_count,
         renderer.bsp_plan.descriptor_table_dwords,
         (unsigned long long)run.telemetry.errors);
+#ifdef PS5_GOLDSRC_2D_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GOLDSRC_2D_COMPLETE schema=1 frames=%llu draws_per_frame=2 "
+        "passes=alpha+additive projection=orthographic "
+        "components=hud+console+menu+font atlas=procedural-rgba8 "
+        "geometry=per-frame-transient tokens=exact guards=intact "
+        "errors=%llu",
+        (unsigned long long)run.frames_completed,
+        (unsigned long long)run.telemetry.errors);
+#endif
     const uint64_t retire_token = renderer.last_completed_token;
     uint32_t reclaimed = 0u;
 #ifdef PS5_TEXTURE_PATH

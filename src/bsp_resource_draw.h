@@ -39,6 +39,22 @@ int bsp_resource_compose_map_pass(
     BspSetShDirectFn set_sh_direct, BspDrawIndexedFn draw_indexed,
     BspResourceComposeResult *result);
 
+int bsp_resource_compose_map_pass_filtered(
+    uint32_t **cursor, uint32_t *end, const BspResourceFrame *frame,
+    const BspBundleView *bundle, const uint16_t clear_indices[3],
+    enum bsp_resource_draw_class draw_class, int include_clear,
+    const uint8_t *draw_mask, uint32_t draw_mask_bytes,
+    const void *gpu_mapping, size_t gpu_mapping_bytes, uint64_t modifier,
+    BspSetShDirectFn set_sh_direct, BspDrawIndexedFn draw_indexed,
+    BspResourceComposeResult *result);
+
+int bsp_resource_compose_clear(
+    uint32_t **cursor, uint32_t *end, const BspResourceFrame *frame,
+    const uint16_t clear_indices[3], const void *gpu_mapping,
+    size_t gpu_mapping_bytes, uint64_t modifier,
+    BspSetShDirectFn set_sh_direct, BspDrawIndexedFn draw_indexed,
+    BspResourceComposeResult *result);
+
 int bsp_resource_compose_map(
     uint32_t **cursor, uint32_t *end, const BspResourceFrame *frame,
     const BspBundleView *bundle, const uint16_t clear_indices[3],

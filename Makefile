@@ -1,13 +1,21 @@
 CC ?= cc
 CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
 BUILD := build/host
+STUDIO_SEQUENCE ?= fire
 
-.PHONY: all test shaders bsp-bundle bsp-inspect native native-release \
+.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
+	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
 	bsp-texture-path-native-release bsp-texture-mip-native-release \
 	bsp-texture-alpha-native-release bsp-texture-sky-native-release \
 	bsp-texture-accounting-native-release bsp-texture-final-native-release \
+	bsp-phase4-pipeline-native-release bsp-phase4-viewport-native-release \
+	bsp-phase4-state-matrix-native-release bsp-phase4-2d-native-release \
+	bsp-phase4-lighting-native-release \
+	bsp-phase4-sprite-particles-native-release \
+	bsp-phase4-studio-native-release bsp-phase4-brush-native-release \
+	bsp-phase4-visibility-native-release bsp-phase4-final-native-release \
 	audit clean
 all: test audit
 
@@ -64,8 +72,22 @@ $(eval $(call test_rule,test_bsp_dynamic_lightmap,tests/test_bsp_dynamic_lightma
 $(eval $(call test_rule,test_bsp_alpha_test,tests/test_bsp_alpha_test.c src/bsp_alpha_test.c,-lm))
 $(eval $(call test_rule,test_bsp_sky,tests/test_bsp_sky.c src/bsp_sky.c,-lm))
 $(eval $(call test_rule,test_bsp_texture_accounting,tests/test_bsp_texture_accounting.c src/bsp_texture_accounting.c,))
+$(eval $(call test_rule,test_goldsrc_render_state,tests/test_goldsrc_render_state.c src/goldsrc_render_state.c,))
+$(eval $(call test_rule,test_goldsrc_state_matrix,tests/test_goldsrc_state_matrix.c src/goldsrc_state_matrix.c src/goldsrc_render_state.c,))
+$(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,))
+$(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
+$(eval $(call test_rule,test_goldsrc_sprite_particles,tests/test_goldsrc_sprite_particles.c src/goldsrc_sprite_particles.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
+$(eval $(call test_rule,test_goldsrc_studio_bundle,tests/test_goldsrc_studio_bundle.c src/goldsrc_studio_bundle.c,))
+$(eval $(call test_rule,test_goldsrc_studio_model,tests/test_goldsrc_studio_model.c src/goldsrc_studio_model.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
+$(eval $(call test_rule,test_goldsrc_brush_entities,tests/test_goldsrc_brush_entities.c src/goldsrc_brush_entities.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
+$(eval $(call test_rule,test_goldsrc_visibility,tests/test_goldsrc_visibility.c src/goldsrc_visibility.c src/bsp_flat_scene.c src/ps5_transient_ring.c,-lm))
+$(eval $(call test_rule,test_ps5_goldsrc_render_state,tests/test_ps5_goldsrc_render_state.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
+$(eval $(call test_rule,test_goldsrc_pipeline_cache,tests/test_goldsrc_pipeline_cache.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
+$(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scissor.c src/ps5_viewport_scissor.c,))
+$(eval $(call test_rule,test_ps5_shader_pipeline_slot,tests/test_ps5_shader_pipeline_slot.c src/ps5_shader_pipeline_slot.c src/ps5_shader_header.c src/ps5_pipeline.c,))
+$(eval $(call test_rule,test_ps5_goldsrc_pipeline_runtime,tests/test_ps5_goldsrc_pipeline_runtime.c src/ps5_goldsrc_pipeline_runtime.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
-$(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_ring.c,-Isrc -lm))
+$(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/goldsrc_lightmap_lighting.c src/goldsrc_brush_entities.c src/goldsrc_visibility.c src/bsp_flat_scene.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_gpu_span.c src/ps5_transient_ring.c,-Isrc -lm))
 
 TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_gears_draw_compose test_gears_animation test_gears_telemetry \
@@ -82,18 +104,30 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_gfx1013_descriptor test_ps5_cache_contract \
 	test_ps5_transient_table test_bsp_resource_frame test_bsp_resource_draw \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
-	test_bsp_texture_accounting
+	test_bsp_texture_accounting test_goldsrc_render_state \
+	test_goldsrc_state_matrix test_goldsrc_2d \
+	test_goldsrc_lightmap_lighting test_goldsrc_sprite_particles \
+	test_goldsrc_studio_bundle test_goldsrc_studio_model \
+	test_goldsrc_brush_entities test_goldsrc_visibility \
+	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
+	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
+	test_ps5_goldsrc_pipeline_runtime
 
 test: $(addprefix $(BUILD)/,$(TESTS))
 	@set -e; for test in $^; do $$test; done
 	python3 tests/test_shader_contract.py
 	python3 tests/test_build_shader.py
 	python3 tests/test_generate_agc_metadata.py
+	python3 tests/test_generate_goldsrc_shader_assets.py
+	python3 tests/test_generate_goldsrc_shader_catalog.py
+	python3 tests/test_generate_goldsrc_shader_variants.py
 	python3 tests/test_generate_pipeline_table.py
 	python3 tests/test_generate_bsp_build_metadata.py
+	python3 tests/test_generate_studio_build_metadata.py
 	python3 tests/test_native_contract.py
 	python3 tests/test_title_identity.py
 	python3 tests/test_bake_bsp.py
+	python3 tests/test_bake_studio.py
 	python3 tests/test_validate_bsp_noclip_evidence.py
 	python3 tests/test_validate_bsp_textured_evidence.py
 	python3 tests/test_validate_bsp_resource_evidence.py
@@ -103,6 +137,8 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_texture_path_sky_evidence.py
 	python3 tests/test_validate_texture_path_accounting_evidence.py
 	python3 tests/test_validate_texture_path_final_evidence.py
+	python3 tests/test_validate_phase4_render_state_evidence.py
+	python3 tests/test_validate_phase4_final_evidence.py
 	rm -rf build tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
@@ -114,6 +150,17 @@ bsp-bundle: $(BUILD)/inspect_bsp_bundle
 bsp-inspect: $(BUILD)/inspect_bsp_bundle
 	@test -n "$(BSP_BUNDLE)" || { echo 'BSP_BUNDLE is required' >&2; exit 2; }
 	$(BUILD)/inspect_bsp_bundle "$(BSP_BUNDLE)"
+
+studio-bundle:
+	@test -n "$(STUDIO_INPUT)" || { echo 'STUDIO_INPUT is required' >&2; exit 2; }
+	mkdir -p build/studio
+	python3 tools/bake_studio.py "$(STUDIO_INPUT)" \
+		build/studio/model.ps5mdl --sequence "$(STUDIO_SEQUENCE)"
+	python3 tools/inspect_studio_bundle.py build/studio/model.ps5mdl
+
+studio-inspect:
+	@test -n "$(STUDIO_BUNDLE)" || { echo 'STUDIO_BUNDLE is required' >&2; exit 2; }
+	python3 tools/inspect_studio_bundle.py "$(STUDIO_BUNDLE)"
 
 shaders:
 	@test -n "$(AMDLLPC)" || { echo 'AMDLLPC is required' >&2; exit 2; }
@@ -137,6 +184,19 @@ shaders:
 		--readelf "$(LLVM_READELF)" --output-dir build/shaders
 	python3 tools/build_shader.py --pipe shaders/bsp_overlay.pipe \
 		--name bsp_overlay --amdllpc "$(AMDLLPC)" \
+		--readelf "$(LLVM_READELF)" --output-dir build/shaders
+	python3 tools/generate_goldsrc_shader_variants.py
+	@set -e; for name in goldsrc_surface goldsrc_surface_lightmap \
+		goldsrc_surface_fog goldsrc_surface_lightmap_fog goldsrc_masked \
+		goldsrc_masked_lightmap goldsrc_masked_fog \
+		goldsrc_masked_lightmap_fog; do \
+		python3 tools/build_shader.py \
+			--pipe "build/generated-shaders/$$name.pipe" --name "$$name" \
+			--amdllpc "$(AMDLLPC)" --readelf "$(LLVM_READELF)" \
+			--output-dir build/shaders; \
+	done
+	python3 tools/build_shader.py --pipe shaders/goldsrc_screen_2d.pipe \
+		--name goldsrc_screen_2d --amdllpc "$(AMDLLPC)" \
 		--readelf "$(LLVM_READELF)" --output-dir build/shaders
 	python3 tools/generate_agc_metadata.py \
 		--manifest build/shaders/gears_lit.manifest.json \
@@ -165,7 +225,19 @@ shaders:
 		--manifest build/shaders/bsp_overlay.manifest.json \
 		--output build/generated/bsp_overlay_shader_metadata.h \
 		--prefix BSP_OVERLAY --symbol-prefix ps5_bsp_overlay
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_surface.manifest.json --output build/generated/goldsrc_surface_shader_metadata.h --prefix GOLDSRC_SURFACE --symbol-prefix ps5_goldsrc_surface
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_surface_lightmap.manifest.json --output build/generated/goldsrc_surface_lightmap_shader_metadata.h --prefix GOLDSRC_SURFACE_LIGHTMAP --symbol-prefix ps5_goldsrc_surface_lightmap
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_surface_fog.manifest.json --output build/generated/goldsrc_surface_fog_shader_metadata.h --prefix GOLDSRC_SURFACE_FOG --symbol-prefix ps5_goldsrc_surface_fog
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_surface_lightmap_fog.manifest.json --output build/generated/goldsrc_surface_lightmap_fog_shader_metadata.h --prefix GOLDSRC_SURFACE_LIGHTMAP_FOG --symbol-prefix ps5_goldsrc_surface_lightmap_fog
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_masked.manifest.json --output build/generated/goldsrc_masked_shader_metadata.h --prefix GOLDSRC_MASKED --symbol-prefix ps5_goldsrc_masked
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_masked_lightmap.manifest.json --output build/generated/goldsrc_masked_lightmap_shader_metadata.h --prefix GOLDSRC_MASKED_LIGHTMAP --symbol-prefix ps5_goldsrc_masked_lightmap
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_masked_fog.manifest.json --output build/generated/goldsrc_masked_fog_shader_metadata.h --prefix GOLDSRC_MASKED_FOG --symbol-prefix ps5_goldsrc_masked_fog
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_masked_lightmap_fog.manifest.json --output build/generated/goldsrc_masked_lightmap_fog_shader_metadata.h --prefix GOLDSRC_MASKED_LIGHTMAP_FOG --symbol-prefix ps5_goldsrc_masked_lightmap_fog
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_screen_2d.manifest.json --output build/generated/goldsrc_screen_2d_shader_metadata.h --prefix GOLDSRC_SCREEN_2D --symbol-prefix ps5_goldsrc_screen_2d
 	python3 tools/generate_pipeline_table.py
+	python3 tools/validate_goldsrc_shader_manifests.py
+	python3 tools/generate_goldsrc_shader_assets.py
+	python3 tools/generate_goldsrc_shader_catalog.py
 
 native:
 	bash tools/build_native.sh
@@ -217,6 +289,61 @@ bsp-texture-final-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
 		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
 		BSP_TEXTURE_FINAL_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-pipeline-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 bash tools/build_native.sh
+
+bsp-phase4-viewport-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_VIEWPORT_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-state-matrix-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_STATE_MATRIX_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-2d-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_2D_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-lighting-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_LIGHTING_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-sprite-particles-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_SPRITE_PARTICLE_GATE=1 \
+		bash tools/build_native.sh
+
+bsp-phase4-studio-native-release: bsp-bundle studio-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" \
+		STUDIO_BUNDLE="$(CURDIR)/build/studio/model.ps5mdl" \
+		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
+		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 GOLDSRC_STUDIO_GATE=1 \
+		bash tools/build_native.sh
+
+bsp-phase4-brush-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_BRUSH_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-visibility-native-release: bsp-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
+		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
+		GOLDSRC_PHASE4=1 GOLDSRC_VISIBILITY_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-final-native-release: bsp-bundle studio-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" \
+		STUDIO_BUNDLE="$(CURDIR)/build/studio/model.ps5mdl" \
+		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
+		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 \
+		GOLDSRC_PHASE4_FINAL_GATE=1 bash tools/build_native.sh
 
 audit:
 	python3 tools/audit_publication.py

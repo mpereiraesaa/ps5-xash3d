@@ -20,7 +20,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 1 — BSP viewer with noclip | Complete | `c1a0`, 3,611 draws, 164 base textures plus lightmap, DualSense movement, clean 60,000-frame textured gate |
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
-| 4 — GoldSrc render states | Next | Dedicated `PPSA99996` identity gate passed; blend/additive permutations, 2D, sprites, particles, studio and brush entities, culling are next |
+| 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Sized | ScePad, AudioOut, filesystem, engine allocator, time/threads, three measured libc shims |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
@@ -60,6 +60,15 @@ make bsp-bundle BSP_INPUT=/private/path/map.bsp
 make bsp-texture-final-native-release BSP_INPUT=/private/path/map.bsp \
   PS5LOG_DEV_CONF=/private/path/dev.conf \
   AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
+
+make bsp-phase4-lighting-native-release BSP_INPUT=/private/path/map.bsp \
+  PS5LOG_DEV_CONF=/private/path/dev.conf \
+  AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
+
+make bsp-phase4-sprite-particles-native-release \
+  BSP_INPUT=/private/path/map.bsp \
+  PS5LOG_DEV_CONF=/private/path/dev.conf \
+  AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
 ```
 
 `.bsp`, `.wad` and `.ps5bsp` files are ignored and never release inputs. The
@@ -89,6 +98,7 @@ Useful references:
 - [`docs/BSP_VIEWER_PHASE1.md`](docs/BSP_VIEWER_PHASE1.md) — BSP bundle, flat/textured draws and noclip
 - [`docs/BSP_RESOURCE_FOUNDATION_PHASE2.md`](docs/BSP_RESOURCE_FOUNDATION_PHASE2.md) — fence-retired resources and transient rendering
 - [`docs/BSP_TEXTURE_PATH_PHASE3.md`](docs/BSP_TEXTURE_PATH_PHASE3.md) — lightmap, mips, alpha test, sky and accounting gates
+- [`docs/GOLDSRC_RENDER_STATES_PHASE4.md`](docs/GOLDSRC_RENDER_STATES_PHASE4.md) — Phase 4 state space, gate order and current checkpoint
 - [`docs/BACKEND_PROVENANCE.md`](docs/BACKEND_PROVENANCE.md) — source provenance boundary
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — hardware evidence
 - [`docs/TELEMETRY.md`](docs/TELEMETRY.md) — runtime observability contract

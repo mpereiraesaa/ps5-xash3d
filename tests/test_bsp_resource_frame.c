@@ -41,13 +41,17 @@ int main(void)
     assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
     const float position[3] = {0, 0, 4};
     const float forward[3] = {0, 0, -1};
+    const BspResourceGoldSrcConstants goldsrc = {
+        {0.25f, 0.5f, 0.75f, 0.4f},
+        {0.1f, 0.2f, 0.3f, 0.004f},
+    };
     BspResourceFrame frame;
-    assert(bsp_resource_frame_build(
+    assert(bsp_resource_frame_build_configured(
                &frame, &ring, 0u, mapping, sizeof(mapping), &bundle,
                (uintptr_t)lightmap_pixels, clear_vertices, clear_indices,
                position, forward,
                16.0f / 9.0f, 17u,
-               PS5_GFX1013_FILTER_ANISOTROPIC_4X) == 0);
+               PS5_GFX1013_FILTER_ANISOTROPIC_4X, &goldsrc) == 0);
     assert(frame.map_constant_table && frame.clear_constant_table);
     assert(frame.map_vertex_table && frame.clear_vertex_table);
     assert(frame.texture_tables && frame.texture_table_dwords == 24u);
@@ -59,6 +63,17 @@ int main(void)
     assert(frame.overlay_constant_table[2] == BSP_RESOURCE_CONSTANT_DWORDS *
                                                   sizeof(uint32_t));
     assert(frame.overlay_constant_table[3] == UINT32_C(0x31016fac));
+    const uintptr_t map_constant_address =
+        (uintptr_t)frame.map_constant_table[0] |
+        ((uintptr_t)(frame.map_constant_table[1] & 0xffffu) << 32);
+    const BspResourceConstants *map_constants =
+        (const BspResourceConstants *)map_constant_address;
+    assert(memcmp(map_constants->control, goldsrc.render_color,
+                  sizeof(goldsrc.render_color)) == 0);
+    assert(memcmp(map_constants->debug_values, goldsrc.fog_color_density,
+                  sizeof(goldsrc.fog_color_density)) == 0);
+    assert(map_constants->debug_values[4] == 17.0f);
+    assert(map_constants->debug_values[8] == 0.0f);
     const uintptr_t overlay_address =
         (uintptr_t)frame.overlay_constant_table[0] |
         ((uintptr_t)(frame.overlay_constant_table[1] & 0xffffu) << 32);

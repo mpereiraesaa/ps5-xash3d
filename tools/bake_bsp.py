@@ -22,13 +22,19 @@ BSP_VERSION = 30
 BSP_LUMP_COUNT = 15
 BSP_HEADER_BYTES = 4 + BSP_LUMP_COUNT * 8
 LUMP_ENTITIES = 0
+LUMP_PLANES = 1
 LUMP_TEXTURES = 2
 LUMP_VERTICES = 3
+LUMP_VISIBILITY = 4
+LUMP_NODES = 5
 LUMP_TEXINFO = 6
 LUMP_FACES = 7
 LUMP_LIGHTING = 8
+LUMP_LEAVES = 10
+LUMP_MARKSURFACES = 11
 LUMP_EDGES = 12
 LUMP_SURFEDGES = 13
+LUMP_MODELS = 14
 
 BUNDLE_MAGIC = b"PS5BSP\0\0"
 BUNDLE_VERSION = 3
@@ -39,6 +45,15 @@ DRAW = struct.Struct("<8I")
 INDEX = struct.Struct("<H")
 IMAGE = struct.Struct("<4I")
 TEXTURE = struct.Struct("<12I")
+LIGHTMAP_FACE = struct.Struct("<7I4B")
+MODEL = struct.Struct("<9f7i")
+BRUSH_MODEL = struct.Struct("<4I12f")
+BRUSH_ENTITY = struct.Struct("<4I16f4I")
+VISIBILITY_HEADER = struct.Struct("<8I")
+VISIBILITY_PLANE = struct.Struct("<4f")
+VISIBILITY_NODE = struct.Struct("<I2iI")
+VISIBILITY_LEAF = struct.Struct("<iI6f2I")
+DRAW_BOUNDS = struct.Struct("<6f")
 
 MAX_INPUT_BYTES = 512 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
@@ -109,6 +124,17 @@ class AtlasPlacement:
     y: int
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class BrushModel:
+    mins: tuple[float, float, float]
+    maxs: tuple[float, float, float]
+    origin: tuple[float, float, float]
+    headnode: int
+    visleafs: int
+    first_face: int
+    face_count: int
 
 
 @dataclass(frozen=True)
@@ -341,12 +367,264 @@ def _entity_pairs(block: str) -> dict[str, str]:
             for i in range(0, len(tokens), 2)}
 
 
+def _entities(entity_bytes: bytes) -> list[dict[str, str]]:
+    text = entity_bytes.rstrip(b"\0").decode("latin-1")
+    return [_entity_pairs(block)
+            for block in re.findall(r"\{([^{}]*)\}", text, re.DOTALL)]
+
+
+def _vec3(value: str, label: str) -> tuple[float, float, float]:
+    try:
+        result = tuple(float(item) for item in value.split())
+    except ValueError as error:
+        raise BakeError(f"{label} is invalid") from error
+    if len(result) != 3 or not all(math.isfinite(item) for item in result):
+        raise BakeError(f"{label} is invalid")
+    return result
+
+
+def _convert_point(value: tuple[float, float, float]
+                   ) -> tuple[float, float, float]:
+    return value[0], value[2], -value[1]
+
+
+def _convert_bounds(mins: tuple[float, float, float],
+                    maxs: tuple[float, float, float]
+                    ) -> tuple[tuple[float, float, float],
+                               tuple[float, float, float]]:
+    return ((mins[0], mins[2], -maxs[1]),
+            (maxs[0], maxs[2], -mins[1]))
+
+
+def _brush_chunks(models: list[BrushModel], entities: list[dict[str, str]],
+                  face_count: int) -> tuple[bytes, bytes]:
+    if not models or models[0].first_face != 0 or models[0].face_count <= 0:
+        raise BakeError("BSP world model is invalid")
+    model_blob = bytearray()
+    for index, model in enumerate(models):
+        if model.first_face < 0 or model.face_count <= 0 or \
+                model.first_face > face_count - model.face_count or \
+                model.visleafs < 0 or \
+                not all(math.isfinite(value) for value in
+                        (*model.mins, *model.maxs, *model.origin)):
+            raise BakeError(f"BSP model {index} is invalid")
+        mins, maxs = _convert_bounds(model.mins, model.maxs)
+        origin = _convert_point(model.origin)
+        model_blob += BRUSH_MODEL.pack(
+            index, model.first_face, model.face_count, model.visleafs,
+            *mins, *maxs, *origin, 0.0, 0.0, 0.0)
+
+    entity_blob = bytearray()
+    seen_models: set[int] = set()
+    for entity in entities:
+        reference = entity.get("model", "")
+        if not reference.startswith("*") or not reference[1:].isdigit():
+            continue
+        model_index = int(reference[1:])
+        if model_index <= 0 or model_index >= len(models) or \
+                model_index in seen_models:
+            if model_index in seen_models:
+                raise BakeError(f"brush model {reference} has duplicate entities")
+            raise BakeError(f"brush entity references invalid model {reference}")
+        seen_models.add(model_index)
+        model = models[model_index]
+        classname = entity.get("classname", "")
+        if not classname:
+            raise BakeError(f"brush entity {reference} has no classname")
+        origin = _convert_point(_vec3(entity.get("origin", "0 0 0"),
+                                      f"brush entity {reference} origin"))
+        if "angles" in entity:
+            angles = _vec3(entity["angles"],
+                           f"brush entity {reference} angles")
+        else:
+            try:
+                yaw = float(entity.get("angle", "0"))
+            except ValueError as error:
+                raise BakeError(
+                    f"brush entity {reference} angle is invalid") from error
+            if not math.isfinite(yaw):
+                raise BakeError(f"brush entity {reference} angle is invalid")
+            angles = (0.0, yaw, 0.0)
+        try:
+            render_mode = int(entity.get("rendermode", "0"), 10)
+            render_amount = float(entity.get("renderamt", "255"))
+        except ValueError as error:
+            raise BakeError(
+                f"brush entity {reference} render fields are invalid") from error
+        if render_mode < 0 or render_mode > 5 or \
+                not math.isfinite(render_amount) or \
+                render_amount < 0.0 or render_amount > 255.0:
+            raise BakeError(f"brush entity {reference} render fields are invalid")
+        color = _vec3(entity.get("rendercolor", "255 255 255"),
+                      f"brush entity {reference} rendercolor")
+        if any(value < 0.0 or value > 255.0 for value in color):
+            raise BakeError(f"brush entity {reference} rendercolor is invalid")
+        mins, maxs = _convert_bounds(model.mins, model.maxs)
+        entity_blob += BRUSH_ENTITY.pack(
+            model_index, model.first_face, model.face_count, render_mode,
+            *mins, *maxs, *origin, *angles,
+            *(value / 255.0 for value in color), render_amount / 255.0,
+            _fnv1a32(classname.encode("latin-1")), 0, 0, 0)
+    if not entity_blob:
+        raise BakeError("BSP contains no brush entities")
+    return bytes(model_blob), bytes(entity_blob)
+
+
+def _decompress_pvs(vis: bytes, offset: int, row_bytes: int,
+                    label: str) -> bytes:
+    if offset < 0:
+        return bytes([0xff]) * row_bytes
+    if offset >= len(vis):
+        raise BakeError(f"{label} visibility offset is invalid")
+    output = bytearray()
+    cursor = offset
+    while len(output) < row_bytes:
+        if cursor >= len(vis):
+            raise BakeError(f"{label} visibility row is truncated")
+        value = vis[cursor]
+        cursor += 1
+        if value:
+            output.append(value)
+            continue
+        if cursor >= len(vis) or vis[cursor] == 0:
+            raise BakeError(f"{label} visibility run is invalid")
+        count = vis[cursor]
+        cursor += 1
+        if count > row_bytes - len(output):
+            raise BakeError(f"{label} visibility run exceeds its row")
+        output += bytes(count)
+    return bytes(output)
+
+
+def _visibility_chunks(
+        models: list[BrushModel], planes: list[tuple[float, ...]],
+        nodes: list[tuple[int, ...]], leaves: list[tuple[int, ...]],
+        marksurfaces: list[int], visibility: bytes,
+        sorted_draws: list[tuple[int, int, bytes]],
+        geometry: list[FaceGeometry],
+        source_vertices: list[tuple[float, float, float]],
+        renderable: list[bool]) -> tuple[bytes, bytes, bytes, bytes, bytes,
+                                             bytes, bytes]:
+    if not models or models[0].headnode < 0 or \
+            models[0].headnode >= len(nodes) or models[0].visleafs <= 0:
+        raise BakeError("world visibility tree is invalid")
+    # The BSP lumps also contain node/leaf trees used by inline brush models.
+    # Export only the world model tree: its PVS bit numbering covers exactly
+    # those leaves, not every leaf present in the file.
+    world_nodes: set[int] = set()
+    world_leaves: set[int] = set()
+    pending = [models[0].headnode]
+    while pending:
+        child = pending.pop()
+        if child < 0:
+            leaf = -child - 1
+            if leaf >= len(leaves):
+                raise BakeError("world visibility leaf is invalid")
+            world_leaves.add(leaf)
+            continue
+        if child >= len(nodes):
+            raise BakeError("world visibility node is invalid")
+        if child in world_nodes:
+            continue
+        world_nodes.add(child)
+        pending.extend(nodes[child][1:3])
+    if len(world_leaves) != models[0].visleafs + 1 or 0 not in world_leaves:
+        raise BakeError("world visibility tree leaf count is invalid")
+    node_indices = sorted(world_nodes)
+    leaf_indices = sorted(world_leaves)
+    node_remap = {source: target for target, source in enumerate(node_indices)}
+    leaf_remap = {source: target for target, source in enumerate(leaf_indices)}
+    draw_for_face = {face: index for index, (_texture, face, _blob)
+                     in enumerate(sorted_draws)}
+    if len(draw_for_face) != len(sorted_draws):
+        raise BakeError("draw face IDs are not unique")
+
+    plane_blob = bytearray()
+    for index, plane in enumerate(planes):
+        normal = _convert_point(tuple(plane[0:3]))
+        distance = plane[3]
+        if not all(math.isfinite(value) for value in (*normal, distance)):
+            raise BakeError(f"plane {index} is invalid")
+        plane_blob += VISIBILITY_PLANE.pack(*normal, distance)
+
+    node_blob = bytearray()
+    for index in node_indices:
+        node = nodes[index]
+        plane_index, child0, child1 = node[0:3]
+        if plane_index < 0 or plane_index >= len(planes):
+            raise BakeError(f"node {index} plane is invalid")
+        mapped_children = []
+        for child in (child0, child1):
+            if child >= 0:
+                mapped = node_remap.get(child)
+            else:
+                leaf = leaf_remap.get(-child - 1)
+                mapped = None if leaf is None else -leaf - 1
+            if mapped is None:
+                raise BakeError(f"node {index} child is invalid")
+            mapped_children.append(mapped)
+        node_blob += VISIBILITY_NODE.pack(
+            plane_index, mapped_children[0], mapped_children[1], 0)
+
+    row_bytes = (len(leaf_indices) - 1 + 7) // 8
+    source_row_bytes = (models[0].visleafs + 7) // 8
+    pvs_blob = bytearray(row_bytes * len(leaf_indices))
+    leaf_blob = bytearray()
+    ref_blob = bytearray()
+    for leaf_index, source_leaf_index in enumerate(leaf_indices):
+        leaf = leaves[source_leaf_index]
+        contents, vis_offset = leaf[0:2]
+        mins = tuple(float(value) for value in leaf[2:5])
+        maxs = tuple(float(value) for value in leaf[5:8])
+        first_mark, mark_count = leaf[8:10]
+        if first_mark > len(marksurfaces) or \
+                mark_count > len(marksurfaces) - first_mark:
+            raise BakeError(f"leaf {leaf_index} marksurface range is invalid")
+        converted_mins, converted_maxs = _convert_bounds(mins, maxs)
+        first_ref = len(ref_blob) // 4
+        refs = sorted({draw_for_face[face]
+                       for face in marksurfaces[first_mark:
+                                                first_mark + mark_count]
+                       if face < len(renderable) and renderable[face] and
+                       face in draw_for_face})
+        for draw_index in refs:
+            ref_blob += struct.pack("<I", draw_index)
+        pvs_row = leaf_index * row_bytes
+        if leaf_index > 0:
+            source = _decompress_pvs(
+                visibility, vis_offset, source_row_bytes,
+                f"leaf {source_leaf_index}")
+            for candidate, source_candidate in enumerate(leaf_indices[1:], 1):
+                source_bit = source_candidate - 1
+                if source[source_bit >> 3] & (1 << (source_bit & 7)):
+                    target_bit = candidate - 1
+                    pvs_blob[pvs_row + (target_bit >> 3)] |= \
+                        1 << (target_bit & 7)
+        leaf_blob += VISIBILITY_LEAF.pack(
+            contents, pvs_row, *converted_mins, *converted_maxs,
+            first_ref, len(refs))
+
+    bounds_blob = bytearray()
+    for _texture, face_index, _blob in sorted_draws:
+        points = [_convert_point(source_vertices[index])
+                  for index in geometry[face_index].polygon]
+        mins = tuple(min(point[axis] for point in points) for axis in range(3))
+        maxs = tuple(max(point[axis] for point in points) for axis in range(3))
+        bounds_blob += DRAW_BOUNDS.pack(*mins, *maxs)
+
+    header = VISIBILITY_HEADER.pack(
+        node_remap[models[0].headnode], len(planes), len(node_indices),
+        len(leaf_indices),
+        row_bytes, len(ref_blob) // 4, models[0].first_face,
+        models[0].face_count)
+    return (header, bytes(plane_blob), bytes(node_blob), bytes(leaf_blob),
+            bytes(ref_blob), bytes(pvs_blob), bytes(bounds_blob))
+
+
 def _spawn_camera(entity_bytes: bytes) -> tuple[tuple[float, float, float],
                                                  tuple[float, float, float]]:
-    text = entity_bytes.rstrip(b"\0").decode("latin-1")
     selected: dict[str, str] | None = None
-    for block in re.findall(r"\{([^{}]*)\}", text, re.DOTALL):
-        values = _entity_pairs(block)
+    for values in _entities(entity_bytes):
         if values.get("classname") in ("info_player_start", "info_player_deathmatch"):
             selected = values
             if values.get("classname") == "info_player_start":
@@ -472,7 +750,8 @@ def _face_geometry(face_index: int, face: Face,
 
 def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
                     lighting: bytes, renderable: list[bool] | None = None
-                    ) -> tuple[bytes, bytes, list[AtlasPlacement | None]]:
+                    ) -> tuple[bytes, bytes, list[AtlasPlacement | None],
+                               bytes, bytes]:
     lit_faces: list[int] = []
     sizes: list[tuple[int, int]] = []
     for face_index, (face, shape) in enumerate(zip(faces, geometry)):
@@ -493,14 +772,25 @@ def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
 
     atlas_width, atlas_height, packed = _pack_atlas(sizes)
     pixels = bytearray([255]) * (atlas_width * atlas_height * 4)
+    metadata = bytearray()
+    samples = bytearray()
     placements: list[AtlasPlacement | None] = [None] * len(faces)
     for face_index, placement in zip(lit_faces, packed):
         assert placement is not None
         placements[face_index] = placement
         face = faces[face_index]
         shape = geometry[face_index]
-        source = lighting[face.light_offset:face.light_offset +
-                          shape.light_width * shape.light_height * 3]
+        style_count = next((index for index, style in enumerate(face.styles)
+                            if style == 255), len(face.styles))
+        sample_bytes = shape.light_width * shape.light_height * 3
+        source_bytes = sample_bytes * style_count
+        source = lighting[face.light_offset:face.light_offset + source_bytes]
+        sample_offset = len(samples)
+        samples += source
+        metadata += LIGHTMAP_FACE.pack(
+            face_index, placement.x, placement.y,
+            shape.light_width, shape.light_height,
+            sample_offset, source_bytes, *face.styles)
         for row in range(shape.light_height):
             for column in range(shape.light_width):
                 source_at = (row * shape.light_width + column) * 3
@@ -521,7 +811,7 @@ def _lightmap_atlas(faces: list[Face], geometry: list[FaceGeometry],
                 pixels[target:target + 4] = pixels[source_at:source_at + 4]
     header = IMAGE.pack(atlas_width, atlas_height, atlas_width * 4,
                         IMAGE_FORMAT_RGBA8_UNORM)
-    return header, bytes(pixels), placements
+    return header, bytes(pixels), placements, bytes(metadata), bytes(samples)
 
 
 def _chunk_bytes(chunks: list[Chunk], camera: tuple[float, float, float],
@@ -571,15 +861,32 @@ def bake(data: bytes) -> bytes:
         raise BakeError("face count exceeds the host baker limit")
     faces = [Face(row[2], row[3], row[4], tuple(row[5:9]), row[9])
              for row in raw_faces]
+    raw_models = _records(data, lumps[LUMP_MODELS], MODEL, "model")
+    models = [BrushModel(tuple(row[0:3]), tuple(row[3:6]),
+                         tuple(row[6:9]), row[9], row[13], row[14], row[15])
+              for row in raw_models]
+    planes = _records(data, lumps[LUMP_PLANES],
+                      struct.Struct("<4fi"), "plane")
+    nodes = _records(data, lumps[LUMP_NODES],
+                     struct.Struct("<i2h6h2H"), "node")
+    leaves = _records(data, lumps[LUMP_LEAVES],
+                      struct.Struct("<ii6h2H4B"), "leaf")
+    marksurfaces = [value[0] for value in _records(
+        data, lumps[LUMP_MARKSURFACES], struct.Struct("<H"), "marksurface")]
+    visibility = data[lumps[LUMP_VISIBILITY].offset:
+                      lumps[LUMP_VISIBILITY].offset +
+                      lumps[LUMP_VISIBILITY].size]
+    entity_bytes = data[lumps[LUMP_ENTITIES].offset:
+                        lumps[LUMP_ENTITIES].offset + lumps[LUMP_ENTITIES].size]
+    brush_models, brush_entities = _brush_chunks(
+        models, _entities(entity_bytes), len(faces))
     base_textures = _parse_base_textures(data, lumps[LUMP_TEXTURES])
     texture_sizes = [(texture.width, texture.height)
                      for texture in base_textures]
     texture_metadata, texture_pixels = _texture_chunks(base_textures)
     lighting = data[lumps[LUMP_LIGHTING].offset:
                     lumps[LUMP_LIGHTING].offset + lumps[LUMP_LIGHTING].size]
-    camera, forward = _spawn_camera(
-        data[lumps[LUMP_ENTITIES].offset:
-             lumps[LUMP_ENTITIES].offset + lumps[LUMP_ENTITIES].size])
+    camera, forward = _spawn_camera(entity_bytes)
 
     geometry: list[FaceGeometry] = []
     renderable: list[bool] = []
@@ -593,7 +900,8 @@ def bake(data: bytes) -> bytes:
                                        surfedges, texture))
         renderable.append(
             not (base_textures[texture.miptex].flags & TEXTURE_FLAG_NODRAW))
-    light_header, light_pixels, light_placements = _lightmap_atlas(
+    (light_header, light_pixels, light_placements,
+     light_face_metadata, light_samples) = _lightmap_atlas(
         faces, geometry, lighting, renderable)
     atlas_width, atlas_height, _pitch, _format = IMAGE.unpack(light_header)
 
@@ -644,15 +952,46 @@ def bake(data: bytes) -> bytes:
         raise BakeError("BSP contains no renderable faces")
     draws.sort(key=lambda item: (item[0], item[1]))
     draw_blob = b"".join(item[2] for item in draws)
-    return _chunk_bytes([
+    (visibility_header, visibility_planes, visibility_nodes,
+     visibility_leaves, visibility_refs, visibility_pvs,
+     draw_bounds) = _visibility_chunks(
+        models, planes, nodes, leaves, marksurfaces, visibility, draws,
+        geometry, vertices, renderable)
+    chunks = [
         Chunk(b"VERT", bytes(vertex_blob), emitted_vertices, VERTEX.size),
         Chunk(b"INDX", bytes(index_blob), emitted_indices, INDEX.size),
         Chunk(b"DRAW", draw_blob, len(draws), DRAW.size),
         Chunk(b"LMHD", light_header, 1, IMAGE.size),
         Chunk(b"LMPX", light_pixels, atlas_width * atlas_height, 4, 256),
+    ]
+    if light_face_metadata:
+        chunks += [
+            Chunk(b"LMFM", light_face_metadata,
+                  len(light_face_metadata) // LIGHTMAP_FACE.size,
+                  LIGHTMAP_FACE.size),
+            Chunk(b"LMSP", light_samples, len(light_samples), 1),
+        ]
+    chunks += [
         Chunk(b"TEXM", texture_metadata, len(base_textures), TEXTURE.size),
         Chunk(b"TEXP", texture_pixels, len(texture_pixels), 1, 256),
-    ], camera, forward)
+        Chunk(b"BMOD", brush_models, len(models), BRUSH_MODEL.size),
+        Chunk(b"BENT", brush_entities,
+              len(brush_entities) // BRUSH_ENTITY.size, BRUSH_ENTITY.size),
+        Chunk(b"VHDR", visibility_header, 1, VISIBILITY_HEADER.size),
+        Chunk(b"VPLN", visibility_planes,
+              len(visibility_planes) // VISIBILITY_PLANE.size,
+              VISIBILITY_PLANE.size),
+        Chunk(b"VNOD", visibility_nodes,
+              len(visibility_nodes) // VISIBILITY_NODE.size,
+              VISIBILITY_NODE.size),
+        Chunk(b"VLEF", visibility_leaves,
+              len(visibility_leaves) // VISIBILITY_LEAF.size,
+              VISIBILITY_LEAF.size),
+        Chunk(b"VDRW", visibility_refs, len(visibility_refs) // 4, 4),
+        Chunk(b"VPVS", visibility_pvs, len(visibility_pvs), 1),
+        Chunk(b"DBND", draw_bounds, len(draws), DRAW_BOUNDS.size),
+    ]
+    return _chunk_bytes(chunks, camera, forward)
 
 
 def main() -> int:

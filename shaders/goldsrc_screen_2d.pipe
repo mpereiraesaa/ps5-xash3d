@@ -1,0 +1,87 @@
+[Version]
+version = 65
+
+[VsGlsl]
+#version 450
+layout(location = 0) in vec2 in_position;
+layout(location = 1) in vec2 in_uv;
+layout(location = 2) in vec4 in_color;
+layout(set = 0, binding = 0, std140) uniform ScreenConstants {
+    mat4 projection;
+    vec4 color_scale;
+    vec4 debug_values[3];
+} screen;
+layout(location = 0) out vec2 uv;
+layout(location = 1) out vec4 color;
+void main() {
+    gl_Position = screen.projection * vec4(in_position, 0.0, 1.0);
+    uv = in_uv;
+    color = in_color * screen.color_scale +
+            screen.debug_values[0] * 0.0000001;
+}
+
+[VsInfo]
+entryPoint = main
+
+[FsGlsl]
+#version 450
+layout(set = 1, binding = 0) uniform sampler2D image;
+layout(location = 0) in vec2 uv;
+layout(location = 1) in vec4 color;
+layout(location = 0) out vec4 out_color;
+void main() {
+    out_color = texture(image, uv) * color;
+}
+
+[FsInfo]
+entryPoint = main
+
+[ResourceMapping]
+userDataNode[0].visibility = 2
+userDataNode[0].type = DescriptorTableVaPtr
+userDataNode[0].offsetInDwords = 0
+userDataNode[0].sizeInDwords = 1
+userDataNode[0].next[0].type = DescriptorConstBuffer
+userDataNode[0].next[0].offsetInDwords = 0
+userDataNode[0].next[0].sizeInDwords = 4
+userDataNode[0].next[0].set = 0
+userDataNode[0].next[0].binding = 0
+userDataNode[1].visibility = 2
+userDataNode[1].type = IndirectUserDataVaPtr
+userDataNode[1].offsetInDwords = 1
+userDataNode[1].sizeInDwords = 1
+userDataNode[1].indirectUserDataCount = 1
+userDataNode[2].visibility = 64
+userDataNode[2].type = DescriptorTableVaPtr
+userDataNode[2].offsetInDwords = 0
+userDataNode[2].sizeInDwords = 1
+userDataNode[2].next[0].type = DescriptorCombinedTexture
+userDataNode[2].next[0].offsetInDwords = 0
+userDataNode[2].next[0].sizeInDwords = 12
+userDataNode[2].next[0].set = 1
+userDataNode[2].next[0].binding = 0
+
+[GraphicsPipelineState]
+topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+nggState.enableNgg = 1
+nggState.enableGsUse = 0
+colorBuffer[0].format = VK_FORMAT_B8G8R8A8_UNORM
+colorBuffer[0].channelWriteMask = 15
+colorBuffer[0].blendEnable = 0
+
+[VertexInputState]
+binding[0].binding = 0
+binding[0].stride = 32
+binding[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+attribute[0].location = 0
+attribute[0].binding = 0
+attribute[0].format = VK_FORMAT_R32G32_SFLOAT
+attribute[0].offset = 0
+attribute[1].location = 1
+attribute[1].binding = 0
+attribute[1].format = VK_FORMAT_R32G32_SFLOAT
+attribute[1].offset = 8
+attribute[2].location = 2
+attribute[2].binding = 0
+attribute[2].format = VK_FORMAT_R32G32B32A32_SFLOAT
+attribute[2].offset = 16

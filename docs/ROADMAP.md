@@ -104,5 +104,38 @@
   and pass its 10,000-frame hardware gate.
 - [x] Pass and archive the complete Phase 3 60,000-frame hardware gate with
   exact accounting, GPU-visible readbacks, intact guards and zero errors.
+- [x] Define and host-test the complete Phase 4 semantic render-state space,
+  its 99-entry permutation cache, exact dynamic blend/depth/cull translation
+  and checked mid-frame viewport/scissor updates.
+- [x] Generate, compile and manifest-check all eight explicit surface/masked
+  fog/lightmap shader variants plus the orthographic 2D shader for `gfx1013`.
+- [x] Generate the native shader catalog, host-test the bounded slot builder
+  and produce a signed `PPSA99996` package that creates and links all nine
+  variants without changing the frozen Phase 3 permutation table.
+- [x] Bind the real opaque and masked-lightmap Phase 4 variants in BSP draw
+  composition and pass the 10,000-frame FW 12.02 viewport/scissor hardware
+  gate with full-frame restoration, exact ownership and zero errors.
+- [x] Exercise alpha blend, additive, alpha test, depth-write on/off, cull
+  front/back/none, fog on/off and lightmap on/off through actual draws and 18
+  post-retirement framebuffer readbacks in a 10,000-frame FW 12.02 gate.
+- [x] Add and prove the orthographic blended 2D HUD/console/menu/font path
+  with a procedural atlas and per-frame transient geometry in a clean
+  10,000-frame FW 12.02 gate.
+- [x] Add real BSP lightstyle planes and face-local dynamic lights through the
+  bounded Phase 3 atlas uploader; pass their four-mode, eight-readback
+  10,000-frame FW 12.02 hardware gate.
+- [x] Add camera-facing sprites plus alpha/additive particle batches from the
+  existing per-slot transient ring; pass four modes, eight post-retirement
+  readbacks and a clean 10,000-frame FW 12.02 hardware gate.
+- [x] Add animated studio models with CPU skinning, per-model textures, chrome
+  and additive modes; pass five modes, ten post-retirement readbacks and a
+  clean 10,000-frame FW 12.02 hardware gate.
+- [x] Add independently transformed real BSP brush entities with opaque, alpha
+  and additive render modes; pass five modes, ten post-retirement readbacks and
+  a clean 10,000-frame FW 12.02 hardware gate.
+- [x] Add real world-tree PVS plus draw-AABB frustum culling; pass four modes,
+  eight post-retirement readbacks and a clean 10,000-frame FW 12.02 gate.
+- [x] Pass the complete integrated Phase 4 visual and continuous ownership
+  soak with zero errors.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.
