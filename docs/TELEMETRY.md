@@ -138,6 +138,19 @@ both slots, four distinct same-slot images, a converged final base patch,
 inherited resource ownership, intact guards, zero errors and the dedicated
 gap-free completion BYE.
 
+The Studio gate adds `GOLDSRC_STUDIO_READY`, transition/bookend
+`GOLDSRC_STUDIO_FRAME` and `GOLDSRC_STUDIO_DRAW` records, exactly ten
+`GOLDSRC_STUDIO_READBACK` records and `GOLDSRC_STUDIO_COMPLETE`. The ready
+record binds the private bundle SHA/size from boot to its bone, frame, geometry,
+draw, texture and chrome counts. Frame rows expose interpolation endpoints,
+blend, pose/skinned hashes and exact transient bytes; draw rows prove isolated
+opaque and additive state keys plus instance, draw, index and texture-bind
+counts. Acceptance requires control, textured, chrome, additive and combined
+modes on both slots, changing poses, distinct feature/control and
+combined/isolated images, CPU skinning in the transient ring, shared BSP-pool
+residency, exact fence plus VideoOut retirement, six reclaimed resources,
+intact guards, zero errors and the dedicated gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

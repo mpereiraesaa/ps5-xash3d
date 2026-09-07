@@ -12,6 +12,9 @@ def main() -> None:
     bsp_metadata = (ROOT / "tools/generate_bsp_build_metadata.py").read_text(
         encoding="utf-8"
     )
+    studio_metadata = (
+        ROOT / "tools/generate_studio_build_metadata.py"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -313,6 +316,35 @@ def main() -> None:
     if "bsp-phase4-sprite-particles-native-release" not in makefile or \
             "GOLDSRC_SPRITE_PARTICLE_GATE=1" not in makefile:
         raise SystemExit("Phase 4 sprite/particle release target missing")
+    for item in (
+        "GOLDSRC_STUDIO_GATE requires GOLDSRC_PHASE4=1",
+        "GOLDSRC_STUDIO_GATE requires STUDIO_BUNDLE",
+        "-DPS5_GOLDSRC_STUDIO_GATE=1",
+        "src/goldsrc_studio_bundle.c",
+        "src/goldsrc_studio_model.c",
+        'cp "$studio_bundle" "$dist/model.ps5mdl"',
+    ):
+        if item not in builder:
+            raise SystemExit(f"Phase 4 studio build contract missing: {item}")
+    for item in (
+        '"/app0/model.ps5mdl"',
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-studio",
+        "GOLDSRC_STUDIO_READY schema=1 source_fnv64=%016llx",
+        "GOLDSRC_STUDIO_FRAME schema=1 frame=%llu slot=%u",
+        "GOLDSRC_STUDIO_DRAW schema=1 frame=%llu slot=%u",
+        "GOLDSRC_STUDIO_READBACK schema=1 frame=%llu",
+        "BSP_LOOP_BEGIN mode=goldsrc-studio-soak buffers=2",
+        "GOLDSRC_STUDIO_COMPLETE schema=1 frames=%llu modes=%u",
+        'ps5log_close("goldsrc-phase4-studio-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 4 studio runtime contract missing: {item}")
+    if "bsp-phase4-studio-native-release" not in makefile or \
+            "GOLDSRC_STUDIO_GATE=1" not in makefile:
+        raise SystemExit("Phase 4 studio release target missing")
+    for item in ("PS5_STUDIO_BUNDLE_SHA256", "PS5_STUDIO_BUNDLE_BYTES"):
+        if item not in studio_metadata:
+            raise SystemExit(f"studio metadata contract missing: {item}")
     for item in ('bsp_resource.gs.bin', 'bsp_resource.ps.bin',
                  'bsp_alpha_test.gs.bin', 'bsp_alpha_test.ps.bin',
                  'bsp_sky.gs.bin', 'bsp_sky.ps.bin',

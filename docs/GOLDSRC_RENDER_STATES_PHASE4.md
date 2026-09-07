@@ -213,5 +213,40 @@ intact and six allocations were reclaimed. Chiaki's registered entry was
 reused through the isolated CLI process and closed by exact PID; exact-title
 closure left no BigApp and all four services healthy.
 
-This closes implementation gates 1–5, not Phase 4. Studio models, brush
-entities and PVS/frustum culling remain open. `PPSA99998` remains absent.
+The Studio-model gate is now closed. The host-only `bake_studio.py` parser
+consumes GoldSrc Studio v10 data and emits a checksummed, versioned runtime
+bundle without publishing the privately owned source model. The PS5 parser
+opens that bundle inside the existing BSP pool allocation. Every frame, the
+runtime interpolates the selected sequence, composes its eight-bone hierarchy
+and CPU-skins 134 expanded vertices into the current transient-ring slot.
+Four embedded model textures remain resident; chrome UVs are regenerated from
+skinned normals and the additive instance uses its own semantic pipeline.
+
+Run `20260907T003611716Z_PPSA99996_ps5-xash3d_0x84cd5cd0ac8a` used the
+embedded seven-frame `fire` sequence at 33 fps and completed 10,000/10,000
+frames on FW 12.02. Five 600-frame modes isolated control, textured, chrome,
+additive and the three-instance combined result. The gate issued 0/4/4/4/12
+draws and 0/282/282/282/846 indices, captured exactly ten post-retirement
+readbacks, observed changing pose/skinned hashes and kept every feature/control
+and combined/isolated same-slot comparison distinct. It ended with six
+allocations reclaimed, guards intact, zero renderer errors and a gap-free
+286-record BYE. Exact artifacts:
+
+- native ELF: `a78675524a21b2a7b2264e3b271a4b80954333b01cd82456ee4fda3da7af1e52`;
+- signed fSELF: `0e0614f13bef7a0121ac6bde5cde0480f4e1162e8c6c6e8bfd008df71cd4dace`;
+- private BSP bundle: `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105`
+  (9,573,888 bytes);
+- private Studio bundle: `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31`
+  (93,952 bytes);
+- transcript/manifest: `2cf010f8b95529265e9095efe2a4882e31965b3afaa459c02f829333d7acf03d` /
+  `fe93f51167b551f47e82831d272513a7886a25564947f82e3b6c7d68791f6290`.
+
+A compositor-visible CLI-stream capture shows the textured, chrome and
+additive instances together; its SHA-256 is
+`5ec51fbc6a4efec1ec7620dcb24b608fccf61e6478ca73f0d3b537ce14fa65df`.
+Chiaki was closed by its exact isolated PID. Exact-title closure left no BigApp,
+all services healthy, `PPSA99996` and frozen Gears `PPSA99997` present, and
+`PPSA99998` absent.
+
+This closes implementation gates 1–6, not Phase 4. Brush entities and
+PVS/frustum culling remain open. `PPSA99998` remains absent.

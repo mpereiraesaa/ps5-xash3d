@@ -99,6 +99,10 @@ src/goldsrc_lightmap_lighting.c
 src/goldsrc_lightmap_lighting.h
 src/goldsrc_sprite_particles.c
 src/goldsrc_sprite_particles.h
+src/goldsrc_studio_bundle.c
+src/goldsrc_studio_bundle.h
+src/goldsrc_studio_model.c
+src/goldsrc_studio_model.h
 src/goldsrc_shader_catalog.h
 src/goldsrc_pipeline_cache.c
 src/goldsrc_pipeline_cache.h
@@ -165,6 +169,8 @@ tests/test_goldsrc_state_matrix.c
 tests/test_goldsrc_2d.c
 tests/test_goldsrc_lightmap_lighting.c
 tests/test_goldsrc_sprite_particles.c
+tests/test_goldsrc_studio_bundle.c
+tests/test_goldsrc_studio_model.c
 tests/test_goldsrc_pipeline_cache.c
 tests/test_gears_renderer.c
 tests/test_ps5_surface.c
@@ -209,6 +215,7 @@ tests/test_ps5_resource_pool.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_bake_bsp.py
+tests/test_bake_studio.py
 tests/test_shader_contract.py
 tests/test_build_shader.py
 tests/test_generate_agc_metadata.py
@@ -217,6 +224,7 @@ tests/test_generate_goldsrc_shader_assets.py
 tests/test_generate_goldsrc_shader_catalog.py
 tests/test_generate_pipeline_table.py
 tests/test_generate_bsp_build_metadata.py
+tests/test_generate_studio_build_metadata.py
 tests/test_native_contract.py
 tests/test_title_identity.py
 tests/test_validate_bsp_noclip_evidence.py
@@ -240,6 +248,9 @@ tools/generate_bsp_build_metadata.py
 tools/package_release.sh
 tools/build_native.sh
 tools/bake_bsp.py
+tools/bake_studio.py
+tools/generate_studio_build_metadata.py
+tools/inspect_studio_bundle.py
 tools/inspect_bsp_bundle.c
 tools/validate_bsp_noclip_evidence.py
 tools/validate_bsp_textured_evidence.py

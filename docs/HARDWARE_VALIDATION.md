@@ -223,6 +223,45 @@ The registered Chiaki entry was reused without pairing or opening its main
 client. This closes Phase 4 sprites/particles only; studio models, brush
 entities and PVS/frustum culling remain open. `PPSA99998` remains absent.
 
+## Phase 4 animated Studio-model gate
+
+The next artifact baked a privately owned GoldSrc Studio v10 model into a
+checked runtime bundle, then animated and CPU-skinned its embedded seven-frame
+`fire` sequence into each current transient-ring slot. Five deterministic modes
+isolated control, textured, normal-generated chrome, additive and the combined
+three-instance image:
+
+- Run: `20260907T003611716Z_PPSA99996_ps5-xash3d_0x84cd5cd0ac8a`
+- Native ELF SHA-256:
+  `a78675524a21b2a7b2264e3b271a4b80954333b01cd82456ee4fda3da7af1e52`
+- Signed fSELF SHA-256:
+  `0e0614f13bef7a0121ac6bde5cde0480f4e1162e8c6c6e8bfd008df71cd4dace`
+- Private BSP bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Private Studio bundle SHA-256/bytes:
+  `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31` /
+  93,952
+- Transcript/manifest SHA-256:
+  `2cf010f8b95529265e9095efe2a4882e31965b3afaa459c02f829333d7acf03d` /
+  `fe93f51167b551f47e82831d272513a7886a25564947f82e3b6c7d68791f6290`
+- Requested/completed: 10,000/10,000; structured records: 286
+- Bundle ABI: 8 bones, 7 frames at 33 fps, 134 vertices, 282 indices,
+  4 draws, 4 embedded textures and one chrome material
+- Draw/index modes: 0/0, 4/282, 4/282, 4/282 and 12/846
+- Readbacks: five modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Animation: first/final pose hashes differed; per-frame pose and skinned hashes
+  were nonzero
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: isolated Chiaki PID and exact `PPSA99996` title closed; no BigApp,
+  all four services healthy, frozen Gears retained and `PPSA99998` absent
+
+The compositor-visible combined capture has SHA-256
+`5ec51fbc6a4efec1ec7620dcb24b608fccf61e6478ca73f0d3b537ce14fa65df`.
+This closes Phase 4 Studio models only; brush entities and PVS/frustum culling
+remain open.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

@@ -1,8 +1,10 @@
 CC ?= cc
 CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
 BUILD := build/host
+STUDIO_SEQUENCE ?= fire
 
-.PHONY: all test shaders bsp-bundle bsp-inspect native native-release \
+.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
+	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
 	bsp-texture-path-native-release bsp-texture-mip-native-release \
@@ -12,6 +14,7 @@ BUILD := build/host
 	bsp-phase4-state-matrix-native-release bsp-phase4-2d-native-release \
 	bsp-phase4-lighting-native-release \
 	bsp-phase4-sprite-particles-native-release \
+	bsp-phase4-studio-native-release \
 	audit clean
 all: test audit
 
@@ -73,6 +76,8 @@ $(eval $(call test_rule,test_goldsrc_state_matrix,tests/test_goldsrc_state_matri
 $(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
 $(eval $(call test_rule,test_goldsrc_sprite_particles,tests/test_goldsrc_sprite_particles.c src/goldsrc_sprite_particles.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
+$(eval $(call test_rule,test_goldsrc_studio_bundle,tests/test_goldsrc_studio_bundle.c src/goldsrc_studio_bundle.c,))
+$(eval $(call test_rule,test_goldsrc_studio_model,tests/test_goldsrc_studio_model.c src/goldsrc_studio_model.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
 $(eval $(call test_rule,test_ps5_goldsrc_render_state,tests/test_ps5_goldsrc_render_state.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_pipeline_cache,tests/test_goldsrc_pipeline_cache.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scissor.c src/ps5_viewport_scissor.c,))
@@ -99,6 +104,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_bsp_texture_accounting test_goldsrc_render_state \
 	test_goldsrc_state_matrix test_goldsrc_2d \
 	test_goldsrc_lightmap_lighting test_goldsrc_sprite_particles \
+	test_goldsrc_studio_bundle test_goldsrc_studio_model \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime
@@ -113,9 +119,11 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_generate_goldsrc_shader_variants.py
 	python3 tests/test_generate_pipeline_table.py
 	python3 tests/test_generate_bsp_build_metadata.py
+	python3 tests/test_generate_studio_build_metadata.py
 	python3 tests/test_native_contract.py
 	python3 tests/test_title_identity.py
 	python3 tests/test_bake_bsp.py
+	python3 tests/test_bake_studio.py
 	python3 tests/test_validate_bsp_noclip_evidence.py
 	python3 tests/test_validate_bsp_textured_evidence.py
 	python3 tests/test_validate_bsp_resource_evidence.py
@@ -137,6 +145,17 @@ bsp-bundle: $(BUILD)/inspect_bsp_bundle
 bsp-inspect: $(BUILD)/inspect_bsp_bundle
 	@test -n "$(BSP_BUNDLE)" || { echo 'BSP_BUNDLE is required' >&2; exit 2; }
 	$(BUILD)/inspect_bsp_bundle "$(BSP_BUNDLE)"
+
+studio-bundle:
+	@test -n "$(STUDIO_INPUT)" || { echo 'STUDIO_INPUT is required' >&2; exit 2; }
+	mkdir -p build/studio
+	python3 tools/bake_studio.py "$(STUDIO_INPUT)" \
+		build/studio/model.ps5mdl --sequence "$(STUDIO_SEQUENCE)"
+	python3 tools/inspect_studio_bundle.py build/studio/model.ps5mdl
+
+studio-inspect:
+	@test -n "$(STUDIO_BUNDLE)" || { echo 'STUDIO_BUNDLE is required' >&2; exit 2; }
+	python3 tools/inspect_studio_bundle.py "$(STUDIO_BUNDLE)"
 
 shaders:
 	@test -n "$(AMDLLPC)" || { echo 'AMDLLPC is required' >&2; exit 2; }
@@ -295,6 +314,13 @@ bsp-phase4-sprite-particles-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
 		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
 		GOLDSRC_PHASE4=1 GOLDSRC_SPRITE_PARTICLE_GATE=1 \
+		bash tools/build_native.sh
+
+bsp-phase4-studio-native-release: bsp-bundle studio-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" \
+		STUDIO_BUNDLE="$(CURDIR)/build/studio/model.ps5mdl" \
+		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
+		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 GOLDSRC_STUDIO_GATE=1 \
 		bash tools/build_native.sh
 
 audit:

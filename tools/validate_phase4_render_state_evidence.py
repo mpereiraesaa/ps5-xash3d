@@ -95,7 +95,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
                 "reason=bsp-texture-path-lightmap-soak-complete",
                 "reason=goldsrc-phase4-2d-soak-complete",
                 "reason=goldsrc-phase4-lighting-soak-complete",
-                "reason=goldsrc-phase4-sprite-particle-soak-complete")):
+                "reason=goldsrc-phase4-sprite-particle-soak-complete",
+                "reason=goldsrc-phase4-studio-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -121,7 +122,10 @@ def validate(path: Path, *, bundle_sha256: str,
              require_matrix: bool,
              require_2d: bool,
              require_lighting: bool,
-             require_sprite_particles: bool) -> dict[str, object]:
+             require_sprite_particles: bool,
+             require_studio: bool,
+             studio_sha256: str | None,
+             studio_bytes: int | None) -> dict[str, object]:
     messages, data = load(path.resolve())
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
     if boot.get("schema") != "1" or boot.get("target") != "gfx1013" or \
@@ -142,6 +146,13 @@ def validate(path: Path, *, bundle_sha256: str,
             boot.get("slice") != "goldsrc-sprite-particles" or
             boot.get("input_gate") != "not-required"):
         fail("sprite/particle boot contract mismatch")
+    if require_studio and (
+            not studio_sha256 or studio_bytes is None or
+            boot.get("slice") != "goldsrc-studio" or
+            boot.get("input_gate") != "not-required" or
+            boot.get("studio_sha256") != studio_sha256 or
+            number(boot, "studio_bytes") != studio_bytes):
+        fail("studio boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -444,6 +455,111 @@ def validate(path: Path, *, bundle_sha256: str,
                     effect_hashes[3, slot] in {
                         effect_hashes[1, slot], effect_hashes[2, slot]}:
                 fail("sprite/particle feature/control framebuffer collision")
+    if require_studio:
+        studio_ready = one(messages, "GOLDSRC_STUDIO_READY")
+        if studio_ready.get("schema") != "1" or \
+                hex_number(studio_ready, "source_fnv64") == 0 or \
+                hex_number(studio_ready, "model_hash") == 0 or \
+                hex_number(studio_ready, "sequence_hash") == 0 or \
+                number(studio_ready, "bones") != 8 or \
+                number(studio_ready, "frames") != 7 or \
+                number(studio_ready, "fps_milli") != 33_000 or \
+                number(studio_ready, "vertices") != 134 or \
+                number(studio_ready, "indices") != 282 or \
+                number(studio_ready, "draws") != 4 or \
+                number(studio_ready, "textures") != 4 or \
+                number(studio_ready, "chrome_textures") != 1 or \
+                number(studio_ready, "texture_bytes") != 86_528 or \
+                studio_ready.get("modes") != \
+                    "control+textured+chrome+additive+combined" or \
+                number(studio_ready, "hold_frames") != 600 or \
+                studio_ready.get("skinning") != "cpu" or \
+                studio_ready.get("geometry") != "per-frame-transient" or \
+                studio_ready.get("texture_residency") != \
+                    "shared-bsp-allocation" or \
+                studio_ready.get("camera") != "locked-relative" or \
+                studio_ready.get("ownership") != "fence+videoout":
+            fail("studio ready contract mismatch")
+        names = ("control", "textured", "chrome", "additive", "combined")
+        studio_frames = many(messages, "GOLDSRC_STUDIO_FRAME")
+        pose_hashes: set[str] = set()
+        for mode, name in enumerate(names):
+            rows = [row for row in studio_frames
+                    if number(row, "mode") == mode]
+            if not rows or {number(row, "slot") for row in rows} != {0, 1}:
+                fail(f"studio frame coverage mismatch for mode {mode}")
+            for row in rows:
+                animation = row.get("animation", "").split(",")
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        len(animation) != 2 or \
+                        any(not value.isdigit() or int(value) >= 7
+                            for value in animation) or \
+                        not 0 <= number(row, "blend_milli") <= 1000 or \
+                        hex_number(row, "pose_hash") == 0 or \
+                        hex_number(row, "skinned_hash") == 0 or \
+                        number(row, "vertices_per_instance") != 134 or \
+                        number(row, "indices_per_instance") != 282 or \
+                        number(row, "draws_per_instance") != 4 or \
+                        number(row, "textures") != 4 or \
+                        not 8_192 < number(row, "transient_bytes") < 65_536 or \
+                        row.get("skinning") != "cpu" or \
+                        row.get("geometry") != "per-frame-transient":
+                    fail("studio frame contract mismatch")
+                pose_hashes.add(row["pose_hash"])
+        if len(pose_hashes) < 2:
+            fail("studio animation pose did not change")
+        studio_draws = many(messages, "GOLDSRC_STUDIO_DRAW")
+        expected_draws = (
+            (0, 0, 0, 0, 0),
+            (4, 0, 1, 4, 282),
+            (4, 0, 1, 4, 282),
+            (0, 2, 1, 4, 282),
+            (4, 2, 3, 12, 846),
+        )
+        for mode, name in enumerate(names):
+            rows = [row for row in studio_draws
+                    if number(row, "mode") == mode]
+            if not rows:
+                fail(f"missing studio draw mode {mode}")
+            opaque, additive, instances, draws, indices = expected_draws[mode]
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "opaque_key") != opaque or \
+                        number(row, "additive_key") != additive or \
+                        row.get("shader") != \
+                            ("none" if mode == 0 else "surface") or \
+                        number(row, "instances") != instances or \
+                        number(row, "draws") != draws or \
+                        number(row, "indices") != indices or \
+                        number(row, "texture_binds") != draws or \
+                        row.get("depth_write") != "opaque-only" or \
+                        row.get("cull") != "none" or \
+                        row.get("lightmap") != "false" or \
+                        row.get("ownership") != "fence+videoout":
+                    fail("studio draw contract mismatch")
+        studio_readbacks = many(messages, "GOLDSRC_STUDIO_READBACK")
+        if len(studio_readbacks) != 10:
+            fail("studio readback count mismatch")
+        studio_hashes: dict[tuple[int, int], str] = {}
+        for row in studio_readbacks:
+            mode = number(row, "mode")
+            slot = number(row, "slot")
+            if mode >= 5 or slot >= 2 or (mode, slot) in studio_hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != names[mode] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("studio GPU readback mismatch")
+            studio_hashes[mode, slot] = row["hash"]
+        for slot in range(2):
+            if any(studio_hashes[mode, slot] == studio_hashes[0, slot]
+                   for mode in range(1, 5)) or \
+                    studio_hashes[4, slot] in {
+                        studio_hashes[1, slot], studio_hashes[2, slot],
+                        studio_hashes[3, slot]}:
+                fail("studio feature/control framebuffer collision")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -574,6 +690,29 @@ def validate(path: Path, *, bundle_sha256: str,
                 complete_effects.get("guards") != "intact" or \
                 number(complete_effects, "errors") != 0:
             fail("sprite/particle completion contract mismatch")
+    if require_studio:
+        complete_studio = one(messages, "GOLDSRC_STUDIO_COMPLETE")
+        if complete_studio.get("schema") != "1" or \
+                number(complete_studio, "frames") != 10_000 or \
+                number(complete_studio, "modes") != 5 or \
+                number(complete_studio, "readbacks") != 10 or \
+                complete_studio.get("both_slots") != "true" or \
+                complete_studio.get("control_pairs") != "distinct" or \
+                complete_studio.get("combined_pairs") != "distinct" or \
+                complete_studio.get("animation_pose_changes") != "true" or \
+                complete_studio.get("skinning") != "cpu" or \
+                complete_studio.get("textures") != "per-model" or \
+                complete_studio.get("chrome") != "normal-generated" or \
+                complete_studio.get("additive") != "separate-pipeline" or \
+                complete_studio.get("geometry") != "per-frame-transient" or \
+                complete_studio.get("texture_residency") != \
+                    "shared-bsp-allocation" or \
+                complete_studio.get("camera") != "locked-proof-view" or \
+                complete_studio.get("input_dependency") != "none" or \
+                complete_studio.get("tokens") != "exact" or \
+                complete_studio.get("guards") != "intact" or \
+                number(complete_studio, "errors") != 0:
+            fail("studio completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -587,6 +726,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "screen_2d": require_2d,
         "lighting": require_lighting,
         "sprite_particles": require_sprite_particles,
+        "studio": require_studio,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -602,6 +742,9 @@ def main() -> int:
     parser.add_argument("--require-2d", action="store_true")
     parser.add_argument("--require-lighting", action="store_true")
     parser.add_argument("--require-sprite-particles", action="store_true")
+    parser.add_argument("--require-studio", action="store_true")
+    parser.add_argument("--studio-sha256")
+    parser.add_argument("--studio-bytes", type=int)
     args = parser.parse_args()
     try:
         result = validate(args.manifest,
@@ -612,7 +755,10 @@ def main() -> int:
                           require_2d=args.require_2d,
                           require_lighting=args.require_lighting,
                           require_sprite_particles=
-                              args.require_sprite_particles)
+                              args.require_sprite_particles,
+                          require_studio=args.require_studio,
+                          studio_sha256=args.studio_sha256,
+                          studio_bytes=args.studio_bytes)
     except EvidenceError as exc:
         raise SystemExit(f"Phase 4 evidence validation failed: {exc}") from exc
     print(json.dumps(result, sort_keys=True))
