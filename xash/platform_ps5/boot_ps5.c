@@ -33,6 +33,7 @@ the exit the shell accepts without an error dialog.
 #include "ps5log.h"
 #include "ps5_xash_build.h"
 #include "in_ps5.h"
+#include "audio_ps5.h"
 
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
@@ -48,6 +49,9 @@ extern void *__real_malloc( size_t size );
 extern void __real_free( void *ptr );
 int PS5_ListingRefusedCount( void );
 int PS5_LoadDirIndex( const char *image_root, const char *index_path );
+int sceUserServiceInitialize( const void *params );
+int sceUserServiceGetForegroundUser( int32_t *user_id );
+int sceUserServiceTerminate( void );
 
 #ifndef PS5_XASH_TITLE_ID
 #define PS5_XASH_TITLE_ID "PPSA99996"
@@ -118,6 +122,39 @@ static int probe_optional_libc( void )
 		n, cat, n == 11 && strcmp( cat, "gfx/palette" ) == 0 );
 	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_END pass=%d", passed );
 	return passed;
+}
+#endif
+
+#if PS5_XASH_AUDIO_GATE
+/*
+The reference lifecycle opens the main port for the system user (0xff). If FW
+12.02 refuses that, XASH_AUDIO_USER=foreground selects the foreground user as
+an explicit, recorded build variant - never a silent fallback, and the marker
+below always names which one the artifact carries. UserService is terminated
+only when this call owned it, the same rule in_ps5.c already follows, so the
+ScePad backend keeps its own ownership when both gates are enabled.
+*/
+static int32_t ps5_audio_gate_user( void )
+{
+#if PS5_XASH_AUDIO_USER_FOREGROUND
+	int32_t user_id = -1;
+	const int init_rc = sceUserServiceInitialize( NULL );
+	const int get_rc = sceUserServiceGetForegroundUser( &user_id );
+	int terminate_rc = 0;
+
+	if( init_rc == 0 )
+		terminate_rc = sceUserServiceTerminate( );
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_AUDIO_USER schema=1 source=foreground user=%d user_service_rc=%d "
+		"get_rc=%d owned=%d terminate_rc=%d",
+		user_id, init_rc, get_rc, init_rc == 0, terminate_rc );
+	return user_id;
+#else
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_AUDIO_USER schema=1 source=system user=0x%x",
+		(unsigned)PS5_AUDIO_USER_SYSTEM );
+	return PS5_AUDIO_USER_SYSTEM;
+#endif
 }
 #endif
 
@@ -224,6 +261,9 @@ int main( int argc, char **argv )
 #if PS5_XASH_PAD_GATE
 	int pad_result;
 #endif
+#if PS5_XASH_AUDIO_GATE
+	int audio_result;
+#endif
 	struct stat st;
 	char *engine_argv[16];
 	int engine_argc = 0;
@@ -281,16 +321,27 @@ int main( int argc, char **argv )
 		(void)ps5log_line( PS5LOG_WARN, "XASH_BASEDIR_UNAVAILABLE using /app0/xash3d read-only" );
 		basedir = PS5_XASH_RODIR;
 	}
+#if PS5_XASH_AUDIO_GATE
+	audio_result = PS5_AudioGateRun( ps5_audio_gate_user( ));
+	if( audio_result != 0 )
+	{
+		(void)ps5log_printf( PS5LOG_ERR, "XASH_AUDIO_GATE_FAILED rc=%d", audio_result );
+		ps5log_close( "xash-audio-gate-failed" );
+		_exit( 2 );
+	}
+#endif
+
 	setenv( "XASH3D_BASEDIR", basedir, 1 );
 	PS5_SetCwd( basedir );
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
+		"audio_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
-		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE,
+		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE, PS5_XASH_AUDIO_GATE,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";

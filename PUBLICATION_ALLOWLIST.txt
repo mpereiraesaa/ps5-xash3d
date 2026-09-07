@@ -6,6 +6,7 @@ NOTICE.md
 PUBLICATION_ALLOWLIST.txt
 README.md
 dev.conf.example
+docs/SCEAUDIOOUT_PHASE5.md
 include/ps5_agc.h
 include/ps5_agc_driver.h
 include/ps5_agc_registers.h
@@ -180,6 +181,8 @@ tests/test_goldsrc_brush_entities.c
 tests/test_goldsrc_visibility.c
 tests/test_goldsrc_pipeline_cache.c
 tests/test_gears_renderer.c
+tests/test_ps5_audio.c
+tests/test_ps5_audio_pattern.c
 tests/test_ps5_surface.c
 tests/test_ps5_present.c
 tests/test_ps5_frame_completion.c
@@ -278,6 +281,12 @@ docs/BSP_RESOURCE_FOUNDATION_PHASE2.md
 docs/BSP_TEXTURE_PATH_PHASE3.md
 .gitmodules
 xash/build_engine.sh
+xash/platform_ps5/audio_gate_ps5.c
+xash/platform_ps5/audio_pattern_ps5.c
+xash/platform_ps5/audio_pattern_ps5.h
+xash/platform_ps5/audio_ps5.c
+xash/platform_ps5/audio_ps5.h
+xash/platform_ps5/s_ps5.c
 xash/ps5_import_evidence.json
 xash/exports/filesystem_stdio.txt
 xash/exports/server.txt

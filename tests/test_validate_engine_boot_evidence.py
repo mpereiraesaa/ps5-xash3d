@@ -12,18 +12,27 @@ ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "tools" / "validate_engine_boot_evidence.py"
 ENGINE = "9aa39ad"
 HLSDK = "e277ffa"
+# The recorded pattern: 66150 source frames -> 71999 resampled + 193 padding
+# = 282 whole 256-frame blocks. tests/test_ps5_audio_pattern.c pins the hash.
+PATTERN_FRAMES = 66150
+PATTERN_SILENT = 13230
+PATTERN_HASH = "0x9fd6b8c32bb54595"
 
 
 def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   mode: str = "dedicated", nonzero: int = 1,
-                  pad_gate: bool = False) -> Path:
+                  pad_gate: bool = False, audio_gate: bool = False,
+                  audio_underruns: int = 0, audio_sent: int = 72192,
+                  audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
+                  audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
     ref = "soft" if mode == "client" else "none"
     structured = [
         ("INFO", "LOG_SCHEMA=3"),
         ("INFO", "LOG_BOOT_MONOTONIC_NS=0x1234"),
         ("MARK", f"XASH_BOOT schema=1 slice=engine-boot mode={mode} ref={ref} fw=12.02 "
                  f"engine={ENGINE} hlsdk={HLSDK} rodir=/app0/xash3d basedir=/download0/xash3d "
-                 f"gamedir=valve map=c1a0 gate_seconds=90 pad_gate={int(pad_gate)} rodir_present=1"),
+                 f"gamedir=valve map=c1a0 gate_seconds=90 pad_gate={int(pad_gate)} "
+                 f"audio_gate={int(audio_gate)} rodir_present=1"),
     ]
     if mode == "client":
         structured.append(("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
@@ -48,6 +57,47 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                      "terminate_rc=0 result=0"),
             ("MARK", "XASH_PAD_COMPLETE schema=1 movement=1 look=1 jump=1 crouch=1 use=1 "
                      "fire=1 chronological_batches=1 ownership=exact errors=0 pass=1"),
+        ]
+    if audio_gate:
+        blocks = audio_sent // 256
+        structured += [
+            ("MARK", "XASH_AUDIO_USER schema=1 source=system user=0xff"),
+            ("MARK", "XASH_AUDIO_INIT schema=1 user=0xff type=0 index=0 handle=5 "
+                     "init_rc=0 open_rc=5 volume_rc=0 volume_flags=3 volume_value=0x8000 "
+                     "input_rate=44100 output_rate=48000 format=1 channels=2 grain=256"),
+            ("MARK", "XASH_AUDIO_RING_READY schema=1 capacity_frames=8192 prime_frames=1024 "
+                     "stage_frames=1024 accum_frames=1536 ratio=147/160"),
+            ("MARK", f"XASH_AUDIO_PATTERN schema=1 segments=3 frames={PATTERN_FRAMES} "
+                     f"silent_frames={PATTERN_SILENT} rate=44100 channels=2 width=2 "
+                     f"source_hash={audio_source_hash}"),
+        ]
+        for index in range(audio_progress):
+            structured.append(("INFO", f"XASH_AUDIO_PROGRESS schema=1 produced=1 consumed=1 "
+                                       f"sent={index} blocks={index} high_water=2048 wraps=1 "
+                                       "underruns=0 silent=0"))
+        if audio_underruns:
+            structured.append(("WARN", "XASH_AUDIO_UNDERRUN schema=1 episode=1 produced=1 "
+                                       "consumed=1 sent=1 blocks=1"))
+        structured += [
+            ("MARK", f"XASH_AUDIO_SUMMARY schema=1 produced={PATTERN_FRAMES} "
+                     f"consumed={PATTERN_FRAMES} sent={audio_sent} blocks={blocks} "
+                     f"silent={PATTERN_SILENT} underruns={audio_underruns} "
+                     f"padding={audio_padding} discarded=0 wraps=8 rebases=0 high_water=2048 "
+                     "capacity=8192 prime=1024 grain=256 input_rate=44100 output_rate=48000 "
+                     f"format=1 channels=2 source_hash={audio_source_hash} "
+                     "output_hash=0x1122334455667788 output_errors=0"),
+            # drain_rc is the frame count FW 12.02 actually returns, not zero.
+            ("MARK", f"XASH_AUDIO_TEARDOWN schema=1 handle=5 drain_rc={audio_drain_rc} "
+                     "drain_calls=1 close_rc=0 close_calls=1 join_calls=1 owner=worker "
+                     "state=3 result=0"),
+            ("MARK", f"XASH_AUDIO_COMPLETE schema=1 shutdown_rc=0 produced={PATTERN_FRAMES} "
+                     f"consumed={PATTERN_FRAMES} sent={audio_sent} blocks={blocks} "
+                     f"expected_resampled=71999 padding={audio_padding} discarded=0 "
+                     f"underruns={audio_underruns} output_errors=0 silent={PATTERN_SILENT} "
+                     "wraps=8 high_water=2048 "
+                     f"source_hash={audio_source_hash} expected_source_hash={PATTERN_HASH} "
+                     "output_hash=0x1122334455667788 input_rate=44100 output_rate=48000 "
+                     "ratio=147/160 ownership=exact pass=1"),
         ]
     structured.append(("MARK", f"XASH_EXIT result={exit_result}"))
     console = [
@@ -94,12 +144,15 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
 
 
 def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
-                  pad_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  pad_gate: bool = False,
+                  audio_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
     if pad_gate:
         command.append("--pad-gate")
+    if audio_gate:
+        command.append("--audio-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -138,6 +191,48 @@ def main() -> int:
         assert pad_summary["pad_gate"] and pad_summary["pad_samples"] == 20
         missing_pad = run_validator(make_evidence(directory), pad_gate=True)
         assert missing_pad.returncode != 0 and "not enabled" in missing_pad.stderr
+
+        audio = run_validator(make_evidence(directory, audio_gate=True), audio_gate=True)
+        assert audio.returncode == 0, audio.stderr
+        audio_summary = json.loads(audio.stdout)
+        assert audio_summary["audio_gate"]
+        assert audio_summary["audio_blocks"] == 282
+        assert audio_summary["audio_frames_sent"] == 72192
+        assert audio_summary["audio_source_hash"] == PATTERN_HASH
+
+        missing_audio = run_validator(make_evidence(directory), audio_gate=True)
+        assert missing_audio.returncode != 0 and "not enabled" in missing_audio.stderr
+
+        underrun = run_validator(
+            make_evidence(directory, audio_gate=True, audio_underruns=1), audio_gate=True)
+        assert underrun.returncode != 0 and "underrun" in underrun.stderr
+
+        # A short final block is refused: 72191 is not a whole number of blocks.
+        short_block = run_validator(
+            make_evidence(directory, audio_gate=True, audio_sent=72191), audio_gate=True)
+        assert short_block.returncode != 0 and "whole 256-frame blocks" in short_block.stderr
+
+        # Wrong conversion count is refused even when the blocks are whole.
+        wrong_ratio = run_validator(
+            make_evidence(directory, audio_gate=True, audio_sent=71936, audio_padding=193),
+            audio_gate=True)
+        assert wrong_ratio.returncode != 0 and "ratio mismatch" in wrong_ratio.stderr
+
+        # A consumed-PCM hash that does not match the generated pattern is refused.
+        wrong_hash = run_validator(
+            make_evidence(directory, audio_gate=True, audio_source_hash="0xdeadbeefdeadbeef"),
+            audio_gate=True)
+        assert wrong_hash.returncode != 0 and "hash" in wrong_hash.stderr
+
+        # A negative drain result is refused; a positive frame count is not.
+        bad_drain = run_validator(
+            make_evidence(directory, audio_gate=True, audio_drain_rc=-22), audio_gate=True)
+        assert bad_drain.returncode != 0 and "drain returned an error" in bad_drain.stderr
+
+        # One telemetry line per block is refused.
+        chatty = run_validator(
+            make_evidence(directory, audio_gate=True, audio_progress=300), audio_gate=True)
+        assert chatty.returncode != 0 and "line per block" in chatty.stderr
 
         manifest = make_evidence(directory)
         log_path = directory / json.loads(manifest.read_text())["log_path"]

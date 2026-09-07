@@ -12,6 +12,11 @@
     "pthread_mutex_lock": "Existing FW 12.02 engine gate",
     "pthread_mutex_unlock": "Existing FW 12.02 engine gate",
     "pthread_self": "Existing FW 12.02 engine gate",
+    "sceAudioOutClose": "Run 20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6",
+    "sceAudioOutInit": "Run 20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6",
+    "sceAudioOutOpen": "Run 20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6",
+    "sceAudioOutOutput": "Run 20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6",
+    "sceAudioOutSetVolume": "Run 20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6",
     "sceKernelClose": "Existing FW 12.02 filesystem gate",
     "sceKernelGetdents": "Existing FW 12.02 filesystem gate",
     "sceKernelOpen": "Existing FW 12.02 filesystem gate",
@@ -36,6 +41,12 @@
     "execv": "Filesystem process execution is unavailable; engine path is disabled"
   },
   "banned": {
+    "sceAjmInitialize": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
+    "sceAudio3dInitialize": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
+    "sceAudioInOpen": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
+    "sceAudioOut2Initialize": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
+    "sceAudiodecCreateDecoder": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
+    "sceNgs2SystemCreate": "Outside the SceAudioOut PCM gate; AudioOut2/Audio3d/NGS2/AJM/AudioIn are not implemented",
     "strcasestr": "Faults on valid strings on FW 12.02; use Xash Q_stristr"
   }
 }

@@ -95,6 +95,27 @@ at commit `16e9b953b26a7102bc801a380f08fbf00060d84b`, GPL-3.0. The port contains
 its own C adapter and project-owned compatibility declarations; it does not
 vendor the research project or any proprietary SDK header.
 
+## PS5 audio research
+
+The native `libSceAudioOut` PCM contract used by `xash/platform_ps5/audio_ps5.c`
+derives from the independently authored, device-tested
+[ps5-audio-decoding-research](https://github.com/blackbearreloaded/ps5-audio-decoding-research)
+at commit `2c81f17910be6e7b26d05ae50f50adb0211581c2`, Copyright (C) 2026
+BlackBearReloaded, GPL-3.0-or-later. Specifically the six-argument
+`sceAudioOutOpen` signature, the grain/sample-rate/format constraints, the 0 dB
+eight-entry volume array, the blocking `Output` pacing and the "no short final
+block, hold the tail and zero-fill it" rule.
+
+That project's evidence is firmware 6.02. It informed the design only: no symbol
+was recorded as hardware-validated here until this port exercised it on FW
+12.02, and the accepted run additionally measured behaviour the reference does
+not document (`sceAudioOutOutput` returns the number of frames accepted). The
+reference C++ helper and its host test are **not** vendored and no code was
+copied from them; `include/ps5_platform.h`, the C core, the resampler, the ring,
+the worker, the deterministic pattern and the SNDDMA binding are this
+repository's own code under its GPL-3.0-or-later license, and no vendor header
+is included.
+
 ## Research boundary
 
 No proprietary Sony SDK file, game asset, shader, module, dump or command

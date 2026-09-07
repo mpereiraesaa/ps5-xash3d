@@ -71,6 +71,143 @@ def split_transcript(lines: list[str]) -> tuple[list[tuple[int, str, str]], list
     return structured, raw
 
 
+AUDIO_INPUT_RATE = 44100
+AUDIO_OUTPUT_RATE = 48000
+AUDIO_RATIO_NUM = 147
+AUDIO_RATIO_DEN = 160
+AUDIO_GRAIN = 256
+
+
+def validate_audio_gate(messages: list[str]) -> dict[str, str]:
+    """Fail-closed check of the SceAudioOut gate markers.
+
+    The audible confirmation is external evidence tied to the run id and is
+    deliberately not derivable from the transcript; everything the device can
+    prove about the port, the ring, the resampler and the teardown is here.
+    """
+    init = one(messages, "XASH_AUDIO_INIT")
+    ring = one(messages, "XASH_AUDIO_RING_READY")
+    pattern = one(messages, "XASH_AUDIO_PATTERN")
+    summary = one(messages, "XASH_AUDIO_SUMMARY")
+    teardown = one(messages, "XASH_AUDIO_TEARDOWN")
+    complete = one(messages, "XASH_AUDIO_COMPLETE")
+    user = one(messages, "XASH_AUDIO_USER")
+
+    for name, fields in (
+        ("init", init), ("ring", ring), ("pattern", pattern),
+        ("summary", summary), ("teardown", teardown), ("complete", complete),
+        ("user", user),
+    ):
+        if fields.get("schema") != "1":
+            fail(f"audio {name} marker is not schema 1")
+
+    # Port contract: main port, index 0, stereo signed-16 at 48 kHz, grain 256.
+    if init.get("type") != "0" or init.get("index") != "0":
+        fail("audio port type/index is not the main port")
+    if init.get("format") != "1" or init.get("channels") != "2":
+        fail("audio format is not stereo signed-16")
+    if init.get("input_rate") != str(AUDIO_INPUT_RATE):
+        fail("audio input rate is not the Xash mix rate")
+    if init.get("output_rate") != str(AUDIO_OUTPUT_RATE):
+        fail("audio output rate is not 48 kHz")
+    if init.get("grain") != str(AUDIO_GRAIN):
+        fail("audio grain is not 256 frames")
+    if init.get("volume_flags") != "3" or init.get("volume_value") != "0x8000":
+        fail("audio volume flags/value are not the 0 dB contract")
+    for field in ("init_rc", "open_rc", "volume_rc"):
+        if int(init.get(field, "-1"), 10) < 0:
+            fail(f"audio acquisition failed: {field}")
+    if int(init.get("handle", "-1"), 10) < 0:
+        fail("audio handle was not opened")
+    # Which user the artifact actually used, recorded rather than inferred.
+    if user.get("source") not in ("system", "foreground"):
+        fail("audio user source is neither system nor foreground")
+    if user.get("source") == "system" and init.get("user") != "0xff":
+        fail("system audio user must open the port as 0xff")
+
+    if ring.get("ratio") != f"{AUDIO_RATIO_NUM}/{AUDIO_RATIO_DEN}":
+        fail("audio resampler ratio is not 147/160")
+    capacity = int(ring.get("capacity_frames", "0"), 10)
+    if capacity <= 0 or capacity & (capacity - 1):
+        fail("audio ring capacity is not a power of two")
+    prime = int(ring.get("prime_frames", "0"), 10)
+    if not 0 < prime < capacity:
+        fail("audio prime level is outside the ring")
+
+    # The pattern the operator was asked to listen to.
+    pattern_frames = int(pattern.get("frames", "0"), 10)
+    if pattern.get("segments") != "3" or pattern_frames <= 0:
+        fail("audio pattern is not the three-segment sequence")
+    if int(pattern.get("silent_frames", "0"), 10) <= 0:
+        fail("audio pattern carries no deliberate silence")
+    if pattern.get("rate") != str(AUDIO_INPUT_RATE):
+        fail("audio pattern is not generated at the Xash mix rate")
+
+    consumed = int(summary.get("consumed", "0"), 10)
+    produced = int(summary.get("produced", "0"), 10)
+    sent = int(summary.get("sent", "0"), 10)
+    blocks = int(summary.get("blocks", "0"), 10)
+    padding = int(summary.get("padding", "0"), 10)
+    if produced != pattern_frames or consumed != pattern_frames:
+        fail("audio run did not carry the whole pattern")
+    if summary.get("underruns") != "0":
+        fail("audio run contains unintended underruns")
+    if summary.get("output_errors") != "0":
+        fail("audio run contains Output errors")
+    if summary.get("discarded") != "0":
+        fail("audio run discarded queued frames")
+    if summary.get("rebases") != "0":
+        fail("audio run rebased its producer cursor")
+    if blocks <= 0 or sent != blocks * AUDIO_GRAIN:
+        fail("audio output was not whole 256-frame blocks")
+    if int(summary.get("silent", "0"), 10) < int(pattern.get("silent_frames", "0"), 10):
+        fail("audio run did not carry the deliberate silence through")
+    if int(summary.get("high_water", "0"), 10) > capacity:
+        fail("audio ring high-water mark exceeded its capacity")
+
+    # Exact conversion: priming takes one source frame, then ceil(M*160/147).
+    expected = -(-(consumed - 1) * AUDIO_RATIO_DEN // AUDIO_RATIO_NUM)
+    if sent != expected + padding:
+        fail(f"audio ratio mismatch: sent {sent}, expected {expected} + {padding} padding")
+    if not 0 <= padding < AUDIO_GRAIN:
+        fail("audio terminal padding is not confined to one block")
+
+    if summary.get("source_hash") != pattern.get("source_hash"):
+        fail("consumed PCM hash does not match the generated pattern")
+    if summary.get("output_hash") in (None, "0x0000000000000000"):
+        fail("audio run recorded no post-resampler hash")
+
+    if teardown.get("owner") != "worker":
+        fail("audio teardown was not owned by the worker")
+    for field, value in (("drain_calls", "1"), ("close_calls", "1"), ("join_calls", "1")):
+        if teardown.get(field) != value:
+            fail(f"audio teardown {field} is not exactly one")
+    # FW 12.02 returns the number of frames accepted from Output and from the
+    # NULL drain (256 at this grain), so success is non-negative, not zero.
+    if int(teardown.get("drain_rc", "-1"), 10) < 0:
+        fail("audio drain returned an error")
+    for field in ("close_rc", "result"):
+        if teardown.get(field) != "0":
+            fail(f"audio teardown {field} is not clean")
+
+    if complete.get("pass") != "1" or complete.get("ownership") != "exact":
+        fail("audio completion marker did not pass")
+    if complete.get("source_hash") != complete.get("expected_source_hash"):
+        fail("audio completion hash does not match the expected pattern hash")
+    if complete.get("shutdown_rc") != "0":
+        fail("audio shutdown returned an error")
+
+    # Progress lines exist but are not emitted per block.
+    progress = [m for m in messages if m.startswith("XASH_AUDIO_PROGRESS ")]
+    if not progress:
+        fail("audio run reported no progress")
+    if len(progress) >= blocks:
+        fail("audio telemetry emitted a line per block")
+    if any(m.startswith("XASH_AUDIO_UNDERRUN ") for m in messages):
+        fail("audio run logged an underrun episode")
+    return complete
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -79,6 +216,7 @@ def validate(
     boot_map: str,
     mode: str = "dedicated",
     pad_gate: bool = False,
+    audio_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -161,6 +299,8 @@ def validate(
         fail("boot gate is not bounded")
     if pad_gate and boot.get("pad_gate") != "1":
         fail("ScePad gate was not enabled in the artifact")
+    if audio_gate and boot.get("audio_gate") != "1":
+        fail("SceAudioOut gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -191,6 +331,10 @@ def validate(
     for name, needle in proofs.items():
         if needle not in console:
             fail(f"console proof missing: {name}")
+
+    audio_complete: dict[str, str] | None = None
+    if audio_gate:
+        audio_complete = validate_audio_gate(messages)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -267,6 +411,11 @@ def validate(
         "pad_gate": pad_gate,
         "pad_samples": int(pad_summary["samples"], 10) if pad_summary else 0,
         "pad_max_batch": int(pad_summary["max_batch"], 10) if pad_summary else 0,
+        "audio_gate": audio_gate,
+        "audio_blocks": int(audio_complete["blocks"], 10) if audio_complete else 0,
+        "audio_frames_sent": int(audio_complete["sent"], 10) if audio_complete else 0,
+        "audio_source_hash": audio_complete["source_hash"] if audio_complete else None,
+        "audio_output_hash": audio_complete["output_hash"] if audio_complete else None,
     }
 
 
@@ -278,6 +427,7 @@ def main() -> int:
     parser.add_argument("--map", default="c1a0")
     parser.add_argument("--mode", choices=("dedicated", "client"), default="dedicated")
     parser.add_argument("--pad-gate", action="store_true")
+    parser.add_argument("--audio-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -290,6 +440,7 @@ def main() -> int:
             boot_map=args.map,
             mode=args.mode,
             pad_gate=args.pad_gate,
+            audio_gate=args.audio_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc
