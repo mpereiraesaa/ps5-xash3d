@@ -275,6 +275,25 @@ the aggregate ownership and timing result. The engine must then load its normal
 workload, emit `thread_time_pass=1` in `XASH_EXIT`, and close with a gap-free
 `BYE reason=xash-engine-boot-complete`.
 
+## Phase 5 GPU/flip timing evidence
+
+The renderer gate starts with `GPU_FLIP_TIMING_BEGIN`, which fixes the frame
+count, raw GPU clock unit, selector-3 `RELEASE_MEM` packet, command order,
+monotonic CPU clock and exact VideoOut-event observation point.
+
+Every frame is checked in memory for consecutive `frame/slot/token`, strict
+GPU timestamp progress and CPU order. `GPU_FLIP_TIMING_SAMPLE` persists frame
+0 and every 600th retirement with the three CPU timestamps, the raw GPU EOP
+tick and immediate inter-frame tick delta, plus the derived submit-to-fence,
+submit-to-flip and fence-to-flip latencies. The GPU clock is deliberately
+reported as `raw-ticks`, never nanoseconds.
+
+`GPU_FLIP_TIMING_SUMMARY` requires 60,000 records and writes, 59,999 changes,
+zero regressions, CPU-order errors and sequence gaps, and min/average/max CPU
+latencies. Ownership remains `fence+exact-videoout-event`. Acceptance also
+requires the integrated Phase 4 completion and a gap-free
+`BYE reason=gpu-flip-timing-soak-complete`.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

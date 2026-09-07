@@ -98,9 +98,16 @@ reviving ownership already completed by GPU and VideoOut.
 
 `ps5_surface`, `ps5_present` and `ps5_frame_completion` are the first extracted
 backend units. They respectively plan the two registered display surfaces,
-enforce SetFlip-before-release-fence command order, and retain submitted
-resources until both exact completion signals arrive. All three are pure C,
-have synthetic host regressions and contain no loader or proprietary SDK code.
+enforce optional EOP-timestamp / SetFlip / release-fence command order, and
+retain submitted resources until both exact completion signals arrive. All
+three are pure C, have synthetic host regressions and contain no loader or
+proprietary SDK code.
+
+`ps5_gpu_flip_timing` correlates the raw EOP clock write with monotonic CPU
+submit, fence-observation and exact VideoOut-event times. It rejects sequence
+gaps, slot mismatch, a pending or non-advancing GPU value and invalid CPU
+ordering. Its GPU values remain raw ticks; only the same-clock CPU differences
+are expressed in nanoseconds.
 
 `ps5_event_adapter` injects the two native event functions rather than creating
 hidden link dependencies, while `ps5_submission` injects the submit and SetFlip
@@ -124,9 +131,10 @@ descriptor. `native/ps5_agc_native.c` is the only binding to firmware symbols;
 it compiles cleanly for `x86_64-sie-ps5` and contains no renderer policy.
 
 `native/main.c` is the final orchestration boundary. It owns two command slots,
-two independent fences and two per-buffer MRT pipelines; initializes VideoOut,
-direct memory and AGC; composes wait/depth clear/pipeline/four draws/present;
-and releases resources only after the exact GPU and VideoOut completions. The
+two independent fences, two cache-line-separated timestamp destinations and
+two per-buffer MRT pipelines; initializes VideoOut, direct memory and AGC;
+composes wait/depth clear/pipeline/four draws/present; and releases resources
+only after the exact GPU and VideoOut completions. The
 standalone hardware evidence therefore exercises these public units rather than
 an unreleased laboratory adapter.
 

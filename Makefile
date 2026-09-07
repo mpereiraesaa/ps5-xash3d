@@ -19,6 +19,7 @@ STUDIO_SEQUENCE ?= fire
 	bsp-phase4-sprite-particles-native-release \
 	bsp-phase4-studio-native-release bsp-phase4-brush-native-release \
 	bsp-phase4-visibility-native-release bsp-phase4-final-native-release \
+	bsp-phase5-gpu-flip-timing-native-release \
 	audit clean
 all: test audit
 
@@ -48,6 +49,7 @@ $(eval $(call test_rule,test_ps5_depth_target,tests/test_ps5_depth_target.c src/
 $(eval $(call test_rule,test_ps5_pipeline,tests/test_ps5_pipeline.c src/ps5_pipeline.c,))
 $(eval $(call test_rule,test_ps5_event_adapter,tests/test_ps5_event_adapter.c src/ps5_event_adapter.c src/ps5_frame_completion.c,))
 $(eval $(call test_rule,test_ps5_gpu_span,tests/test_ps5_gpu_span.c src/ps5_gpu_span.c,))
+$(eval $(call test_rule,test_ps5_gpu_flip_timing,tests/test_ps5_gpu_flip_timing.c src/ps5_gpu_flip_timing.c,))
 $(eval $(call test_rule,test_ps5_submission,tests/test_ps5_submission.c src/ps5_submission.c src/ps5_present.c,))
 $(eval $(call test_rule,test_ps5_direct_memory,tests/test_ps5_direct_memory.c src/ps5_direct_memory.c,))
 $(eval $(call test_rule,test_ps5_platform_abi,tests/test_ps5_platform_abi.c,))
@@ -104,7 +106,8 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_surface test_ps5_present test_ps5_frame_completion \
 	test_ps5_agc_abi test_ps5_color_target test_ps5_depth_target \
 	test_ps5_pipeline test_ps5_event_adapter test_ps5_gpu_span \
-	test_ps5_submission test_ps5_direct_memory test_ps5_platform_abi \
+	test_ps5_gpu_flip_timing test_ps5_submission test_ps5_direct_memory \
+	test_ps5_platform_abi \
 	test_in_ps5 test_ps5_audio test_ps5_audio_pattern \
 	test_ps5log_host test_ps5_shader_header test_ps5_agc_writer \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
@@ -149,6 +152,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_texture_path_final_evidence.py
 	python3 tests/test_validate_phase4_render_state_evidence.py
 	python3 tests/test_validate_phase4_final_evidence.py
+	python3 tests/test_validate_gpu_flip_timing_evidence.py
 	python3 tests/test_generate_static_library_tables.py
 	python3 tests/test_instrument_fs_trace.py
 	python3 tests/test_deploy_game_data.py
@@ -391,6 +395,14 @@ bsp-phase4-final-native-release: bsp-bundle studio-bundle
 		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
 		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 \
 		GOLDSRC_PHASE4_FINAL_GATE=1 bash tools/build_native.sh
+
+bsp-phase5-gpu-flip-timing-native-release: bsp-bundle studio-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" \
+		STUDIO_BUNDLE="$(CURDIR)/build/studio/model.ps5mdl" \
+		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
+		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 \
+		GOLDSRC_PHASE4_FINAL_GATE=1 GPU_FLIP_TIMING_GATE=1 \
+		bash tools/build_native.sh
 
 audit:
 	python3 tools/audit_publication.py

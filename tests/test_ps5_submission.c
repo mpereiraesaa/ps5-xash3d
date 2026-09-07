@@ -98,5 +98,21 @@ int main(void)
            PS5_SUBMISSION_OK);
     assert(commands[0] == UINT32_C(0xfeed0001));
     assert(state.command_dwords == 19u);
+
+    volatile uint64_t timestamp = 0u;
+    input.gpu_eop_timestamp = &timestamp;
+    stream.cursor = 0;
+    sequence = builder_rc = submit_rc = 0;
+    expected_dwords = 22u;
+    expected_release_index = 14u;
+    assert(ps5_submission_build_and_submit(&input, &state) ==
+           PS5_SUBMISSION_OK);
+    assert(timestamp == UINT64_MAX && state.command_dwords == 22u);
+    assert(commands[0] == UINT32_C(0xc0064900));
+    assert(commands[2] == UINT32_C(0x60010000));
+
+    input.gpu_eop_timestamp = input.gpu_fence;
+    assert(ps5_submission_build_and_submit(&input, &state) ==
+           PS5_SUBMISSION_PRECONDITION);
     return 0;
 }

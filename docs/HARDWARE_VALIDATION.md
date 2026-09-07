@@ -880,6 +880,40 @@ three fail-guarded entries and 133 exported-only entries; no banned import is
 present. Temporary remote backups were deleted only after acceptance, leaving
 the passing `PPSA99996` executable installed.
 
+## Phase 5 GPU end-of-pipe and VideoOut timing gate
+
+- Run: `20260907T225446311Z_PPSA99996_ps5-xash3d_0xcdd8ce3a668a`
+- Native ELF SHA-256:
+  `bfbbd5fd89404765e0d52992df4abd1a1699d0e4df6398824748522392740ec1`
+- Signed fSELF SHA-256:
+  `fdb489280c1bac1f2489f0449bbf8f914eaf7b4cb2f8436ea11d59abaa72e798`
+- Private BSP / Studio bundle SHA-256:
+  `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa`
+  / `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31`
+- Transcript / manifest SHA-256:
+  `6d987ea639085670e67e06d8c4eec99b53a698318555c7347c85bc9a4e922b97`
+  / `74866e6be699bcf1253143a8180140785003d676aea9ded0ba20b306194d859a`
+- Correlation: 60,000 consecutive in-memory frame/slot/token records; 101
+  structured samples; zero sequence gaps or CPU-order errors
+- GPU EOP clock: 60,000 selector-3 writes, 59,999 strict changes, zero
+  regressions; raw range 22,580,929,665,192 to 22,681,573,336,968 ticks
+- Submit-to-fence min/average/max: 899,600 / 16,823,795 / 96,444,947 ns
+- Submit-to-flip min/average/max: 1,156,515 / 32,754,596 / 96,455,852 ns
+- Observed fence-to-flip min/average/max: 9,542 / 15,930,800 /
+  30,502,938 ns
+- Renderer: complete Phase 4 scene, 60,000/60,000 frames, exact fences and
+  VideoOut tokens, intact guards, zero errors and clean
+  `gpu-flip-timing-soak-complete` BYE
+- Closure: exact `PPSA99996` close, independently observed no BigApp and all
+  four services healthy; no transactional deployment backup or staging file
+  remained
+
+The GPU counter is intentionally recorded as raw ticks: no frequency or
+nanosecond conversion is claimed. The CPU submit-to-flip average includes two
+frames of pipeline residence and is therefore about twice the roughly
+16.81 ms interval between consecutive retirements. The gate replaces the old
+deadline interpretation with these explicit, separately named measurements.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

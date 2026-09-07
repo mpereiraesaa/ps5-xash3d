@@ -149,8 +149,9 @@
 - [x] Measure pthread lifecycle, monotonic-clock behavior and sleep granularity
   on the engine host; pass joined/detached ownership, 32,768 locked increments,
   8,192 monotonic reads and all eight 1–10 ms sleep buckets on FW 12.02.
-- [ ] Add GPU end-of-pipe timestamps and VideoOut flip-latency telemetry to the
-  Phase 4 backend for the later `ref_agc` integration.
+- [x] Add GPU end-of-pipe timestamps and exact VideoOut-event latency to the
+  Phase 4 backend; pass 60,000 correlated records with strict raw-clock
+  progress, zero gaps/regressions and exact ownership on FW 12.02.
 - [ ] Close the remaining `__assert`, identity-without-`getpwuid` and
   logging-without-`dladdr` platform shims with host and FW 12.02 evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR

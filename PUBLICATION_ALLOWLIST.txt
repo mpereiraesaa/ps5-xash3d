@@ -31,6 +31,7 @@ docs/BACKEND_PROVENANCE.md
 docs/CAPABILITY_MATRIX.md
 docs/DEVELOPMENT.md
 docs/GOLDSRC_RENDER_STATES_PHASE4.md
+docs/GPU_FLIP_TIMING_PHASE5.md
 docs/HARDWARE_VALIDATION.md
 docs/RELEASING.md
 docs/ROADMAP.md
@@ -131,6 +132,8 @@ src/ps5_event_adapter.c
 src/ps5_event_adapter.h
 src/ps5_gpu_span.c
 src/ps5_gpu_span.h
+src/ps5_gpu_flip_timing.c
+src/ps5_gpu_flip_timing.h
 src/ps5_submission.c
 src/ps5_submission.h
 src/ps5_direct_memory.c
@@ -193,6 +196,7 @@ tests/test_ps5_depth_target.c
 tests/test_ps5_pipeline.c
 tests/test_ps5_event_adapter.c
 tests/test_ps5_gpu_span.c
+tests/test_ps5_gpu_flip_timing.c
 tests/test_ps5_submission.c
 tests/test_ps5_direct_memory.c
 tests/test_ps5_platform_abi.c
@@ -252,6 +256,7 @@ tests/test_validate_texture_path_accounting_evidence.py
 tests/test_validate_texture_path_final_evidence.py
 tests/test_validate_phase4_render_state_evidence.py
 tests/test_validate_phase4_final_evidence.py
+tests/test_validate_gpu_flip_timing_evidence.py
 tools/audit_publication.py
 tools/build_shader.py
 tools/generate_agc_metadata.py
@@ -278,6 +283,7 @@ tools/validate_texture_path_accounting_evidence.py
 tools/validate_texture_path_final_evidence.py
 tools/validate_phase4_render_state_evidence.py
 tools/validate_phase4_final_evidence.py
+tools/validate_gpu_flip_timing_evidence.py
 tools/validate_goldsrc_shader_manifests.py
 docs/BSP_VIEWER_PHASE1.md
 docs/BSP_RESOURCE_FOUNDATION_PHASE2.md

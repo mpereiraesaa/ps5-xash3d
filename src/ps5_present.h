@@ -6,6 +6,7 @@
 enum {
     PS5_PRESENT_SET_FLIP_MAX_DWORDS = 64u,
     PS5_PRESENT_RELEASE_DWORDS = 8u,
+    PS5_PRESENT_TIMESTAMP_DWORDS = 8u,
 };
 
 typedef int (*ps5_present_set_flip_fn)(
@@ -34,6 +35,7 @@ int ps5_present_compose_flip_and_fence(
     int32_t buffer_index,
     uint32_t flip_mode,
     uint64_t flip_arg,
+    uintptr_t timestamp_address,
     uintptr_t fence_address);
 
 #endif

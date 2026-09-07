@@ -50,6 +50,7 @@ goldsrc_studio_gate=${GOLDSRC_STUDIO_GATE:-0}
 goldsrc_brush_gate=${GOLDSRC_BRUSH_GATE:-0}
 goldsrc_visibility_gate=${GOLDSRC_VISIBILITY_GATE:-0}
 goldsrc_phase4_final_gate=${GOLDSRC_PHASE4_FINAL_GATE:-0}
+gpu_flip_timing_gate=${GPU_FLIP_TIMING_GATE:-0}
 studio_bundle=${STUDIO_BUNDLE:-}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
@@ -88,6 +89,14 @@ bsp_flags=()
    $goldsrc_phase4_final_gate == 1 ]] || {
     echo "GOLDSRC_PHASE4_FINAL_GATE must be 0 or 1" >&2; exit 2;
 }
+[[ $gpu_flip_timing_gate == 0 || $gpu_flip_timing_gate == 1 ]] || {
+    echo "GPU_FLIP_TIMING_GATE must be 0 or 1" >&2; exit 2;
+}
+if [[ $gpu_flip_timing_gate == 1 &&
+      $goldsrc_phase4_final_gate != 1 ]]; then
+    echo "GPU_FLIP_TIMING_GATE requires GOLDSRC_PHASE4_FINAL_GATE=1" >&2
+    exit 2
+fi
 if [[ $goldsrc_phase4_final_gate == 1 && $goldsrc_phase4 != 1 ]]; then
     echo "GOLDSRC_PHASE4_FINAL_GATE requires GOLDSRC_PHASE4=1" >&2
     exit 2
@@ -294,6 +303,9 @@ if [[ -n $bsp_bundle ]]; then
     if [[ $goldsrc_phase4_final_gate == 1 ]]; then
         bsp_flags+=(-DPS5_GOLDSRC_PHASE4_FINAL_GATE=1)
     fi
+    if [[ $gpu_flip_timing_gate == 1 ]]; then
+        bsp_flags+=(-DPS5_GPU_FLIP_TIMING_GATE=1)
+    fi
 fi
 
 sdk="$foundation/.deps/native/ps5-payload-sdk"
@@ -353,7 +365,8 @@ sources=(
     src/goldsrc_studio_bundle.c src/goldsrc_studio_model.c
     src/goldsrc_brush_entities.c
     src/goldsrc_visibility.c
-    src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
+    src/ps5_gpu_flip_timing.c src/ps5_present.c src/ps5_shader_header.c
+    src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c
     src/ps5_transient_ring.c src/ps5_transient_table.c

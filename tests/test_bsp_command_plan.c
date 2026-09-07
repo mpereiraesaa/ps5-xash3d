@@ -13,9 +13,13 @@ int main(void)
     assert(plan.slot_offsets[0] == 0u && plan.slot_offsets[1] == 0x80000u);
     assert(plan.fence_offsets[0] == 0x100000u &&
            plan.fence_offsets[1] == 0x100040u);
+    assert(plan.timestamp_offsets[0] == 0x100080u &&
+           plan.timestamp_offsets[1] == 0x1000c0u);
     assert(plan.allocation_bytes == 0x110000u);
     assert((plan.slot_bytes & (BSP_COMMAND_SLOT_ALIGNMENT - 1u)) == 0u);
     assert((plan.fence_offsets[0] & (BSP_COMMAND_FENCE_ALIGNMENT - 1u)) == 0u);
+    assert((plan.timestamp_offsets[0] &
+            (BSP_COMMAND_FENCE_ALIGNMENT - 1u)) == 0u);
     assert(bsp_command_plan(0u, 4096u, &plan) != 0);
     assert(bsp_command_plan(1u, 0u, &plan) != 0);
     assert(bsp_command_plan(UINT32_MAX, 4096u, &plan) != 0);
@@ -25,6 +29,8 @@ int main(void)
     assert(plan.slot_bytes == 0x90000u);
     assert(plan.fence_offsets[0] == 0x120000u &&
            plan.fence_offsets[1] == 0x120040u);
+    assert(plan.timestamp_offsets[0] == 0x120080u &&
+           plan.timestamp_offsets[1] == 0x1200c0u);
     assert(plan.allocation_bytes == 0x130000u);
     assert(bsp_command_plan_with_stride(1u, 0u, 4096u, &plan) != 0);
     return 0;
