@@ -204,6 +204,39 @@ actions occurred, reads remained error-free, ownership is exact and
 `pass=1`. The engine must then report a zero result and close with a gap-free
 `BYE`; a timeout, visual movement or process disappearance is not sufficient.
 
+## Phase 5 SceAudioOut evidence
+
+The dedicated-engine audio gate announces `audio_gate=1` in `XASH_BOOT`, then
+records which user the artifact opened the port for in `XASH_AUDIO_USER`
+(`system` or `foreground`, never an unrecorded fallback). `XASH_AUDIO_INIT`
+carries user/type/index/handle, the three acquisition results, the volume flags
+and value, and the input rate, output rate, format, channels and grain.
+`XASH_AUDIO_RING_READY` adds ring capacity, prime level, staging sizes and the
+147/160 ratio. `XASH_AUDIO_PATTERN` publishes the deterministic sequence and its
+expected source hash, one `XASH_AUDIO_PATTERN_SEGMENT` row per segment.
+
+`XASH_AUDIO_PROGRESS` appears at the first block and then every 64 blocks —
+start, a few progress rows and a summary, never a line per block.
+`XASH_AUDIO_UNDERRUN` fires once per starved episode; priming and the terminal
+zero-fill are not underruns and never emit it.
+
+`XASH_AUDIO_SUMMARY` closes the accounting: frames produced, consumed and sent,
+blocks, deliberate silence, underruns, terminal padding, discarded frames, ring
+wraps, producer rebases, high-water mark, the full format description, the PCM
+hash before and after the resampler, and the Output error count.
+`XASH_AUDIO_TEARDOWN` proves worker ownership with exactly one drain, one close
+and one join. `XASH_AUDIO_COMPLETE` is accepted only when the consumed hash
+equals the generated pattern hash, `sent` equals the exact resampled count plus
+terminal padding, underruns and Output errors are zero, `ownership=exact` and
+`pass=1`.
+
+A successful `sceAudioOutOutput` returns the number of frames it accepted (256
+at this grain) and so does the NULL drain, so `drain_rc` is checked for
+non-negative rather than zero. The engine must then report a zero result and
+close with a gap-free `BYE`. Telemetry alone does not accept the gate: the
+operator's auditory confirmation is external evidence tied to the run id,
+because the device cannot assert `audible=true` about itself.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

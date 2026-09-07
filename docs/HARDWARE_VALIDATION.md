@@ -776,6 +776,46 @@ state, neutralized controller-generation state and closed the pad plus the
 UserService ownership it acquired. The matching validator was invoked with
 `--pad-gate`; the full contract and mapping are in `SCEPAD_PHASE5.md`.
 
+## Phase 5 SceAudioOut gate
+
+- Run: `20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6`
+- fSELF SHA-256:
+  `febef3a565810dd18565a3dfc707506a2fbbad0dd1d55e077cf91a5f540b7f74`
+- Linked ELF SHA-256:
+  `f6db533ac53728e86768c03c0b1b08e033ce3514348f8ea69cf8a9d9b3b9884e`
+- Transcript SHA-256:
+  `f949a2d173b82c9415e3adb3f2c458947cf4600c98e254217d7b598c407a10bb`
+- Engine/hlsdk commits: `9aa39ad` / `e277ffa`
+- Port: system user `0xff`, type `0`, index `0`, handle `0x20000000`
+- Acquisition: init 0, open `0x20000000`, volume 0 (flags `3`, eight `0x8000`)
+- Source / output frames: 66,150 at 44.1 kHz / 72,192 at 48 kHz
+- Blocks: 282 whole 256-frame blocks; terminal padding 193 frames
+- Conversion: 71,999 resampled + 193 padding = 72,192, the exact 147/160 relation
+- Source hash `0x9fd6b8c32bb54595` equals the generated pattern hash;
+  output hash `0xfbcae52a8b451ae1`
+- Ring: capacity 8,192 frames, prime 1,024, 8 wraps, high-water 8,192
+- Silence carried through: 13,233 frames (13,230 deliberate)
+- Underruns / Output errors / discarded / rebases: 0 / 0 / 0 / 0
+- Teardown: one drain (rc 256), one close (rc 0), one join, `owner=worker`
+- Completion: `ownership=exact`, `pass=1`, `XASH_EXIT result=0`
+- Transport: clean, gap-free BYE (`xash-engine-boot-complete`)
+- Operator confirmation: low tone, gap, higher tone heard in that order
+
+This run proves the dedicated Phase 5 SceAudioOut backend on FW 12.02. It
+converted the engine's 44.1 kHz mix rate to the port's 48 kHz with a continuous
+147/160 resampler, submitted only whole grains, zero-filled solely the final
+partial block and kept the handle inside the worker for the whole lifetime. The
+matching validator was invoked with `--audio-gate`; the full contract, the two
+defects the first hardware run exposed and the FW 12.02 facts that differ from
+the FW 6.02 reference are in `SCEAUDIOOUT_PHASE5.md`.
+
+Repeated with the identical artifact in run
+`20260907T195320217Z_PPSA99996_xash3d-engine_0xc3f2392f8174` (transcript
+`278602c1f84d7396e5a0e0f3ed5863a14b0d7bf5c1a95fe35c8ff4d93b4cd462`), which
+reproduced every counter and both PCM hashes bit for bit and was confirmed
+audible again. A rebuild from the merged tree yields the same ELF and fSELF
+hashes, so the published code is the accepted artifact.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

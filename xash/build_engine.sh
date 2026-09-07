@@ -25,6 +25,15 @@
 #                          evidence-only build, never the production default)
 #   XASH_PAD_GATE          exercise the native ScePad backend and quit only
 #                          after all canonical actions pass (default 0)
+#   XASH_AUDIO_GATE        push the deterministic 44.1 kHz pattern through the
+#                          SceAudioOut ring/resampler/worker before the engine
+#                          starts, then quit on the first failure (default 0)
+#   XASH_AUDIO_USER        system (0xff, default) or foreground; the accepted
+#                          variant is recorded, never chosen silently
+#   XASH_AUDIO_GATE_FRAMES cap the gate pattern to N source frames for the
+#                          minimal ABI smoke run (default 0 = full sequence)
+#   XASH_AUDIO             link the SNDDMA binding instead of s_stub.c in client
+#                          mode (compile/link proof only, default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -40,12 +49,22 @@ fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
 libc_smoke=${XASH_LIBC_SMOKE:-0}
 pad_gate=${XASH_PAD_GATE:-0}
+audio_gate=${XASH_AUDIO_GATE:-0}
+audio_user=${XASH_AUDIO_USER:-system}
+audio_gate_frames=${XASH_AUDIO_GATE_FRAMES:-0}
+audio=${XASH_AUDIO:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
 [[ $fs_trace_path =~ ^[A-Za-z0-9_./-]+$ ]] || { echo "XASH_FS_TRACE_PATH contains unsafe characters" >&2; exit 2; }
 [[ $libc_smoke == 0 || $libc_smoke == 1 ]] || { echo "XASH_LIBC_SMOKE must be 0 or 1" >&2; exit 2; }
 [[ $pad_gate == 0 || $pad_gate == 1 ]] || { echo "XASH_PAD_GATE must be 0 or 1" >&2; exit 2; }
+[[ $audio_gate == 0 || $audio_gate == 1 ]] || { echo "XASH_AUDIO_GATE must be 0 or 1" >&2; exit 2; }
+[[ $audio == 0 || $audio == 1 ]] || { echo "XASH_AUDIO must be 0 or 1" >&2; exit 2; }
+[[ $audio_user == system || $audio_user == foreground ]] || {
+    echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
+[[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
+    echo "XASH_AUDIO_GATE_FRAMES must be an integer" >&2; exit 2; }
 jobs=${XASH_JOBS:-$(nproc)}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 game_data=${XASH_GAME_DATA:-}
@@ -74,6 +93,15 @@ if [[ ! -f $xash/3rdparty/library_suffix/include/build.h ||
 fi
 if [[ $mode == client && ! -f $xash/3rdparty/mainui/BaseMenu.cpp ]]; then
     git -C "$xash" submodule update --init --recursive 3rdparty/mainui
+fi
+# Client mode compiles the engine's codec and emulator trees, so their sources
+# have to be there; only mainui was being initialized before.
+if [[ $mode == client && ! -f $xash/3rdparty/opus/opus/include/opus_custom.h ]]; then
+    git -C "$xash" submodule update --init --recursive \
+        3rdparty/opus 3rdparty/opusfile 3rdparty/libogg 3rdparty/vorbis
+fi
+if [[ $mode == client && ! -f $xash/3rdparty/MultiEmulator/include/multi_emulator.h ]]; then
+    git -C "$xash" submodule update --init --recursive 3rdparty/MultiEmulator
 fi
 
 if [[ ! -d $foundation/.git ]]; then
@@ -141,6 +169,10 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_REF "$ref_name"
 #define PS5_XASH_LIBC_SMOKE $libc_smoke
 #define PS5_XASH_PAD_GATE $pad_gate
+#define PS5_XASH_AUDIO_GATE $audio_gate
+#define PS5_XASH_AUDIO_USER_FOREGROUND $([[ $audio_user == foreground ]] && echo 1 || echo 0)
+#define PS5_XASH_AUDIO "$audio_user"
+#define PS5_XASH_AUDIO_GATE_FRAMES $audio_gate_frames
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -179,7 +211,10 @@ if [[ $mode == dedicated ]]; then
 else
     # Renderer list advertised by the engine; ref_null is reachable through -ref null.
     # XASH_VIDEO=99 is the PS5 headless backend (common.h refuses VIDEO_NULL in a client).
-    engine_defines+=(-DXASH_REF_SOFT_ENABLED=1 -DXASH_VIDEO=99 -DXASH_INPUT=INPUT_NULL -DXASH_SOUND=SOUND_NULL)
+    # XASH_SOUND=99 is the PS5 SceAudioOut backend; s_stub.c compiles itself out
+    # for anything but SOUND_NULL, so the two never both define SNDDMA_*.
+    engine_defines+=(-DXASH_REF_SOFT_ENABLED=1 -DXASH_VIDEO=99 -DXASH_INPUT=INPUT_NULL
+        -DXASH_SOUND=$([[ $audio == 1 ]] && echo 99 || echo SOUND_NULL))
     engine_includes_client=(
         -I"$xash/3rdparty/opus/opus/include" -I"$xash/3rdparty/opusfile/opusfile/include"
         -I"$xash/3rdparty/libogg/libogg/include" -I"$gen/ogg"
@@ -268,9 +303,20 @@ engine_sources=$(
     echo "$root/xash/platform_ps5/fs_ps5.c"
     echo "$root/xash/platform_ps5/mem_ps5.c"
 	echo "$root/xash/platform_ps5/in_ps5.c"
+    if [[ $audio_gate == 1 || $audio == 1 ]]; then
+        echo "$root/xash/platform_ps5/audio_ps5.c"
+        echo "$root/xash/platform_ps5/audio_pattern_ps5.c"
+    fi
+    if [[ $audio_gate == 1 ]]; then
+        echo "$root/xash/platform_ps5/audio_gate_ps5.c"
+    fi
     if [[ $mode == client ]]; then
         find "$xash/engine/client" -name '*.c'
-        echo "$xash/engine/platform/stub/s_stub.c"
+        if [[ $audio == 1 ]]; then
+            echo "$root/xash/platform_ps5/s_ps5.c"
+        else
+            echo "$xash/engine/platform/stub/s_stub.c"
+        fi
         echo "$root/xash/platform_ps5/vid_ps5.c"
         find "$xash/3rdparty/MultiEmulator/src" -name '*.c'
     fi
@@ -499,6 +545,34 @@ if grep -qw strcasestr "$build/dynamic-symbols.txt"; then
     echo "PS5 engine must use Xash's Q_stristr fallback, not libc strcasestr" >&2
     exit 1
 fi
+if [[ $audio_gate == 1 || $audio == 1 ]]; then
+    for symbol in sceAudioOutInit sceAudioOutOpen sceAudioOutSetVolume \
+        sceAudioOutOutput sceAudioOutClose; do
+        if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+            echo "the SceAudioOut build did not retain the $symbol dynamic import" >&2
+            exit 1
+        fi
+    done
+    # AudioOut2, Audio3d, NGS2, AJM and AudioIn are outside this gate.
+    for symbol in sceAudioOut2Initialize sceAudio3dInitialize sceNgs2SystemCreate \
+        sceAjmInitialize sceAudioInOpen sceAudiodecCreateDecoder; do
+        if grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+            echo "the SceAudioOut gate must not import $symbol" >&2
+            exit 1
+        fi
+    done
+fi
+if [[ $audio_gate == 1 ]]; then
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_AUDIO_INIT XASH_AUDIO_RING_READY XASH_AUDIO_PATTERN \
+        XASH_AUDIO_PROGRESS XASH_AUDIO_UNDERRUN XASH_AUDIO_SUMMARY \
+        XASH_AUDIO_TEARDOWN XASH_AUDIO_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_AUDIO_GATE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+fi
 if [[ $libc_smoke == 1 ]]; then
     for symbol in strcasecmp strnlen strlcpy strlcat; do
         if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
@@ -559,4 +633,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames"

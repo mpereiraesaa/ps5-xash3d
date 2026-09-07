@@ -130,6 +130,22 @@ int scePadRead(int32_t handle, struct ps5_pad_data *states, int32_t count);
 int scePadReadState(int32_t handle, struct ps5_pad_data *state);
 int scePadClose(int32_t handle);
 
+/*
+ * libSceAudioOut PCM output.  The six-argument sceAudioOutOpen signature, the
+ * grain/rate/format constraints and the blocking Output/NULL-drain contract are
+ * documented by the independently hardware-tested ps5-audio-decoding-research
+ * project at commit 2c81f17910be6e7b26d05ae50f50adb0211581c2 (GPL-3.0); its
+ * evidence is FW 6.02, so no symbol below is accepted here until this port
+ * exercises it on FW 12.02.  These are project-owned declarations; no vendor
+ * header is included.
+ */
+int sceAudioOutInit(void);
+int sceAudioOutOpen(int32_t user_id, int32_t type, int32_t index,
+                    uint32_t grain, uint32_t frequency, uint32_t format);
+int sceAudioOutSetVolume(int32_t handle, int32_t flags, const int32_t *volumes);
+int sceAudioOutOutput(int32_t handle, const void *samples);
+int sceAudioOutClose(int32_t handle);
+
 int sceSysmoduleLoadModuleInternal(unsigned int id, ...);
 int sceSysmoduleUnloadModuleInternal(unsigned int id, ...);
 
