@@ -29,6 +29,7 @@ hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 mode=${XASH_MODE:-dedicated}
+fs_trace=${XASH_FS_TRACE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -177,6 +178,7 @@ OGG
     # The client makes far more small allocations than the server; keep more of
     # them away from the 8 MiB libc heap.
     engine_defines+=(-DPS5_LARGE_ALLOC_BYTES=65536)
+    [[ $fs_trace == 1 ]] && engine_defines+=(-DPS5_XASH_FS_TRACE=1)
 fi
 engine_includes_client=("${engine_includes_client[@]:-}")
 engine_includes=(

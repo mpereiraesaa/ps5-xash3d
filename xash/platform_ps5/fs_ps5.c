@@ -406,6 +406,8 @@ typedef struct ps5_dir_s
 	int length;
 	int offset;
 	int exhausted;
+	int trace;       /* log each entry (debug) */
+	unsigned seq;
 	char *synthetic; /* dirent records built from the index */
 	char buffer[8192];
 } ps5_dir_t;
@@ -459,6 +461,13 @@ static ps5_dir_t *ps5_open_indexed( const char *relative )
 		matches--;
 	}
 	dir->length = (int)used;
+#ifdef PS5_XASH_FS_TRACE
+	if( strstr( relative, "gfx" ))
+	{
+		dir->trace = 1;
+		ps5log_printf( PS5LOG_INFO, "XASH_RD open rel=%s length=%d", relative, dir->length );
+	}
+#endif
 	return dir;
 }
 
@@ -478,8 +487,9 @@ DIR *opendir( const char *path )
 			if( ps5_index[k].parent_len == strlen( relative ) &&
 			    strncmp( ps5_index[k].path, relative, strlen( relative )) == 0 ) matches++;
 #ifdef PS5_XASH_FS_TRACE
-		(void)ps5log_printf( PS5LOG_INFO, "XASH_OPENDIR seq=%u kind=index path=%s rel=%s entries=%u",
-			++ps5_opendir_seq, full, relative, matches );
+		(void)ps5log_printf( PS5LOG_INFO, "XASH_OPENDIR seq=%u kind=index path=%s rel=%s entries=%u ret0=%p ret1=%p ret2=%p",
+			++ps5_opendir_seq, full, relative, matches,
+			__builtin_return_address( 0 ), __builtin_return_address( 1 ), __builtin_return_address( 2 ));
 #else
 		(void)matches;
 #endif
@@ -519,9 +529,18 @@ struct dirent *readdir( DIR *stream )
 		if( dir->synthetic )
 		{
 			if( dir->offset >= dir->length )
+			{
+#ifdef PS5_XASH_FS_TRACE
+				if( dir->trace ) ps5log_printf( PS5LOG_INFO, "XASH_RD end seq=%u", dir->seq );
+#endif
 				return NULL;
+			}
 			entry = (struct dirent *)( dir->synthetic + dir->offset );
 			dir->offset += entry->d_reclen;
+#ifdef PS5_XASH_FS_TRACE
+			if( dir->trace ) ps5log_printf( PS5LOG_INFO, "XASH_RD seq=%u name=%s type=%d reclen=%d namlen=%d",
+				++dir->seq, entry->d_name, entry->d_type, entry->d_reclen, entry->d_namlen );
+#endif
 			return entry;
 		}
 		if( dir->offset >= dir->length )
@@ -563,6 +582,9 @@ int closedir( DIR *stream )
 		errno = EBADF;
 		return -1;
 	}
+#ifdef PS5_XASH_FS_TRACE
+	if( dir->trace ) ps5log_printf( PS5LOG_INFO, "XASH_RD close seq=%u", dir->seq );
+#endif
 	if( dir->fd >= 0 )
 		sceKernelClose( dir->fd );
 	free( dir->synthetic );
