@@ -51,8 +51,17 @@ int bsp_command_plan_with_stride(uint32_t draw_count,
         return -1;
     plan->fence_offsets[1] =
         plan->fence_offsets[0] + BSP_COMMAND_FENCE_ALIGNMENT;
-    if (plan->fence_offsets[1] > UINT32_MAX - sizeof(uint64_t) ||
-        align_u32(plan->fence_offsets[1] + sizeof(uint64_t),
+    if (plan->fence_offsets[1] >
+            UINT32_MAX - BSP_COMMAND_FENCE_ALIGNMENT ||
+        plan->fence_offsets[1] + BSP_COMMAND_FENCE_ALIGNMENT >
+            UINT32_MAX - BSP_COMMAND_FENCE_ALIGNMENT)
+        return -1;
+    plan->timestamp_offsets[0] =
+        plan->fence_offsets[1] + BSP_COMMAND_FENCE_ALIGNMENT;
+    plan->timestamp_offsets[1] =
+        plan->timestamp_offsets[0] + BSP_COMMAND_FENCE_ALIGNMENT;
+    if (plan->timestamp_offsets[1] > UINT32_MAX - sizeof(uint64_t) ||
+        align_u32(plan->timestamp_offsets[1] + sizeof(uint64_t),
                   BSP_COMMAND_SLOT_ALIGNMENT, &plan->allocation_bytes) != 0)
         return -1;
     return 0;

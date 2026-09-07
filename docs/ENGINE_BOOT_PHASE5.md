@@ -206,11 +206,14 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
    `20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6` sent 282 whole
    grains with matching PCM hashes, zero underruns and exact shutdown. See
    `SCEAUDIOOUT_PHASE5.md`.
-4. **Next:** Engine allocator and GPU resources on direct memory, with ownership and
-   teardown telemetry.
-5. pthreads, monotonic time and measured sleep granularity.
-6. Frametime instrumentation using GPU timestamps and VideoOut flip status.
-7. Project-owned `__assert`, fixed/SceUserService identity instead of
+4. **Direct memory complete.** The guarded engine arena and representative
+   GPU-resource ownership gate are recorded in `DIRECT_MEMORY_PHASE5.md`.
+5. **Threads/time complete.** Joined/detached ownership, monotonic clock and
+   measured sleep granularity are recorded in `THREAD_TIME_PHASE5.md`.
+6. **GPU/flip timing complete.** The Phase 4 backend passed 60,000 correlated
+   EOP timestamp, fence and exact VideoOut-event records on FW 12.02. See
+   `GPU_FLIP_TIMING_PHASE5.md`.
+7. **Next:** Project-owned `__assert`, fixed/SceUserService identity instead of
    `getpwuid`, and logging that does not require `dladdr`.
 
 The application-owned PRX conversion and `ref_agc` remain Phase 6.  The

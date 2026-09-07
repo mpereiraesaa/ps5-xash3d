@@ -509,6 +509,26 @@ def main() -> None:
     if "bsp-phase4-final-native-release" not in makefile or \
             "GOLDSRC_PHASE4_FINAL_GATE=1" not in makefile:
         raise SystemExit("Phase 4 final release target missing")
+    for item in (
+        "GPU_FLIP_TIMING_GATE must be 0 or 1",
+        "GPU_FLIP_TIMING_GATE requires GOLDSRC_PHASE4_FINAL_GATE=1",
+        "-DPS5_GPU_FLIP_TIMING_GATE=1",
+    ):
+        if item not in builder:
+            raise SystemExit(f"GPU/flip timing build contract missing: {item}")
+    for item in (
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=gpu-flip-timing",
+        "GPU_FLIP_TIMING_BEGIN schema=1 frames=%u slots=2",
+        "BSP_LOOP_BEGIN mode=gpu-flip-timing-soak buffers=2",
+        "GPU_FLIP_TIMING_SAMPLE schema=1 frame=%llu slot=%u",
+        "GPU_FLIP_TIMING_SUMMARY schema=1 frames=%llu",
+        'ps5log_close("gpu-flip-timing-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(f"GPU/flip timing runtime contract missing: {item}")
+    if "bsp-phase5-gpu-flip-timing-native-release" not in makefile or \
+            "GPU_FLIP_TIMING_GATE=1" not in makefile:
+        raise SystemExit("GPU/flip timing release target missing")
     for item in ("PS5_STUDIO_BUNDLE_SHA256", "PS5_STUDIO_BUNDLE_BYTES"):
         if item not in studio_metadata:
             raise SystemExit(f"studio metadata contract missing: {item}")

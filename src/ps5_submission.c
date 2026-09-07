@@ -15,20 +15,30 @@ int ps5_submission_build_and_submit(
         ? (uintptr_t)input->stream->end : 0u;
     const uintptr_t fence_start = input ? (uintptr_t)input->gpu_fence : 0u;
     const uintptr_t fence_end = fence_start + sizeof(uint64_t);
+    const uintptr_t timestamp_start = input
+        ? (uintptr_t)input->gpu_eop_timestamp : 0u;
+    const uintptr_t timestamp_end = timestamp_start + sizeof(uint64_t);
     if (!input || !input->stream || !input->set_flip || !input->submit ||
         !input->gpu_fence || input->videoout_handle < 0 ||
         input->buffer_index < 0 || input->buffer_index >= 2 ||
         !input->surface_registered || !input->render_resources_ready ||
         !input->videoout_event_armed || (fence_start & 7u) != 0u ||
         stream_start >= stream_end || fence_end < fence_start ||
-        (fence_start < stream_end && fence_end > stream_start))
+        (fence_start < stream_end && fence_end > stream_start) ||
+        (timestamp_start && ((timestamp_start & 7u) != 0u ||
+         timestamp_end < timestamp_start ||
+         (timestamp_start < stream_end && timestamp_end > stream_start) ||
+         (timestamp_start < fence_end && timestamp_end > fence_start))))
         return PS5_SUBMISSION_PRECONDITION;
 
     *input->gpu_fence = UINT64_C(1);
+    if (input->gpu_eop_timestamp)
+        *input->gpu_eop_timestamp = UINT64_MAX;
     input->stream->transaction_started = 0;
     state->builder_result = ps5_present_compose_flip_and_fence(
         input->stream, input->set_flip, input->videoout_handle,
         input->buffer_index, input->flip_mode, input->flip_arg,
+        (uintptr_t)input->gpu_eop_timestamp,
         (uintptr_t)input->gpu_fence);
     state->transaction_started = input->stream->transaction_started;
     if (state->transaction_started)

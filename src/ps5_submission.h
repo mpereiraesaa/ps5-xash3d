@@ -13,6 +13,7 @@ struct ps5_submission_input {
     ps5_submit_commands_fn submit;
     void *submit_opaque;
     volatile uint64_t *gpu_fence;
+    volatile uint64_t *gpu_eop_timestamp;
     int32_t videoout_handle;
     int32_t buffer_index;
     uint32_t flip_mode;

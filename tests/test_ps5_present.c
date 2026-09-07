@@ -35,27 +35,31 @@ int main(void)
 
     stream = (struct ps5_present_stream){words, words + 71, 0, 0};
     assert(ps5_present_compose_flip_and_fence(
-               &stream, mock_set_flip, 7, 0, 1u, 9u, UINT64_C(0x1000)) ==
+               &stream, mock_set_flip, 7, 0, 1u, 9u, 0u,
+               UINT64_C(0x1000)) ==
            PS5_PRESENT_PRECONDITION);
     assert(!stream.transaction_started);
 
     stream = (struct ps5_present_stream){words, words + 80, 0, 0};
     mode = MOCK_ERROR;
     assert(ps5_present_compose_flip_and_fence(
-               &stream, mock_set_flip, 7, 0, 1u, 9u, UINT64_C(0x1000)) ==
+               &stream, mock_set_flip, 7, 0, 1u, 9u, 0u,
+               UINT64_C(0x1000)) ==
            PS5_PRESENT_BUILDER_ERROR);
     assert(stream.transaction_started);
 
     stream = (struct ps5_present_stream){words, words + 80, 0, 0};
     mode = MOCK_WILD;
     assert(ps5_present_compose_flip_and_fence(
-               &stream, mock_set_flip, 7, 0, 1u, 9u, UINT64_C(0x1000)) ==
+               &stream, mock_set_flip, 7, 0, 1u, 9u, 0u,
+               UINT64_C(0x1000)) ==
            PS5_PRESENT_CURSOR_INVALID);
 
     stream = (struct ps5_present_stream){words, words + 80, 0, 0};
     mode = MOCK_OVERFLOW;
     assert(ps5_present_compose_flip_and_fence(
-               &stream, mock_set_flip, 7, 0, 1u, 9u, UINT64_C(0x1000)) ==
+               &stream, mock_set_flip, 7, 0, 1u, 9u, 0u,
+               UINT64_C(0x1000)) ==
            PS5_PRESENT_CURSOR_INVALID);
 
     memset(words, 0, sizeof(words));
@@ -63,6 +67,7 @@ int main(void)
     mode = MOCK_OK;
     assert(ps5_present_compose_flip_and_fence(
                &stream, mock_set_flip, 7, 0, 1u, 9u,
+               0u,
                UINT64_C(0x1122334455667800)) == PS5_PRESENT_OK);
     assert(stream.cursor == words + 14);
     const uint32_t expected[8] = {
@@ -70,5 +75,20 @@ int main(void)
         UINT32_C(0x55667800), UINT32_C(0x11223344), 0u, 0u, 0u,
     };
     assert(memcmp(words + 6, expected, sizeof(expected)) == 0);
+
+    memset(words, 0, sizeof(words));
+    stream = (struct ps5_present_stream){words, words + 80, 0, 0};
+    assert(ps5_present_compose_flip_and_fence(
+               &stream, mock_set_flip, 7, 0, 1u, 9u,
+               UINT64_C(0xaabbccddeeff0000),
+               UINT64_C(0x1122334455667800)) == PS5_PRESENT_OK);
+    assert(stream.cursor == words + 22);
+    const uint32_t expected_timestamp[8] = {
+        UINT32_C(0xc0064900), UINT32_C(0x06000528),
+        UINT32_C(0x60010000), UINT32_C(0xeeff0000),
+        UINT32_C(0xaabbccdd), 0u, 0u, 0u,
+    };
+    assert(memcmp(words, expected_timestamp, sizeof(expected_timestamp)) == 0);
+    assert(memcmp(words + 14, expected, sizeof(expected)) == 0);
     return 0;
 }

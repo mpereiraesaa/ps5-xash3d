@@ -34,6 +34,7 @@
 #include "../src/ps5_depth_target.h"
 #include "../src/ps5_event_adapter.h"
 #include "../src/ps5_gfx1013_descriptor.h"
+#include "../src/ps5_gpu_flip_timing.h"
 #include "../src/ps5_pipeline.h"
 #include "../src/ps5_resource_pool.h"
 #include "../src/ps5_shader_header.h"
@@ -259,6 +260,12 @@ struct native_renderer {
     uint32_t *commands[2];
     uint32_t *cursor[2];
     volatile uint64_t *fences[2];
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    volatile uint64_t *gpu_eop_timestamps[2];
+    uint64_t gpu_flip_submit_ns[2];
+    uint64_t gpu_flip_gpu_observed_ns[2];
+    Ps5GpuFlipTimingAccumulator gpu_flip_timing;
+#endif
     struct ps5_pipeline_registers *pipelines[2];
 #ifdef PS5_RESOURCE_FOUNDATION
     struct ps5_pipeline_registers *overlay_pipelines[2];
@@ -2215,12 +2222,27 @@ static int frame_submit(const GearsAnimationFrame *frame, void *opaque)
         state->cursor[slot], 0
     };
     struct ps5_submission_input input = {
-        &stream, ps5_native_set_flip, ps5_agc_submit_checked, &state->submit,
-        state->fences[slot], state->resources->video.handle, (int32_t)slot,
-        state->resources->surface.flip_mode, frame->token, 1, 1, 1
+        .stream = &stream,
+        .set_flip = ps5_native_set_flip,
+        .submit = ps5_agc_submit_checked,
+        .submit_opaque = &state->submit,
+        .gpu_fence = state->fences[slot],
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+        .gpu_eop_timestamp = state->gpu_eop_timestamps[slot],
+#endif
+        .videoout_handle = state->resources->video.handle,
+        .buffer_index = (int32_t)slot,
+        .flip_mode = state->resources->surface.flip_mode,
+        .flip_arg = frame->token,
+        .surface_registered = 1,
+        .render_resources_ready = 1,
+        .videoout_event_armed = 1,
     };
     struct ps5_submission_state submitted;
     state->transaction_started = 1;
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    state->gpu_flip_submit_ns[slot] = now_ns(0);
+#endif
     const int result = ps5_submission_build_and_submit(&input, &submitted);
     if (result != PS5_SUBMISSION_OK || !submitted.submit_called ||
         !submitted.retain_all_resources)
@@ -2249,8 +2271,12 @@ static int frame_wait_gpu(const GearsAnimationFrame *frame, void *opaque)
         const struct timespec delay = {0, 1000000};
         (void)nanosleep(&delay, 0);
     }
-    return __atomic_load_n(state->fences[frame->buffer], __ATOMIC_ACQUIRE) ==
-                   0u ? 0 : -1;
+    if (__atomic_load_n(state->fences[frame->buffer], __ATOMIC_ACQUIRE) != 0u)
+        return -1;
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    state->gpu_flip_gpu_observed_ns[frame->buffer] = now_ns(0);
+#endif
+    return 0;
 }
 
 static int frame_wait_video(const GearsAnimationFrame *frame,
@@ -2276,6 +2302,40 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
         const int result = ps5_event_poll_completion(&completion, &poll);
         if (result == PS5_FRAME_DONE) {
             *observed_token = frame->token;
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+            const uint64_t flip_observed_ns = now_ns(0);
+            const uint64_t gpu_eop_ticks = __atomic_load_n(
+                state->gpu_eop_timestamps[frame->buffer], __ATOMIC_ACQUIRE);
+            Ps5GpuFlipTimingSample timing_sample;
+            const int timing_result = ps5_gpu_flip_timing_record(
+                &state->gpu_flip_timing, frame->frame_index, frame->buffer,
+                frame->token, state->gpu_flip_submit_ns[frame->buffer],
+                state->gpu_flip_gpu_observed_ns[frame->buffer],
+                flip_observed_ns, gpu_eop_ticks, &timing_sample);
+            if (timing_result != PS5_GPU_FLIP_TIMING_OK)
+                return -100 + timing_result;
+            if (frame->frame_index == 0u ||
+                (frame->frame_index + 1u) % 600u == 0u ||
+                frame->frame_index + 1u == BSP_GATE_FRAME_COUNT)
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "GPU_FLIP_TIMING_SAMPLE schema=1 frame=%llu slot=%u "
+                    "token=%llu cpu_submit_ns=%llu "
+                    "cpu_gpu_observed_ns=%llu cpu_flip_observed_ns=%llu "
+                    "submit_to_gpu_ns=%llu submit_to_flip_ns=%llu "
+                    "gpu_to_flip_ns=%llu gpu_eop_ticks=%llu "
+                    "gpu_eop_delta_ticks=%llu fence=zero token_match=exact",
+                    (unsigned long long)timing_sample.frame,
+                    timing_sample.slot,
+                    (unsigned long long)timing_sample.token,
+                    (unsigned long long)timing_sample.cpu_submit_ns,
+                    (unsigned long long)timing_sample.cpu_gpu_observed_ns,
+                    (unsigned long long)timing_sample.cpu_flip_observed_ns,
+                    (unsigned long long)timing_sample.submit_to_gpu_ns,
+                    (unsigned long long)timing_sample.submit_to_flip_ns,
+                    (unsigned long long)timing_sample.gpu_to_flip_ns,
+                    (unsigned long long)timing_sample.gpu_eop_ticks,
+                    (unsigned long long)timing_sample.gpu_eop_delta_ticks);
+#endif
 #ifdef PS5_RESOURCE_FOUNDATION
             if (!ps5_cache_gpu_to_cpu_complete(
                     __atomic_load_n(state->fences[frame->buffer],
@@ -2747,7 +2807,9 @@ static uint64_t bright_pixel_count(const void *data, size_t bytes)
 static void park_complete(void)
 {
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    ps5log_close("gpu-flip-timing-soak-complete");
+#elif defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
     ps5log_close("goldsrc-phase4-final-soak-complete");
 #elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
     ps5log_close("goldsrc-phase4-visibility-soak-complete");
@@ -2830,7 +2892,20 @@ int main(void)
                         log_path ? log_path : "unavailable");
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=gpu-flip-timing "
+        "target=gfx1013 fw=12.02 transient_slots=2 "
+        "ownership=fence+videoout gpu_timestamp=eop-release-mem "
+        "bundle_sha256=%s bundle_bytes=%llu "
+        "studio_sha256=%s studio_bytes=%llu soak_frames=%u "
+        "input_gate=not-required",
+        PS5_BSP_BUNDLE_SHA256,
+        (unsigned long long)PS5_BSP_BUNDLE_BYTES,
+        PS5_STUDIO_BUNDLE_SHA256,
+        (unsigned long long)PS5_STUDIO_BUNDLE_BYTES,
+        BSP_GATE_FRAME_COUNT);
+#elif defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
     (void)ps5log_printf(PS5LOG_MARK,
         "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-phase4-final "
         "target=gfx1013 fw=12.02 transient_slots=2 "
@@ -3994,6 +4069,22 @@ int main(void)
         (uint8_t *)resources.command + command_plan.fence_offsets[0]);
     renderer.fences[1] = (volatile uint64_t *)(
         (uint8_t *)resources.command + command_plan.fence_offsets[1]);
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    renderer.gpu_eop_timestamps[0] = (volatile uint64_t *)(
+        (uint8_t *)resources.command + command_plan.timestamp_offsets[0]);
+    renderer.gpu_eop_timestamps[1] = (volatile uint64_t *)(
+        (uint8_t *)resources.command + command_plan.timestamp_offsets[1]);
+    if (ps5_gpu_flip_timing_init(&renderer.gpu_flip_timing,
+                                 BSP_GATE_FRAME_COUNT) != 0)
+        return fail_pre_submit("gpu_flip_timing_init", -1);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GPU_FLIP_TIMING_BEGIN schema=1 frames=%u slots=2 "
+        "gpu_clock_unit=raw-ticks gpu_packet=release_mem-data_sel_3 "
+        "packet_order=draws,timestamp,setflip,ownership-fence "
+        "cpu_clock=monotonic latency_anchor=submit-begin "
+        "flip_observation=exact-videoout-event",
+        BSP_GATE_FRAME_COUNT);
+#endif
 #else
     renderer.commands[0] = resources.command;
     renderer.commands[1] = (uint32_t *)((uint8_t *)resources.command +
@@ -4071,7 +4162,15 @@ int main(void)
     input.user = &renderer;
 #ifdef PS5_BSP_VIEWER
 #ifdef PS5_TEXTURE_PATH
-#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=gpu-flip-timing-soak buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=60000 "
+        "features=phase4-final-integrated timestamp=eop-release-mem "
+        "camera=locked-bsp-tree geometry=world+entities "
+        "descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#elif defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
     (void)ps5log_line(PS5LOG_MARK,
         "BSP_LOOP_BEGIN mode=goldsrc-phase4-final-soak buffers=2 "
         "color_dma=false depth_dma=true indexed=true frames=60000 "
@@ -4209,6 +4308,39 @@ int main(void)
         park("bsp-drain-or-ownership-failure");
     if (!guards_intact())
         park("guard-corruption");
+#ifdef PS5_GPU_FLIP_TIMING_GATE
+    Ps5GpuFlipTimingSummary gpu_flip_summary;
+    if (ps5_gpu_flip_timing_finish(&renderer.gpu_flip_timing,
+                                   &gpu_flip_summary) != 0)
+        park("gpu-flip-timing-gap-or-order-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "GPU_FLIP_TIMING_SUMMARY schema=1 frames=%llu "
+        "records=%llu gpu_timestamp_writes=%llu "
+        "gpu_timestamp_changes=%llu gpu_timestamp_regressions=0 "
+        "cpu_order_errors=0 sequence_gaps=0 "
+        "first_gpu_eop_ticks=%llu last_gpu_eop_ticks=%llu "
+        "submit_to_gpu_min_ns=%llu submit_to_gpu_avg_ns=%llu "
+        "submit_to_gpu_max_ns=%llu submit_to_flip_min_ns=%llu "
+        "submit_to_flip_avg_ns=%llu submit_to_flip_max_ns=%llu "
+        "gpu_to_flip_min_ns=%llu gpu_to_flip_avg_ns=%llu "
+        "gpu_to_flip_max_ns=%llu ownership=fence+exact-videoout-event "
+        "result=pass",
+        (unsigned long long)gpu_flip_summary.frames,
+        (unsigned long long)gpu_flip_summary.frames,
+        (unsigned long long)gpu_flip_summary.gpu_timestamp_writes,
+        (unsigned long long)gpu_flip_summary.gpu_timestamp_changes,
+        (unsigned long long)gpu_flip_summary.first_gpu_eop_ticks,
+        (unsigned long long)gpu_flip_summary.last_gpu_eop_ticks,
+        (unsigned long long)gpu_flip_summary.submit_to_gpu_min_ns,
+        (unsigned long long)gpu_flip_summary.submit_to_gpu_avg_ns,
+        (unsigned long long)gpu_flip_summary.submit_to_gpu_max_ns,
+        (unsigned long long)gpu_flip_summary.submit_to_flip_min_ns,
+        (unsigned long long)gpu_flip_summary.submit_to_flip_avg_ns,
+        (unsigned long long)gpu_flip_summary.submit_to_flip_max_ns,
+        (unsigned long long)gpu_flip_summary.gpu_to_flip_min_ns,
+        (unsigned long long)gpu_flip_summary.gpu_to_flip_avg_ns,
+        (unsigned long long)gpu_flip_summary.gpu_to_flip_max_ns);
+#endif
 #ifdef PS5_RESOURCE_FOUNDATION
     int resource_ring_reusable = renderer.last_completed_token != 0u;
     for (uint32_t slot = 0u; slot < 2u; ++slot) {

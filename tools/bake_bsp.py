@@ -455,7 +455,10 @@ def _brush_chunks(models: list[BrushModel], entities: list[dict[str, str]],
                 not math.isfinite(render_amount) or \
                 render_amount < 0.0 or render_amount > 255.0:
             raise BakeError(f"brush entity {reference} render fields are invalid")
-        color = _vec3(entity.get("rendercolor", "255 255 255"),
+        color_text = entity.get("rendercolor") or "255 255 255"
+        if color_text.strip() == "0":
+            color_text = "0 0 0"
+        color = _vec3(color_text,
                       f"brush entity {reference} rendercolor")
         if any(value < 0.0 or value > 255.0 for value in color):
             raise BakeError(f"brush entity {reference} rendercolor is invalid")

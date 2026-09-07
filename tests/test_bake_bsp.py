@@ -19,7 +19,9 @@ sys.modules[SPEC.name] = BAKER
 SPEC.loader.exec_module(BAKER)
 
 
-def tiny_bsp(*, multistyle: bool = False) -> bytes:
+def tiny_bsp(*, multistyle: bool = False,
+             empty_rendercolor: bool = False,
+             scalar_zero_rendercolor: bool = False) -> bytes:
     entities = (
         b'{\n"classname" "worldspawn"\n}\n'
         b'{\n"classname" "info_player_start"\n'
@@ -27,7 +29,9 @@ def tiny_bsp(*, multistyle: bool = False) -> bytes:
         b'{\n"classname" "func_wall"\n"model" "*1"\n'
         b'"origin" "16 8 4"\n"angles" "0 45 0"\n'
         b'"rendermode" "2"\n"renderamt" "128"\n'
-        b'"rendercolor" "255 128 64"\n}\n\0'
+        b'"rendercolor" "' +
+        (b'' if empty_rendercolor else
+         b'0' if scalar_zero_rendercolor else b'255 128 64') + b'"\n}\n\0'
     )
     mip_offsets = (40, 4136, 5160, 5416)
     mip0 = bytes(index & 255 for index in range(64 * 64))
@@ -199,6 +203,17 @@ def main() -> int:
     expected_color = (1.0, 128.0 / 255.0, 64.0 / 255.0, 128.0 / 255.0)
     assert all(abs(actual - expected) < 1e-6
                for actual, expected in zip(brush[16:20], expected_color))
+
+    empty_color_bundle = BAKER.bake(tiny_bsp(empty_rendercolor=True))
+    empty_color_directory = chunks(empty_color_bundle)
+    empty_color_brush = BAKER.BRUSH_ENTITY.unpack_from(
+        empty_color_bundle, empty_color_directory[b"BENT"][0])
+    assert empty_color_brush[16:19] == (1.0, 1.0, 1.0)
+    zero_color_bundle = BAKER.bake(tiny_bsp(scalar_zero_rendercolor=True))
+    zero_color_directory = chunks(zero_color_bundle)
+    zero_color_brush = BAKER.BRUSH_ENTITY.unpack_from(
+        zero_color_bundle, zero_color_directory[b"BENT"][0])
+    assert zero_color_brush[16:19] == (0.0, 0.0, 0.0)
 
     texture_lump_offset = struct.unpack_from(
         "<I", source, 4 + BAKER.LUMP_TEXTURES * 8)[0]
