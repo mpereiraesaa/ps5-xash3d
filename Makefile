@@ -3,7 +3,8 @@ CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
 BUILD := build/host
 STUDIO_SEQUENCE ?= fire
 
-.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
+.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \ \
+	engine-boot-native-release
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -139,6 +140,8 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_texture_path_final_evidence.py
 	python3 tests/test_validate_phase4_render_state_evidence.py
 	python3 tests/test_validate_phase4_final_evidence.py
+	python3 tests/test_generate_static_library_tables.py
+	python3 tests/test_validate_engine_boot_evidence.py
 	rm -rf build tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
@@ -244,6 +247,10 @@ native:
 
 native-release:
 	bash tools/build_native.sh
+
+# Phase 5 gate 1: Xash3D dedicated engine boot title (no shaders required).
+engine-boot-native-release:
+	bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

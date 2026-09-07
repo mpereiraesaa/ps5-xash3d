@@ -1,0 +1,6 @@
+[submodule "third_party/xash3d-fwgs"]
+	path = third_party/xash3d-fwgs
+	url = https://github.com/FWGS/xash3d-fwgs.git
+[submodule "third_party/hlsdk-portable"]
+	path = third_party/hlsdk-portable
+	url = https://github.com/FWGS/hlsdk-portable.git

@@ -21,7 +21,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
-| 5 — Platform layer | Sized | ScePad, AudioOut, filesystem, engine allocator, time/threads, three measured libc shims |
+| 5 — Platform layer | In progress | Gate 1 prepared: the Xash3D FWGS engine builds for PS5 in dedicated mode with `filesystem_stdio` and the hlsdk-portable server statically linked, three libc shims and a bounded boot; ScePad, AudioOut and the direct-memory allocator follow |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
@@ -78,6 +78,19 @@ executable and packages `dist/PPSA99996/`. Generated binaries, local telemetry
 configuration and deployment material are excluded from publication.
 Deployment remains loader-specific.
 
+Build the Xash3D dedicated engine boot title (Phase 5 gate 1). It needs no
+shader compiler; game data you own is staged privately and never committed:
+
+```sh
+git submodule update --init third_party/xash3d-fwgs third_party/hlsdk-portable
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  make engine-boot-native-release
+```
+
+The result lands in `dist/engine-boot/PPSA99996/`. See
+[`docs/ENGINE_BOOT_PHASE5.md`](docs/ENGINE_BOOT_PHASE5.md) for the gate
+contract and the hardware acceptance rules.
+
 ## Design and scope
 
 The renderer covers native initialization, direct memory, color/depth surfaces,
@@ -98,6 +111,7 @@ Useful references:
 - [`docs/BSP_VIEWER_PHASE1.md`](docs/BSP_VIEWER_PHASE1.md) — BSP bundle, flat/textured draws and noclip
 - [`docs/BSP_RESOURCE_FOUNDATION_PHASE2.md`](docs/BSP_RESOURCE_FOUNDATION_PHASE2.md) — fence-retired resources and transient rendering
 - [`docs/BSP_TEXTURE_PATH_PHASE3.md`](docs/BSP_TEXTURE_PATH_PHASE3.md) — lightmap, mips, alpha test, sky and accounting gates
+- [`docs/ENGINE_BOOT_PHASE5.md`](docs/ENGINE_BOOT_PHASE5.md) — Xash3D engine boot gate: static modules, PS5 backend, evidence
 - [`docs/GOLDSRC_RENDER_STATES_PHASE4.md`](docs/GOLDSRC_RENDER_STATES_PHASE4.md) — Phase 4 state space, gate order and current checkpoint
 - [`docs/BACKEND_PROVENANCE.md`](docs/BACKEND_PROVENANCE.md) — source provenance boundary
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — hardware evidence
@@ -113,8 +127,8 @@ The renderer foundation and the Gears reference scene come from
 `ps5-agc-gears`; the gear geometry adapts Mesa's MIT-licensed `es2gears`.
 Exact provenance and attribution are recorded in [`NOTICE.md`](NOTICE.md).
 All shaders and AGC integration in this repository are independently authored
-and source reproducible. Xash3D FWGS is not vendored yet; it will be integrated
-as a pinned submodule under its own license when Phase 6 starts.
+and source reproducible. Xash3D FWGS and hlsdk-portable are pinned Git submodules under
+`third_party/`, each under its own license; neither is vendored or modified.
 
 Licensed GPL-3.0-or-later. The application identity `PPSA99996` is a local
 development identifier dedicated to PS5 Xash3D, not an official Sony

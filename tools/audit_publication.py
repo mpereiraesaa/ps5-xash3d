@@ -36,7 +36,21 @@ def fail(message: str) -> None:
     raise SystemExit(f"publication audit failed: {message}")
 
 
+def submodule_paths() -> set[str]:
+    """Pinned upstream trees declared in .gitmodules are audited upstream."""
+    modules = ROOT / ".gitmodules"
+    if not modules.exists():
+        return set()
+    paths = set()
+    for line in modules.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.strip().partition("=")
+        if key.strip() == "path":
+            paths.add(value.strip())
+    return paths
+
+
 def main() -> int:
+    submodules = submodule_paths()
     for name in GENERATED_ROOTS:
         path = ROOT / name
         if path.exists():
@@ -56,6 +70,9 @@ def main() -> int:
         if ".git" in relative.parts:
             continue
         if relative.parts and relative.parts[0] in GENERATED_ROOTS:
+            continue
+        if any("/".join(relative.parts[:depth]) in submodules
+               for depth in range(1, len(relative.parts))):
             continue
         if any(part in FORBIDDEN_PARTS or part == "__pycache__"
                for part in relative.parts):

@@ -67,6 +67,25 @@ covered by their original host test, with only public test addresses substituted
 in the copied test fixture. They are distributed under this repository's
 GPL-3.0-or-later license.
 
+## Xash3D FWGS engine
+
+`third_party/xash3d-fwgs` is a pinned, unmodified Git submodule of
+[FWGS/xash3d-fwgs](https://github.com/FWGS/xash3d-fwgs) at commit
+`9aa39ad4`, GPL-3.0-or-later. Its nested `library_suffix` and `bzip2`
+submodules are initialized by the build. `xash/platform_ps5/` and
+`xash/build_engine.sh` are this repository's own code; the static module
+tables they generate follow the layout of the engine's
+`scripts/waifulib/xshlib.py`.
+
+## Half-Life SDK (hlsdk-portable)
+
+`third_party/hlsdk-portable` is a pinned, unmodified Git submodule of
+[FWGS/hlsdk-portable](https://github.com/FWGS/hlsdk-portable) at commit
+`e277ffaa`, distributed under Valve's Half-Life 1 SDK license. It is compiled
+into the engine boot title as the statically linked `server` module for
+development on hardware; no game assets, maps or WAD files are part of this
+repository or of any published artifact.
+
 ## Research boundary
 
 No proprietary Sony SDK file, game asset, shader, module, dump or command

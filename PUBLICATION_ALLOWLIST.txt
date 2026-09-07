@@ -274,3 +274,14 @@ tools/validate_goldsrc_shader_manifests.py
 docs/BSP_VIEWER_PHASE1.md
 docs/BSP_RESOURCE_FOUNDATION_PHASE2.md
 docs/BSP_TEXTURE_PATH_PHASE3.md
+.gitmodules
+xash/build_engine.sh
+xash/exports/filesystem_stdio.txt
+xash/exports/server.txt
+xash/platform_ps5/boot_ps5.c
+xash/platform_ps5/sys_ps5.c
+xash/tools/generate_static_library_tables.py
+tests/test_generate_static_library_tables.py
+tools/validate_engine_boot_evidence.py
+tests/test_validate_engine_boot_evidence.py
+docs/ENGINE_BOOT_PHASE5.md
