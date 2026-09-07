@@ -36,6 +36,7 @@ the exit the shell accepts without an error dialog.
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
 void Sys_SetupCrashHandler( const char *argv0 );
+void PS5_LogModuleMap( void );
 
 void PS5_SetCwd( const char *dir );
 void PS5_ConsoleFlush( void );
@@ -188,6 +189,7 @@ int main( int argc, char **argv )
 	   EPERM and the title starts with them closed); the console reaches the
 	   transcript through the write() shim in sys_ps5.c instead. */
 	Sys_SetupCrashHandler( "eboot.bin" );
+	PS5_LogModuleMap( );
 	(void)ps5log_line( PS5LOG_INFO, "LOG_SCHEMA=3" );
 	(void)ps5log_line( PS5LOG_INFO, "LOG_TRANSPORT=ps5log/1 tcp structured" );
 	(void)ps5log_hex64( PS5LOG_INFO, "LOG_BOOT_MONOTONIC_NS", boot_token );
@@ -212,9 +214,10 @@ int main( int argc, char **argv )
 	setenv( "XASH3D_BASEDIR", basedir, 1 );
 	PS5_SetCwd( basedir );
 	(void)ps5log_printf( PS5LOG_MARK,
-		"XASH_BOOT schema=1 slice=engine-boot mode=dedicated fw=12.02 "
+		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d "
 		"rodir_present=%d",
+		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
 		PS5_XASH_GATE_SECONDS, stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
@@ -234,6 +237,11 @@ int main( int argc, char **argv )
 	}
 	engine_argv[engine_argc++] = "-game";
 	engine_argv[engine_argc++] = PS5_XASH_GAMEDIR;
+#if PS5_XASH_MODE_CLIENT
+	engine_argv[engine_argc++] = "-ref";
+	engine_argv[engine_argc++] = PS5_XASH_REF;
+	engine_argv[engine_argc++] = "-nosound";
+#endif
 	engine_argv[engine_argc++] = "+map";
 	engine_argv[engine_argc++] = PS5_XASH_BOOT_MAP;
 	engine_argv[engine_argc] = NULL;

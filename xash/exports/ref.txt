@@ -1,0 +1,2 @@
+# renderer entry point looked up by R_LoadProgs
+GetRefAPI

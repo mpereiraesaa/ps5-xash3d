@@ -288,3 +288,8 @@ docs/ENGINE_BOOT_PHASE5.md
 xash/platform_ps5/app-symbols.map
 xash/platform_ps5/fs_ps5.c
 xash/platform_ps5/mem_ps5.c
+xash/exports/client.txt
+xash/exports/menu.txt
+xash/exports/ref.txt
+xash/platform_ps5/vid_ps5.c
+docs/ENGINE_BOOT_PHASE5_GATE2.md

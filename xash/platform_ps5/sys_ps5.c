@@ -280,38 +280,133 @@ then closes telemetry so the transcript ends with a BYE instead of silence.
 */
 extern int main( int argc, char **argv );
 
+extern int sceKernelGetModuleList( int *handles, size_t capacity, size_t *count );
+extern int sceKernelGetModuleInfo( int handle, void *info );
+
+/* Name the loaded module that contains an address and the offset inside it
+   (module info layout measured in the PRX spike: size 0x160, name at +8,
+   segments {addr,size,prot} x4 at +0x108, count at +0x148). */
+static void PS5_DescribeAddress( uintptr_t address, char *out, size_t size )
+{
+	int handles[128];
+	size_t count = 0, i;
+	int rc;
+	out[0] = 0;
+	rc = sceKernelGetModuleList( handles, sizeof( handles ) / sizeof( handles[0] ), &count );
+	if( rc != 0 )
+	{
+		snprintf( out, size, "modulelist_rc=0x%x", (unsigned)rc );
+		return;
+	}
+	if( count > sizeof( handles ) / sizeof( handles[0] ))
+		count = sizeof( handles ) / sizeof( handles[0] );
+	for( i = 0; i < count; i++ )
+	{
+		unsigned char info[0x160];
+		unsigned int segments, s;
+		memset( info, 0, sizeof( info ));
+		*(unsigned long long *)info = sizeof( info );
+		rc = sceKernelGetModuleInfo( handles[i], info );
+		if( rc != 0 )
+		{
+			snprintf( out, size, "moduleinfo_rc=0x%x count=%u", (unsigned)rc, (unsigned)count );
+			return;
+		}
+		segments = *(unsigned int *)( info + 0x148 );
+		for( s = 0; s < segments && s < 4; s++ )
+		{
+			uintptr_t base = *(uintptr_t *)( info + 0x108 + s * 16 );
+			unsigned int len = *(unsigned int *)( info + 0x108 + s * 16 + 8 );
+			if( address >= base && address < base + len )
+			{
+				snprintf( out, size, "%s+0x%lx", (const char *)( info + 8 ), (unsigned long)( address - base ));
+				return;
+			}
+		}
+	}
+}
+
 static void PS5_FatalSignal( int signal, siginfo_t *info, void *context )
 {
 	ucontext_t *uc = (ucontext_t *)context;
 	uintptr_t pc = uc ? (uintptr_t)uc->uc_mcontext.mc_rip : 0;
-	uintptr_t sp = uc ? (uintptr_t)uc->uc_mcontext.mc_rsp : 0;
 	uintptr_t base = (uintptr_t)&main;
-	char trace[512];
+	uintptr_t anchor = 0;
+	uintptr_t sp = uc ? (uintptr_t)uc->uc_mcontext.mc_rsp : 0;
+	uintptr_t here = (uintptr_t)&anchor;
+	/* The kernel does not always populate mc_rsp for a SEGV; fall back to the
+	   handler's own frame, which is on the faulting thread's stack. */
+	uintptr_t *scan = ( sp && sp > here - 0x200000 && sp < here + 0x200000 )
+		? (uintptr_t *)sp : &anchor;
+	/* eboot.bin runtime span (from XASH_MODULES seg0..seg3); return addresses
+	   into it are reported as offsets from main so llvm-symbolizer can resolve
+	   them against build/engine-boot/llvm-pie.elf. */
+	const uintptr_t img_lo = 0x400000, img_hi = 0x2600000;
+	char trace[900], where[160];
 	size_t used = 0;
 	int i, found = 0;
+	PS5_DescribeAddress( pc, where, sizeof( where ));
 	(void)ps5log_printf( PS5LOG_WARN,
-		"XASH_SIGNAL sig=%d code=%d addr=%p pc=%p main=%p pc_minus_main=%ld",
+		"XASH_SIGNAL sig=%d code=%d addr=%p pc=%p in=%s main=%p pc_minus_main=%ld",
 		signal, info ? info->si_code : 0, info ? info->si_addr : NULL,
-		(void *)pc, (void *)base, (long)( pc - base ));
-	/* No frame pointers at -O2: scan the stack for return addresses that
-	   fall inside this executable and report them relative to main(). */
+		(void *)pc, where[0] ? where : "?", (void *)base, (long)( pc - base ));
+	if( uc )
+		(void)ps5log_printf( PS5LOG_WARN,
+			"XASH_SIGNAL_REGS rsp=%p rbp=%p rdi=%p rsi=%p rax=%p rbx=%p handler_stack=%p thread=%p",
+			(void *)uc->uc_mcontext.mc_rsp, (void *)uc->uc_mcontext.mc_rbp, (void *)uc->uc_mcontext.mc_rdi,
+			(void *)uc->uc_mcontext.mc_rsi, (void *)uc->uc_mcontext.mc_rax, (void *)uc->uc_mcontext.mc_rbx,
+			(void *)&anchor, (void *)pthread_self( ));
+	/* No frame pointers at -O2: walk up from the handler's own frame and
+	   report every word that points into this executable, relative to main(). */
 	trace[0] = 0;
-	for( i = 0; sp && i < 512 && found < 16; i++ )
+	for( i = 0; i < 16384 && found < 32; i++ )
 	{
-		uintptr_t word = ((uintptr_t *)sp)[i];
-		long delta = (long)( word - base );
-		if( delta > -0x200000L && delta < 0x400000L )
+		uintptr_t word = scan[i];
+		if( word >= img_lo && word < img_hi )
 		{
-			int n = snprintf( trace + used, sizeof( trace ) - used, "%s%ld", found ? "," : "", delta );
+			int n = snprintf( trace + used, sizeof( trace ) - used, "%s%ld", found ? "," : "", (long)( word - base ));
 			if( n < 0 || (size_t)n >= sizeof( trace ) - used )
 				break;
 			used += (size_t)n;
 			found++;
 		}
 	}
-	(void)ps5log_printf( PS5LOG_WARN, "XASH_SIGNAL_STACK sp=%p words_minus_main=%s", (void *)sp, trace );
+	(void)ps5log_printf( PS5LOG_WARN, "XASH_SIGNAL_STACK words_minus_main=%s", trace );
 	ps5log_close( "xash-engine-boot-crashed" );
 	_exit( 1 );
+}
+
+void PS5_LogModuleMap( void )
+{
+	int handles[128];
+	size_t count = 0, i;
+	int rc = sceKernelGetModuleList( handles, sizeof( handles ) / sizeof( handles[0] ), &count );
+	(void)ps5log_printf( PS5LOG_INFO, "XASH_MODULES rc=0x%x count=%u", (unsigned)rc, (unsigned)count );
+	if( rc != 0 )
+		return;
+	if( count > sizeof( handles ) / sizeof( handles[0] ))
+		count = sizeof( handles ) / sizeof( handles[0] );
+	for( i = 0; i < count; i++ )
+	{
+		unsigned char info[0x160];
+		unsigned int segments, s;
+		char line[300];
+		size_t used;
+		memset( info, 0, sizeof( info ));
+		*(unsigned long long *)info = sizeof( info );
+		rc = sceKernelGetModuleInfo( handles[i], info );
+		if( rc != 0 )
+		{
+			(void)ps5log_printf( PS5LOG_INFO, "XASH_MODULE handle=%d info_rc=0x%x", handles[i], (unsigned)rc );
+			continue;
+		}
+		segments = *(unsigned int *)( info + 0x148 );
+		used = (size_t)snprintf( line, sizeof( line ), "XASH_MODULE handle=%d name=%s", handles[i], (const char *)( info + 8 ));
+		for( s = 0; s < segments && s < 4 && used < sizeof( line ) - 40; s++ )
+			used += (size_t)snprintf( line + used, sizeof( line ) - used, " seg%u=%p+0x%x",
+				s, (void *)*(uintptr_t *)( info + 0x108 + s * 16 ), *(unsigned int *)( info + 0x108 + s * 16 + 8 ));
+		(void)ps5log_line( PS5LOG_INFO, line );
+	}
 }
 
 void Sys_SetupCrashHandler( const char *argv0 )

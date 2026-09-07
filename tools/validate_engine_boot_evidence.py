@@ -77,6 +77,7 @@ def validate(
     engine_commit: str,
     hlsdk_commit: str,
     boot_map: str,
+    mode: str = "dedicated",
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -144,7 +145,7 @@ def validate(
         fail("BYE reason/sequence mismatch")
 
     boot = one(messages, "XASH_BOOT")
-    if boot.get("schema") != "1" or boot.get("slice") != "engine-boot" or boot.get("mode") != "dedicated":
+    if boot.get("schema") != "1" or boot.get("slice") != "engine-boot" or boot.get("mode") != mode:
         fail("engine boot schema/slice/mode mismatch")
     if boot.get("engine") != engine_commit or boot.get("hlsdk") != hlsdk_commit:
         fail("engine/hlsdk commit mismatch")
@@ -171,6 +172,18 @@ def validate(
         "spawn": f"Spawn Server: {boot_map}",
         "bounded_quit": f"PS5_XASH_GATE_TIMEOUT seconds={gate_seconds} action=quit",
     }
+    frames: list[dict[str, str]] = []
+    if mode == "client":
+        ref = boot.get("ref", "")
+        if not ref or ref == "none":
+            fail("client boot names no renderer")
+        proofs["renderer"] = f"Loading renderer: {ref} -> ref_{ref}"
+        proofs["renderer_ready"] = f"Renderer ref_{ref} initialized"
+        frames = [parse_fields(m) for m in messages if m.startswith("XASH_FRAME ")]
+        if not frames:
+            fail("client run presented no frame")
+        if ref == "soft" and not any(f.get("nonzero") == "1" for f in frames):
+            fail("software renderer frames stayed black")
     for name, needle in proofs.items():
         if needle not in console:
             fail(f"console proof missing: {name}")
@@ -185,6 +198,9 @@ def validate(
         "map": boot["map"],
         "basedir": boot["basedir"],
         "gate_seconds": int(gate_seconds, 10),
+        "mode": mode,
+        "frames_presented": int(frames[-1]["presented"], 10) if frames else 0,
+        "last_frame_hash": frames[-1].get("hash") if frames else None,
     }
 
 
@@ -194,6 +210,7 @@ def main() -> int:
     parser.add_argument("--engine-commit", required=True)
     parser.add_argument("--hlsdk-commit", required=True)
     parser.add_argument("--map", default="c1a0")
+    parser.add_argument("--mode", choices=("dedicated", "client"), default="dedicated")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -204,6 +221,7 @@ def main() -> int:
             engine_commit=args.engine_commit,
             hlsdk_commit=args.hlsdk_commit,
             boot_map=args.map,
+            mode=args.mode,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

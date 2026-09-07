@@ -1,0 +1,3 @@
+# mainui entry points looked up by UI_LoadProgs
+GetMenuAPI
+GetExtAPI
