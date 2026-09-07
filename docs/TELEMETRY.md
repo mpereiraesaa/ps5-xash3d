@@ -237,6 +237,24 @@ close with a gap-free `BYE`. Telemetry alone does not accept the gate: the
 operator's auditory confirmation is external evidence tied to the run id,
 because the device cannot assert `audible=true` about itself.
 
+## Phase 5 direct-memory evidence
+
+The allocator gate announces `memory_gate=1` in `XASH_BOOT`.
+`XASH_MEMORY_BEGIN` fixes the root size and allocation surface.
+`XASH_MEMORY_RESOURCE` records kind, bytes, alignment, generation, content hash
+and active ownership for command, buffer, texture and depth spans.
+`XASH_MEMORY_COMPLETE` requires all four to return through exact-token
+retirement, with no live resource, failed guard or allocation failure.
+
+After `Host_Main`, `XASH_MEMORY_SUMMARY` separates live GPU state (which must be
+zero) from CPU objects deliberately owned until process teardown. The latter
+are recorded as `process_lifetime_cpu` and `process_lifetime_bytes`; the counts
+must equal the live CPU totals. `XASH_MEMORY_TEARDOWN` then proves those exact
+objects were reclaimed, the arena became empty, and reserve/allocate/map/
+unmap/release each occurred exactly once with result zero. Acceptance requires
+`memory_pass=1`, the normal engine completion BYE and the matching immutable
+manifest; a successful mapping call or process exit alone is insufficient.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

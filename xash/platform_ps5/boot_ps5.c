@@ -34,6 +34,7 @@ the exit the shell accepts without an error dialog.
 #include "ps5_xash_build.h"
 #include "in_ps5.h"
 #include "audio_ps5.h"
+#include "mem_ps5.h"
 
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
@@ -42,13 +43,11 @@ void PS5_LogModuleMap( void );
 
 void PS5_SetCwd( const char *dir );
 void PS5_ConsoleFlush( void );
-void PS5_MemStats( size_t *bytes, size_t *peak, int *count, int *failures );
-unsigned long long PS5_LibcCalls( void );
-unsigned long long PS5_LibcBytes( void );
 extern void *__real_malloc( size_t size );
 extern void __real_free( void *ptr );
 int PS5_ListingRefusedCount( void );
 int PS5_LoadDirIndex( const char *image_root, const char *index_path );
+void PS5_UnloadDirIndex( void );
 int sceUserServiceInitialize( const void *params );
 int sceUserServiceGetForegroundUser( int32_t *user_id );
 int sceUserServiceTerminate( void );
@@ -264,6 +263,11 @@ int main( int argc, char **argv )
 #if PS5_XASH_AUDIO_GATE
 	int audio_result;
 #endif
+#if PS5_XASH_MEMORY_GATE
+	int memory_gate_result;
+#endif
+	int memory_pass = 1;
+	int memory_shutdown_result;
 	struct stat st;
 	char *engine_argv[16];
 	int engine_argc = 0;
@@ -306,6 +310,24 @@ int main( int argc, char **argv )
 	}
 #endif
 
+#if PS5_XASH_AUDIO_GATE
+	audio_result = PS5_AudioGateRun( ps5_audio_gate_user( ));
+	if( audio_result != 0 )
+	{
+		(void)ps5log_printf( PS5LOG_ERR, "XASH_AUDIO_GATE_FAILED rc=%d", audio_result );
+		ps5log_close( "xash-audio-gate-failed" );
+		_exit( 2 );
+	}
+#endif
+#if PS5_XASH_MEMORY_GATE
+	memory_gate_result = PS5_MemoryGateRun( );
+	if( memory_gate_result != 0 )
+	{
+		(void)ps5log_printf( PS5LOG_ERR,
+			"XASH_MEMORY_GATE_FAILED rc=%d", memory_gate_result );
+		memory_pass = 0;
+	}
+#endif
 	(void)ps5log_printf( PS5LOG_INFO, "XASH_DIRINDEX root=%s entries=%d",
 		PS5_XASH_RODIR, PS5_LoadDirIndex( PS5_XASH_RODIR, PS5_XASH_RODIR "/.dirindex" ));
 	probe_libc_heap( );
@@ -321,27 +343,19 @@ int main( int argc, char **argv )
 		(void)ps5log_line( PS5LOG_WARN, "XASH_BASEDIR_UNAVAILABLE using /app0/xash3d read-only" );
 		basedir = PS5_XASH_RODIR;
 	}
-#if PS5_XASH_AUDIO_GATE
-	audio_result = PS5_AudioGateRun( ps5_audio_gate_user( ));
-	if( audio_result != 0 )
-	{
-		(void)ps5log_printf( PS5LOG_ERR, "XASH_AUDIO_GATE_FAILED rc=%d", audio_result );
-		ps5log_close( "xash-audio-gate-failed" );
-		_exit( 2 );
-	}
-#endif
 
 	setenv( "XASH3D_BASEDIR", basedir, 1 );
 	PS5_SetCwd( basedir );
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
-		"audio_gate=%d "
+		"audio_gate=%d memory_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
 		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE, PS5_XASH_AUDIO_GATE,
+		PS5_XASH_MEMORY_GATE,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
@@ -372,6 +386,7 @@ int main( int argc, char **argv )
 	fflush( stdout );
 	fflush( stderr );
 	PS5_ConsoleFlush( );
+	PS5_UnloadDirIndex( );
 
 #if PS5_XASH_PAD_GATE
 	pad_result = PS5_PadInputShutdown( );
@@ -380,13 +395,67 @@ int main( int argc, char **argv )
 #endif
 
 	{
-		size_t bytes, peak;
-		int count, failures;
-		PS5_MemStats( &bytes, &peak, &count, &failures );
-		(void)ps5log_printf( PS5LOG_MARK, "XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu large_alloc_peak=%zu large_alloc_count=%d large_alloc_failures=%d libc_calls=%llu libc_bytes=%llu pad_gate=%d",
-			result, PS5_ListingRefusedCount( ), bytes, peak, count, failures,
-			PS5_LibcCalls( ), PS5_LibcBytes( ), PS5_XASH_PAD_GATE );
+		Ps5MemoryStats arena = {0};
+		Ps5MemoryRootStats root = {0};
+		PS5_MemStats( &arena, &root );
+		if( PS5_MemValidate( ) != PS5_MEMORY_OK || arena.live_gpu != 0u ||
+			arena.retiring_gpu != 0u || arena.guard_failures != 0u ||
+			arena.stale_errors != 0u || arena.failures != 0u )
+			memory_pass = 0;
+		(void)ps5log_printf( memory_pass ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_MEMORY_SUMMARY schema=1 arena_bytes=%zu live_bytes=%zu "
+			"peak_bytes=%zu alloc_calls=%llu free_calls=%llu realloc_calls=%llu "
+			"live_cpu=%u live_gpu=%u retiring_gpu=%u failures=%llu "
+			"guard_failures=%llu stale_errors=%llu retire_calls=%llu "
+			"reclaim_calls=%llu process_lifetime_cpu=%u "
+			"process_lifetime_bytes=%zu foreign_calls=%llu foreign_bytes=%llu pass=%d",
+			arena.arena_bytes, arena.live_bytes, arena.peak_bytes,
+			(unsigned long long)arena.alloc_calls,
+			(unsigned long long)arena.free_calls,
+			(unsigned long long)arena.realloc_calls, arena.live_cpu,
+			arena.live_gpu, arena.retiring_gpu,
+			(unsigned long long)arena.failures,
+			(unsigned long long)arena.guard_failures,
+			(unsigned long long)arena.stale_errors,
+			(unsigned long long)arena.retire_calls,
+			(unsigned long long)arena.reclaim_calls,
+			arena.live_cpu, arena.live_bytes,
+			(unsigned long long)root.foreign_calls,
+			(unsigned long long)root.foreign_bytes, memory_pass );
+
+		memory_shutdown_result = PS5_MemShutdown( );
+		PS5_MemStats( &arena, &root );
+		if( memory_shutdown_result != PS5_MEMORY_OK || root.mapped ||
+			root.allocated || root.unmap_calls != 1u ||
+			root.release_calls != 1u || root.unmap_rc != 0 ||
+			root.release_rc != 0 )
+			memory_pass = 0;
+		(void)ps5log_printf( memory_pass ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_MEMORY_TEARDOWN schema=1 result=%d reserve_calls=%u "
+			"allocate_calls=%u map_calls=%u unmap_calls=%u release_calls=%u "
+			"reserve_rc=%d allocate_rc=%d map_rc=%d unmap_rc=%d release_rc=%d "
+			"mapped=%u allocated=%u live_bytes=%zu live_cpu=%u live_gpu=%u "
+			"retiring_gpu=%u lifetime_reclaims=%llu lifetime_bytes=%llu "
+			"ownership=exact pass=%d",
+			memory_shutdown_result, root.reserve_calls, root.allocate_calls,
+			root.map_calls, root.unmap_calls, root.release_calls,
+			root.reserve_rc, root.allocate_rc, root.map_rc, root.unmap_rc,
+			root.release_rc, root.mapped, root.allocated, arena.live_bytes,
+			arena.live_cpu, arena.live_gpu, arena.retiring_gpu,
+			(unsigned long long)arena.lifetime_reclaims,
+			(unsigned long long)arena.lifetime_bytes, memory_pass );
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu "
+			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
+			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d",
+			result, PS5_ListingRefusedCount( ), arena.live_bytes,
+			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
+			(unsigned long long)arena.failures,
+			(unsigned long long)root.foreign_calls,
+			(unsigned long long)root.foreign_bytes, PS5_XASH_PAD_GATE,
+			PS5_XASH_MEMORY_GATE, memory_pass );
 	}
-	ps5log_close( "xash-engine-boot-complete" );
-	_exit( 0 );
+	ps5log_close( memory_pass ? "xash-engine-boot-complete" :
+		"xash-memory-gate-failed" );
+	_exit( memory_pass ? 0 : 2 );
 }

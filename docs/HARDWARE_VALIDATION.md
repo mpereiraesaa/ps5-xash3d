@@ -816,6 +816,38 @@ reproduced every counter and both PCM hashes bit for bit and was confirmed
 audible again. A rebuild from the merged tree yields the same ELF and fSELF
 hashes, so the published code is the accepted artifact.
 
+## Phase 5 direct-memory allocator gate
+
+- Run: `20260907T212512180Z_PPSA99996_xash3d-engine_0xc8f58f777975`
+- fSELF SHA-256:
+  `1a77a5abc51a52f2f23d04ef5bed47edf89852e449eaa3a57a06290daa943552`
+- Linked ELF SHA-256:
+  `d396471dc8a18b82574ffdda16a4d123a85931e1d37806d0c78d862fc339e2b1`
+- Transcript SHA-256:
+  `a43462a7e46de35fee6764273ca3e7622375d2e79455aebff93ef3cb6c32166d`
+- Engine/hlsdk commits: `9aa39ad` / `e277ffa`
+- Root: 128 MiB fixed VA, 64 KiB alignment, type `0x0c`, protection
+  `0xf2`, fixed flag `0x10`
+- Root acquisition: reserve / allocate / map = 1 / 1 / 1, all rc 0
+- Representative resources: command 2 MiB, buffer 4 MiB, texture 8 MiB,
+  depth 4 MiB; combined hash `0xc4b367e53de116f7`
+- Resource ownership: four unique generations, 4 retire / 4 reclaim, zero
+  live/retiring GPU resources, guards intact
+- Engine workload: 20,687 allocations, 1,091 reallocations, 35,632,245-byte
+  peak; complete 4,823-entry index and `c1a0` loaded for 30 seconds
+- Allocation / guard / stale / foreign errors: 0 / 0 / 0 / 0
+- Process-lifetime CPU ownership: 8 blocks / 22,565 bytes, exactly reclaimed
+- Root teardown: one unmap and one release, both rc 0; final arena empty
+- Transport: 31 records, no gaps, clean `xash-engine-boot-complete` BYE
+
+The matching validator was invoked with `--memory-gate`. A prior iteration
+proved that successful non-fixed `MapDirectMemory` can return a VA different
+from the reserved one; it was rejected and rolled back. A second iteration
+identified the eight `_exit`-lifetime C++ objects. The accepted implementation
+records and bulk-reclaims that root-owned class only after guards pass and all
+GPU ownership has ended. The gate proves allocator semantics and representative
+resource lifetime; real `ref_agc` binding remains Phase 6.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

@@ -7,6 +7,7 @@ PUBLICATION_ALLOWLIST.txt
 README.md
 dev.conf.example
 docs/SCEAUDIOOUT_PHASE5.md
+docs/DIRECT_MEMORY_PHASE5.md
 include/ps5_agc.h
 include/ps5_agc_driver.h
 include/ps5_agc_registers.h
@@ -223,6 +224,8 @@ tests/test_ps5_gfx1013_descriptor.c
 tests/test_ps5_goldsrc_render_state.c
 tests/test_ps5_viewport_scissor.c
 tests/test_ps5_resource_pool.c
+tests/test_ps5_memory_arena.c
+tests/test_mem_ps5.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_bake_bsp.py
@@ -309,6 +312,10 @@ docs/ENGINE_BOOT_PHASE5.md
 xash/platform_ps5/app-symbols.map
 xash/platform_ps5/fs_ps5.c
 xash/platform_ps5/mem_ps5.c
+xash/platform_ps5/mem_ps5.h
+xash/platform_ps5/memory_arena_ps5.c
+xash/platform_ps5/memory_arena_ps5.h
+xash/platform_ps5/memory_gate_ps5.c
 xash/exports/client.txt
 xash/exports/menu.txt
 xash/exports/ref.txt

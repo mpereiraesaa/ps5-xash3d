@@ -78,6 +78,16 @@ static char *ps5_index_text;
 static ps5_index_entry_t *ps5_index;
 static int ps5_index_count;
 
+void PS5_UnloadDirIndex( void )
+{
+	free( ps5_index );
+	free( ps5_index_text );
+	ps5_index = NULL;
+	ps5_index_text = NULL;
+	ps5_index_count = 0;
+	ps5_image_root[0] = 0;
+}
+
 int PS5_LoadDirIndex( const char *image_root, const char *index_path )
 {
 	struct stat st;
@@ -85,7 +95,9 @@ int PS5_LoadDirIndex( const char *image_root, const char *index_path )
 	char *line, *save;
 	ssize_t got, total = 0;
 
+	PS5_UnloadDirIndex( );
 	strncpy( ps5_image_root, image_root, sizeof( ps5_image_root ) - 1 );
+	ps5_image_root[sizeof( ps5_image_root ) - 1] = 0;
 	fd = sceKernelOpen( index_path, O_RDONLY, 0 );
 	if( fd < 0 )
 		return -1;
@@ -108,7 +120,11 @@ int PS5_LoadDirIndex( const char *image_root, const char *index_path )
 		if( ps5_index_text[i] == '\n' ) count++;
 	ps5_index = calloc( (size_t)count + 1, sizeof( *ps5_index ));
 	if( !ps5_index )
+	{
+		free( ps5_index_text );
+		ps5_index_text = NULL;
 		return -1;
+	}
 	for( line = strtok_r( ps5_index_text, "\n", &save ); line; line = strtok_r( NULL, "\n", &save ))
 	{
 		char *tab = strchr( line, '\t' );
