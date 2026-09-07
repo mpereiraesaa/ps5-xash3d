@@ -15,6 +15,10 @@ def main() -> None:
     studio_metadata = (
         ROOT / "tools/generate_studio_build_metadata.py"
     ).read_text(encoding="utf-8")
+    pad_backend = (
+        ROOT / "xash/platform_ps5/in_ps5.c"
+    ).read_text(encoding="utf-8")
+    engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -33,6 +37,32 @@ def main() -> None:
             raise SystemExit(f"native telemetry/teardown contract missing: {item}")
     if 'LOG_BOOT_MONOTONIC_NS=' in source:
         raise SystemExit("ps5log_hex64 label must not contain its own equals sign")
+    for item in (
+        "sceUserServiceGetForegroundUser(",
+        "scePadRead( pad.stats.pad_handle, samples, PS5_PAD_MAX_SAMPLES )",
+        "PS5_PAD_MAX_SAMPLES 64",
+        "process_neutral( sample->timestamp )",
+        '"XASH_PAD_ACTION schema=1 name=%s state=%s timestamp_us=%llu"',
+        '"XASH_PAD_SUMMARY schema=1 polls=%llu samples=%llu empty_reads=%llu "',
+        '"XASH_PAD_TEARDOWN schema=1 handle=%d close_rc=%d owned_user_service=%d "',
+        '"XASH_PAD_COMPLETE schema=1 movement=%d look=%d jump=%d crouch=%d "',
+        "scePadClose( pad.stats.pad_handle )",
+        "sceUserServiceTerminate( )",
+        "Joy_AxisMotionEvent((engineAxis_t)axis, value )",
+        "Key_Event( xash_button_map[button], down )",
+    ):
+        if item not in pad_backend:
+            raise SystemExit(f"ScePad backend contract missing: {item}")
+    for item in (
+        "XASH_PAD_GATE",
+        "#define PS5_XASH_PAD_GATE $pad_gate",
+        "xash/platform_ps5/in_ps5.c",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"ScePad engine build contract missing: {item}")
+    if "engine-pad-native-release" not in makefile or \
+            "XASH_PAD_GATE=1" not in makefile:
+        raise SystemExit("ScePad release target missing")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

@@ -32,6 +32,7 @@ the exit the shell accepts without an error dialog.
 
 #include "ps5log.h"
 #include "ps5_xash_build.h"
+#include "in_ps5.h"
 
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
@@ -220,6 +221,9 @@ int main( int argc, char **argv )
 	char logpath[300] = "";
 	const uint64_t boot_token = now_ns( );
 	int config_result, log_result, result;
+#if PS5_XASH_PAD_GATE
+	int pad_result;
+#endif
 	struct stat st;
 	char *engine_argv[16];
 	int engine_argc = 0;
@@ -242,6 +246,16 @@ int main( int argc, char **argv )
 	(void)ps5log_hex64( PS5LOG_INFO, "LOG_BOOT_MONOTONIC_NS", boot_token );
 	(void)ps5log_printf( PS5LOG_INFO, "LOG_CONFIG_RESULT=%d LOG_INIT_RESULT=%d path=%s",
 		config_result, log_result, log_path ? log_path : "unavailable" );
+
+#if PS5_XASH_PAD_GATE
+	pad_result = PS5_PadInputInit( );
+	if( pad_result != 0 )
+	{
+		(void)ps5log_printf( PS5LOG_ERR, "XASH_PAD_GATE_ABORT init_rc=%d", pad_result );
+		ps5log_close( "xash-pad-init-failed" );
+		_exit( 2 );
+	}
+#endif
 
 #if PS5_XASH_LIBC_SMOKE
 	if( !probe_optional_libc( ))
@@ -271,12 +285,13 @@ int main( int argc, char **argv )
 	PS5_SetCwd( basedir );
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
-		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d "
+		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
-		PS5_XASH_GATE_SECONDS, stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
+		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE,
+		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
 	/* developer 1 keeps the Con_DPrintf proofs (filesystem load, spawn)
@@ -307,12 +322,19 @@ int main( int argc, char **argv )
 	fflush( stderr );
 	PS5_ConsoleFlush( );
 
+#if PS5_XASH_PAD_GATE
+	pad_result = PS5_PadInputShutdown( );
+	if( pad_result != 0 )
+		(void)ps5log_printf( PS5LOG_ERR, "XASH_PAD_GATE_SHUTDOWN_FAILED rc=%d", pad_result );
+#endif
+
 	{
 		size_t bytes, peak;
 		int count, failures;
 		PS5_MemStats( &bytes, &peak, &count, &failures );
-		(void)ps5log_printf( PS5LOG_MARK, "XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu large_alloc_peak=%zu large_alloc_count=%d large_alloc_failures=%d libc_calls=%llu libc_bytes=%llu",
-			result, PS5_ListingRefusedCount( ), bytes, peak, count, failures, PS5_LibcCalls( ), PS5_LibcBytes( ) );
+		(void)ps5log_printf( PS5LOG_MARK, "XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu large_alloc_peak=%zu large_alloc_count=%d large_alloc_failures=%d libc_calls=%llu libc_bytes=%llu pad_gate=%d",
+			result, PS5_ListingRefusedCount( ), bytes, peak, count, failures,
+			PS5_LibcCalls( ), PS5_LibcBytes( ), PS5_XASH_PAD_GATE );
 	}
 	ps5log_close( "xash-engine-boot-complete" );
 	_exit( 0 );

@@ -193,9 +193,14 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
    unsafe imported libc `strcasestr`; selecting Xash's portable `Q_stristr`
    removes the signal fault. A complete 4,823-entry retail index then resolves
    `delta.lst`, executes `c1a0`, and closes the 90-second gate cleanly.
-2. ScePad input backend (`in_ps5.c`): movement, look, jump, crouch, use and
-   fire, with structured input evidence and clean teardown.
-3. SceAudioOut backend (`s_ps5.c`): ring-buffer ownership, underrun accounting,
+2. **ScePad complete.** `in_ps5.c` reads chronological batches of up to 64
+   records, translates the full standard pad surface into Xash events and
+   closes the movement/look/jump/crouch/use/fire gate. FW 12.02 run
+   `20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e` processed
+   24,535 connected samples, reached a 62-record batch, reported zero read
+   errors and closed both ScePad and its owned UserService exactly. See
+   `SCEPAD_PHASE5.md`.
+3. **Next:** SceAudioOut backend (`s_ps5.c`): ring-buffer ownership, underrun accounting,
    audible output and exact shutdown.
 4. Engine allocator and GPU resources on direct memory, with ownership and
    teardown telemetry.

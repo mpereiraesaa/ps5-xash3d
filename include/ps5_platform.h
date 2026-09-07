@@ -76,14 +76,16 @@ struct ps5_pad_data {
     uint8_t r2;
     uint16_t reserved0;
     float quaternion[4];
-    float velocity[3];
     float acceleration[3];
+    float angular_velocity[3];
     struct ps5_pad_touch_data touch_data;
-    uint8_t connected;
+    int32_t connected;
     uint64_t timestamp;
     uint8_t extension[16];
     uint8_t connected_count;
-    uint8_t reserved1[15];
+    uint8_t reserved1[2];
+    uint8_t device_unique_data_length;
+    uint8_t device_unique_data[12];
 };
 
 int sceKernelReserveVirtualRange(void **address, size_t bytes,
@@ -118,10 +120,13 @@ int sceVideoOutRegisterBuffers2(int32_t handle, int32_t set_index,
 int sceVideoOutUnregisterBuffers(int32_t handle, int32_t set_index);
 
 int sceUserServiceInitialize(const void *params);
+int sceUserServiceGetInitialUser(int32_t *user_id);
 int sceUserServiceGetForegroundUser(int32_t *user_id);
+int sceUserServiceTerminate(void);
 int scePadInit(void);
 int scePadOpen(int32_t user_id, int32_t type, int32_t index,
                const void *params);
+int scePadRead(int32_t handle, struct ps5_pad_data *states, int32_t count);
 int scePadReadState(int32_t handle, struct ps5_pad_data *state);
 int scePadClose(int32_t handle);
 
@@ -157,6 +162,10 @@ PS5_PLATFORM_STATIC_ASSERT(offsetof(struct ps5_pad_data, connected) == 76,
                "pad connected ABI");
 PS5_PLATFORM_STATIC_ASSERT(offsetof(struct ps5_pad_data, timestamp) == 80,
                "pad timestamp ABI");
+PS5_PLATFORM_STATIC_ASSERT(offsetof(struct ps5_pad_data, connected_count) == 104,
+               "pad connection generation ABI");
+PS5_PLATFORM_STATIC_ASSERT(offsetof(struct ps5_pad_data, device_unique_data) == 108,
+               "pad device data ABI");
 PS5_PLATFORM_STATIC_ASSERT(sizeof(struct ps5_pad_data) == 120,
                "pad state ABI");
 

@@ -188,6 +188,22 @@ the inherited pool/ring/lightmap/pipeline/2D completion markers, exact
 fence/VideoOut ownership, intact guards, six reclaimed allocations, zero
 errors and `goldsrc-phase4-final-soak-complete` as the gap-free BYE reason.
 
+## Phase 5 ScePad evidence
+
+The dedicated-engine input gate announces `pad_gate=1` in `XASH_BOOT`, then
+emits `XASH_PAD_INIT` with the selected foreground user, pad handle and
+64-record `scePadRead` policy. `XASH_PAD_GENERATION` records controller
+assignment changes. Transition-only `XASH_PAD_ACTION` rows record active and
+neutral movement/look plus pressed/released jump, crouch, use and fire.
+
+`XASH_PAD_SUMMARY` closes the accounting over polls, records, maximum batch,
+connection/interception state, event totals, action edges and read errors.
+`XASH_PAD_TEARDOWN` proves the handle close and conditional UserService
+termination. `XASH_PAD_COMPLETE` is accepted only when all six gameplay
+actions occurred, reads remained error-free, ownership is exact and
+`pass=1`. The engine must then report a zero result and close with a gap-free
+`BYE`; a timeout, visual movement or process disappearance is not sufficient.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

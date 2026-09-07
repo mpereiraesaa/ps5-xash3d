@@ -32,6 +32,7 @@ docs/GOLDSRC_RENDER_STATES_PHASE4.md
 docs/HARDWARE_VALIDATION.md
 docs/RELEASING.md
 docs/ROADMAP.md
+docs/SCEPAD_PHASE5.md
 docs/TELEMETRY.md
 sce_sys/icon0.png
 sce_sys/param.json
@@ -191,6 +192,7 @@ tests/test_ps5_gpu_span.c
 tests/test_ps5_submission.c
 tests/test_ps5_direct_memory.c
 tests/test_ps5_platform_abi.c
+tests/test_in_ps5.c
 tests/test_ps5log_host.c
 tests/test_ps5_shader_header.c
 tests/test_ps5_shader_pipeline_slot.c
@@ -280,6 +282,8 @@ xash/ps5_import_evidence.json
 xash/exports/filesystem_stdio.txt
 xash/exports/server.txt
 xash/platform_ps5/boot_ps5.c
+xash/platform_ps5/in_ps5.c
+xash/platform_ps5/in_ps5.h
 xash/platform_ps5/sys_ps5.c
 xash/tools/generate_static_library_tables.py
 xash/tools/instrument_fs_trace.py

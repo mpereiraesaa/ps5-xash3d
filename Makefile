@@ -3,8 +3,8 @@ CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
 BUILD := build/host
 STUDIO_SEQUENCE ?= fire
 
-.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \ \
-	engine-boot-native-release
+.PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
+	engine-boot-native-release engine-pad-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -49,6 +49,7 @@ $(eval $(call test_rule,test_ps5_gpu_span,tests/test_ps5_gpu_span.c src/ps5_gpu_
 $(eval $(call test_rule,test_ps5_submission,tests/test_ps5_submission.c src/ps5_submission.c src/ps5_present.c,))
 $(eval $(call test_rule,test_ps5_direct_memory,tests/test_ps5_direct_memory.c src/ps5_direct_memory.c,))
 $(eval $(call test_rule,test_ps5_platform_abi,tests/test_ps5_platform_abi.c,))
+$(eval $(call test_rule,test_in_ps5,tests/test_in_ps5.c xash/platform_ps5/in_ps5.c,-Iinclude -Ixash/platform_ps5 -Inative/ps5log))
 $(eval $(call test_rule,test_ps5log_host,tests/test_ps5log_host.c native/ps5log/ps5log.c,-Inative/ps5log))
 $(eval $(call test_rule,test_ps5_shader_header,tests/test_ps5_shader_header.c src/ps5_shader_header.c,))
 $(eval $(call test_rule,test_ps5_agc_writer,tests/test_ps5_agc_writer.c src/ps5_agc_writer.c src/ps5_gpu_span.c,))
@@ -97,6 +98,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_agc_abi test_ps5_color_target test_ps5_depth_target \
 	test_ps5_pipeline test_ps5_event_adapter test_ps5_gpu_span \
 	test_ps5_submission test_ps5_direct_memory test_ps5_platform_abi \
+	test_in_ps5 \
 	test_ps5log_host test_ps5_shader_header test_ps5_agc_writer \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
 	test_bsp_flat_draw test_bsp_flat_scene test_bsp_noclip test_bsp_runtime_plan \
@@ -255,6 +257,11 @@ native-release:
 # Phase 5 gate 1: Xash3D dedicated engine boot title (no shaders required).
 engine-boot-native-release:
 	bash xash/build_engine.sh
+
+# Phase 5 ScePad gate: the dedicated engine remains the stable host while the
+# platform backend records every canonical Xash action from a physical pad.
+engine-pad-native-release:
+	XASH_PAD_GATE=1 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

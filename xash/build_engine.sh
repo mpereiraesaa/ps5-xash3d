@@ -23,6 +23,8 @@
 #   XASH_FS_TRACE_PATH     exact relative path selected by the trace build
 #   XASH_LIBC_SMOKE        call four optional libc helpers at boot (default 0;
 #                          evidence-only build, never the production default)
+#   XASH_PAD_GATE          exercise the native ScePad backend and quit only
+#                          after all canonical actions pass (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -37,11 +39,13 @@ mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
 libc_smoke=${XASH_LIBC_SMOKE:-0}
+pad_gate=${XASH_PAD_GATE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
 [[ $fs_trace_path =~ ^[A-Za-z0-9_./-]+$ ]] || { echo "XASH_FS_TRACE_PATH contains unsafe characters" >&2; exit 2; }
 [[ $libc_smoke == 0 || $libc_smoke == 1 ]] || { echo "XASH_LIBC_SMOKE must be 0 or 1" >&2; exit 2; }
+[[ $pad_gate == 0 || $pad_gate == 1 ]] || { echo "XASH_PAD_GATE must be 0 or 1" >&2; exit 2; }
 jobs=${XASH_JOBS:-$(nproc)}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 game_data=${XASH_GAME_DATA:-}
@@ -136,6 +140,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)
 #define PS5_XASH_REF "$ref_name"
 #define PS5_XASH_LIBC_SMOKE $libc_smoke
+#define PS5_XASH_PAD_GATE $pad_gate
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -157,6 +162,7 @@ engine_defines=(
     -DXASH_STATIC_LIBS=1 -DXASH_NO_LIBDL=1
     -DXASH_CRASHHANDLER=0 -DXASH_LOW_MEMORY=0 -DENGINE_DLL=1
     -DXASH_PS5=1 -DXASH_TIMER=TIMER_POSIX -DXASH_MESSAGEBOX=99
+	-DPS5_XASH_MODE_CLIENT=$([[ $mode == client ]] && echo 1 || echo 0)
     "-DXASH_GAMEDIR=\"valve\"" "-DXASH_BUILD_COMMIT=\"$engine_commit\""
     "-DXASH_BUILD_BRANCH=\"ps5\"" "-DXASH_BUILD_COMMIT_DATE=\"$engine_date\""
     "-DSTDINT_H=<stdint.h>" "-DALLOCA_H=<stdlib.h>"
@@ -197,7 +203,7 @@ fi
 [[ $fs_trace == 1 ]] && engine_defines+=(-DPS5_XASH_FS_TRACE=1 "-DPS5_XASH_FS_TRACE_PATH=\"$fs_trace_path\"")
 engine_includes_client=("${engine_includes_client[@]:-}")
 engine_includes=(
-    -I"$gen" -I"$root/xash/platform_ps5" -I"$root/native/ps5log"
+    -I"$gen" -I"$root/include" -I"$root/xash/platform_ps5" -I"$root/native/ps5log"
     -I"$xash/3rdparty/library_suffix/include"
     -I"$xash/engine" -I"$xash/engine/common" -I"$xash/engine/common/imagelib"
     -I"$xash/engine/common/soundlib" -I"$xash/engine/server"
@@ -261,6 +267,7 @@ engine_sources=$(
     echo "$root/xash/platform_ps5/sys_ps5.c"
     echo "$root/xash/platform_ps5/fs_ps5.c"
     echo "$root/xash/platform_ps5/mem_ps5.c"
+	echo "$root/xash/platform_ps5/in_ps5.c"
     if [[ $mode == client ]]; then
         find "$xash/engine/client" -name '*.c'
         echo "$xash/engine/platform/stub/s_stub.c"
@@ -552,4 +559,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate"

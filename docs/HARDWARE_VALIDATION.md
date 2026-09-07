@@ -751,6 +751,31 @@ evidence.
 This shorter run first established the corrected opening contract. It is
 retained as regression history; the later strict 10,000-frame run supersedes it.
 
+## Phase 5 ScePad gate
+
+- Run: `20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e`
+- fSELF SHA-256:
+  `6681a8a822edf1114a5e9f32d01286b90442430a35a180295909d3ab8ca15d82`
+- Linked ELF SHA-256:
+  `46da56f13a7d17f0b7d2323e2cc5d0fa16cb0d40997c25f9e5c73e527a15500a`
+- Transcript SHA-256:
+  `6dd2db62d23b2aa33f0387bacf2c4b534e4e64317562c4489b5bb3a2b21d20da`
+- Engine/hlsdk commits: `9aa39ad` / `e277ffa`
+- Polls / chronological samples / maximum batch: 4,361 / 24,535 / 62
+- Connected / disconnected / intercepted: 24,535 / 0 / 0
+- Movement / look samples: 1,286 / 1,258
+- Jump / crouch / use / fire edges: 1/1, 2/2, 2/2, 1/1
+- Read errors: 0
+- Pad close / owned UserService terminate: 0 / 0
+- Completion: all six actions true, `ownership=exact`, `errors=0`, `pass=1`
+- Transport: clean, gap-free BYE at sequence 58
+
+This run proves the dedicated Phase 5 ScePad backend on FW 12.02. It processed
+every record from each oldest-first batch rather than collapsing to the newest
+state, neutralized controller-generation state and closed the pad plus the
+UserService ownership it acquired. The matching validator was invoked with
+`--pad-gate`; the full contract and mapping are in `SCEPAD_PHASE5.md`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until
