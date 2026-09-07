@@ -86,6 +86,15 @@ into the engine boot title as the statically linked `server` module for
 development on hardware; no game assets, maps or WAD files are part of this
 repository or of any published artifact.
 
+## PS5 native gamepad input research
+
+The independently authored ScePad contract in `xash/platform_ps5/in_ps5.c`
+was derived from
+[blackbearreloaded/ps5-native-gamepad-input-research](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research)
+at commit `16e9b953b26a7102bc801a380f08fbf00060d84b`, GPL-3.0. The port contains
+its own C adapter and project-owned compatibility declarations; it does not
+vendor the research project or any proprietary SDK header.
+
 ## Research boundary
 
 No proprietary Sony SDK file, game asset, shader, module, dump or command

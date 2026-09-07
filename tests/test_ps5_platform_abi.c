@@ -13,5 +13,8 @@ int main(void)
     assert(offsetof(struct ps5_pad_data, l2) == 8u);
     assert(offsetof(struct ps5_pad_data, connected) == 76u);
     assert(offsetof(struct ps5_pad_data, timestamp) == 80u);
+    assert(offsetof(struct ps5_pad_data, connected_count) == 104u);
+    assert(offsetof(struct ps5_pad_data, device_unique_data_length) == 107u);
+    assert(offsetof(struct ps5_pad_data, device_unique_data) == 108u);
     return 0;
 }

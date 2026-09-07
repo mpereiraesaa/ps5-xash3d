@@ -78,6 +78,7 @@ def validate(
     hlsdk_commit: str,
     boot_map: str,
     mode: str = "dedicated",
+    pad_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -158,6 +159,8 @@ def validate(
     gate_seconds = boot.get("gate_seconds")
     if gate_seconds is None or int(gate_seconds, 10) <= 0:
         fail("boot gate is not bounded")
+    if pad_gate and boot.get("pad_gate") != "1":
+        fail("ScePad gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -170,7 +173,8 @@ def validate(
     proofs = {
         "filesystem": "filesystem_stdio successfully loaded",
         "spawn": f"Spawn Server: {boot_map}",
-        "bounded_quit": f"PS5_XASH_GATE_TIMEOUT seconds={gate_seconds} action=quit",
+        "bounded_quit": "XASH_PAD_GATE_PASS action=quit" if pad_gate
+        else f"PS5_XASH_GATE_TIMEOUT seconds={gate_seconds} action=quit",
     }
     frames: list[dict[str, str]] = []
     if mode == "client":
@@ -188,6 +192,65 @@ def validate(
         if needle not in console:
             fail(f"console proof missing: {name}")
 
+    pad_summary: dict[str, str] | None = None
+    if pad_gate:
+        pad_init = one(messages, "XASH_PAD_INIT")
+        pad_summary = one(messages, "XASH_PAD_SUMMARY")
+        teardown = one(messages, "XASH_PAD_TEARDOWN")
+        complete = one(messages, "XASH_PAD_COMPLETE")
+        if pad_init.get("schema") != "1" or pad_init.get("read") != "scePadRead" \
+                or pad_init.get("batch") != "64":
+            fail("ScePad initialization contract mismatch")
+        if int(pad_init.get("handle", "-1"), 10) < 0:
+            fail("ScePad handle was not opened")
+        if pad_init.get("pad_init_rc") != "0":
+            fail("scePadInit did not succeed")
+        for field in ("polls", "samples", "connected", "movement", "look"):
+            if int(pad_summary.get(field, "0"), 10) <= 0:
+                fail(f"ScePad summary lacks {field} evidence")
+        maximum = int(pad_summary.get("max_batch", "0"), 10)
+        if not 1 <= maximum <= 64:
+            fail("ScePad batch size is outside the 1-64 contract")
+        if pad_summary.get("read_errors") != "0":
+            fail("ScePad run contains read errors")
+        for action in ("jump", "crouch", "use", "fire"):
+            try:
+                presses, releases = (int(value, 10) for value in
+                                     pad_summary.get(action, "0/0").split("/", 1))
+            except ValueError as exc:
+                fail(f"malformed {action} edge counters")
+            if presses <= 0 or releases <= 0:
+                fail(f"ScePad run lacks {action} press/release evidence")
+        required_states = {
+            "movement": {"active", "neutral"},
+            "look": {"active", "neutral"},
+            "jump": {"pressed", "released"},
+            "crouch": {"pressed", "released"},
+            "use": {"pressed", "released"},
+            "fire": {"pressed", "released"},
+        }
+        observed: dict[str, set[str]] = {name: set() for name in required_states}
+        for message in messages:
+            if not message.startswith("XASH_PAD_ACTION "):
+                continue
+            action = parse_fields(message)
+            name, state = action.get("name"), action.get("state")
+            if name in observed and state is not None:
+                observed[name].add(state)
+        for action, states in required_states.items():
+            if not states.issubset(observed[action]):
+                fail(f"ScePad action transcript lacks {action} states")
+        if teardown.get("schema") != "1" or teardown.get("close_rc") != "0" \
+                or teardown.get("result") != "0":
+            fail("ScePad handle teardown was not clean")
+        if teardown.get("owned_user_service") == "1" and teardown.get("terminate_rc") != "0":
+            fail("owned UserService was not terminated cleanly")
+        required_complete = ("movement", "look", "jump", "crouch", "use", "fire", "pass")
+        if complete.get("schema") != "1" or any(complete.get(field) != "1" for field in required_complete):
+            fail("ScePad completion marker is incomplete")
+        if complete.get("ownership") != "exact" or complete.get("errors") != "0":
+            fail("ScePad completion ownership/error contract failed")
+
     return {
         "run_id": manifest.get("run_id"),
         "records": len(records),
@@ -201,6 +264,9 @@ def validate(
         "mode": mode,
         "frames_presented": int(frames[-1]["presented"], 10) if frames else 0,
         "last_frame_hash": frames[-1].get("hash") if frames else None,
+        "pad_gate": pad_gate,
+        "pad_samples": int(pad_summary["samples"], 10) if pad_summary else 0,
+        "pad_max_batch": int(pad_summary["max_batch"], 10) if pad_summary else 0,
     }
 
 
@@ -211,6 +277,7 @@ def main() -> int:
     parser.add_argument("--hlsdk-commit", required=True)
     parser.add_argument("--map", default="c1a0")
     parser.add_argument("--mode", choices=("dedicated", "client"), default="dedicated")
+    parser.add_argument("--pad-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -222,6 +289,7 @@ def main() -> int:
             hlsdk_commit=args.hlsdk_commit,
             boot_map=args.map,
             mode=args.mode,
+            pad_gate=args.pad_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

@@ -137,5 +137,11 @@
   eight post-retirement readbacks and a clean 10,000-frame FW 12.02 gate.
 - [x] Pass the complete integrated Phase 4 visual and continuous ownership
   soak with zero errors.
+- [x] Boot the dedicated Xash3D engine with the static filesystem/server
+  modules, resolve the complete 4,823-entry asset tree and load `c1a0` cleanly.
+- [x] Add the native ScePad backend and pass movement, look, jump, crouch, use
+  and fire on FW 12.02 with chronological batch reads and exact teardown.
+- [ ] Add SceAudioOut with an owned ring buffer, underrun accounting, audible
+  proof and exact shutdown.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

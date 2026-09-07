@@ -26,6 +26,7 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include "common.h"
 #include "ps5log.h"
 #include "ps5_xash_build.h"
+#include "in_ps5.h"
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -481,7 +482,6 @@ the quit; worker threads that read the clock are ignored.
 */
 static void PS5_GateTick( double now )
 {
-#if PS5_XASH_GATE_SECONDS > 0
 	static double started;
 	static pthread_t owner;
 	static qboolean quit_queued;
@@ -496,6 +496,19 @@ static void PS5_GateTick( double now )
 	}
 	if( !pthread_equal( owner, pthread_self( )))
 		return;
+
+#if PS5_XASH_PAD_GATE
+	(void)PS5_PadInputPoll( );
+	if( PS5_PadInputGatePassed( ))
+	{
+		quit_queued = true;
+		Con_Printf( "XASH_PAD_GATE_PASS action=quit\n" );
+		Cbuf_AddText( "quit\n" );
+		return;
+	}
+#endif
+
+#if PS5_XASH_GATE_SECONDS > 0
 	if( now - started < (double)PS5_XASH_GATE_SECONDS )
 		return;
 
