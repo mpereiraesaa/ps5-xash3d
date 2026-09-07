@@ -52,7 +52,7 @@ backend; none was documented by the foundation.
 
 | Call | Result | Backend response |
 | --- | --- | --- |
-| Descriptors 0-2 at start | Closed; `dup2` onto them fails with `EPERM` | stdio is never redirected; console goes through a `write()` shim |
+| Descriptors 0-2 at start | Closed; `dup2` onto them fails with `EPERM`. Descriptor duplication is unavailable in general: BlackBear's [ps5-python limitations](https://github.com/blackbearreloaded/ps5-python/blob/main/docs/ps5-limitations.md) report `dup()`/`dup2()` as `ENOTSUP` | stdio is never redirected; console goes through a `write()` shim |
 | `getcwd()` (libSceLibcInternal) | `SIGSEGV` inside the library | `getcwd`/`chdir`/`realpath` shims keep a virtual working directory |
 | `chdir()` | `EPERM` for every path, `/app0` included | `filesystem_stdio` addresses its root as `./`; the path layer resolves relative paths against the virtual cwd and forwards to `sceKernel*` |
 | `access()` | `EPERM` on `/download0` while `open`/`write` succeed | `access` shim answers with `stat` |
@@ -64,6 +64,25 @@ backend; none was documented by the foundation.
 | `ioctl(FIONBIO)` and `fcntl(F_SETFL)` on the UDP socket | `EPERM`/`EACCES` | `recvfrom` shim polls with zero timeout for descriptors that could not go non-blocking |
 | `getaddrinfo`/`gethostname` | Would import `libScePosixForWebKit`; a NULL fault was traced to that path | Local shims: numeric IPv4 resolves, names fail cleanly |
 | `sockets`, `bind`, `sendto`, `poll`, `pthread_create`, `clock_gettime` | Work | Used unchanged |
+
+The same ps5-python document lists constraints this gate did not exercise
+but the port must respect:
+
+- **No process execution.** `execve()` cannot launch filesystem ELFs, so the
+  engine's `Sys_NewInstance` (`-game` switch through `execv`) can never work
+  on PS5. `Sys_CanRestart` already returns false here because `whereami`
+  finds no executable path, so the engine never attempts it; game switching
+  must stay in-process, the way the Vita port does with `sceAppMgrLoadExec`.
+- **No file-backed `mmap`** (`ENOTSUP`) and **no POSIX named semaphores.**
+  The engine, `filesystem_stdio` and the server use neither: allocations go
+  through anonymous `mmap`, file I/O through `read`/`write`, threads through
+  pthread mutexes and condition variables.
+- **IPv6 through the SDK `getaddrinfo` is not usable.** The local resolver
+  handles numeric IPv4 only; the engine's IPv6 socket setup is expected to
+  fail and does not block the dedicated server.
+- **No arbitrary `dlopen` of `.so`/`.sprx`.** Consistent with the PRX spike:
+  application modules load only through `sceKernelLoadStartModule` and their
+  own export descriptor.
 
 ## Boot contract
 
