@@ -64,6 +64,11 @@ make bsp-texture-final-native-release BSP_INPUT=/private/path/map.bsp \
 make bsp-phase4-lighting-native-release BSP_INPUT=/private/path/map.bsp \
   PS5LOG_DEV_CONF=/private/path/dev.conf \
   AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
+
+make bsp-phase4-sprite-particles-native-release \
+  BSP_INPUT=/private/path/map.bsp \
+  PS5LOG_DEV_CONF=/private/path/dev.conf \
+  AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf
 ```
 
 `.bsp`, `.wad` and `.ps5bsp` files are ignored and never release inputs. The

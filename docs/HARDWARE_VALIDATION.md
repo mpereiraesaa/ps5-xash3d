@@ -188,6 +188,41 @@ closed after capture; no pairing, client-window control or focus assumption
 was involved. This closes Phase 4 lighting only. Sprites/particles, studio
 models, brush entities and visibility remain open.
 
+## Phase 4 transient sprite/particle gate
+
+The next artifact added a 64×32 procedural RGBA8 atlas plus camera-facing
+transient geometry: one sprite quad, 24 source-alpha smoke quads and 48
+additive spark quads. Four deterministic modes isolated control, sprite,
+particles and their combined image:
+
+- Run: `20260906T235831459Z_PPSA99996_ps5-xash3d_0x82bf1cd8fb89`
+- Native ELF SHA-256:
+  `b88df7b004495d828db7a594d1579a56fe4925578d384bef01b95b8ae5d63778`
+- Signed fSELF SHA-256:
+  `33e804f669a7acdddaf8a38a6a3f51ee6b0ae2d946bd0fc97a347596d33dcf2a`
+- Private bundle SHA-256/bytes:
+  `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105` /
+  9,573,888
+- Transcript/manifest SHA-256:
+  `e6d77a34f5276f59c12ac987f67a7720394b88c2788ee06e72f9f6ec8b9d4a05` /
+  `6df527c58ea91bd060f3c570eda910d383b40a2018b5cb17751d128256a35899`
+- Requested/completed: 10,000/10,000; structured records: 284
+- Draw/index modes: 0/0, 1/6, 2/432 and 3/438
+- Transient effect allocation: 18,772 bytes per framebuffer slot and frame
+- Readbacks: four modes × two slots after fence zero and exact VideoOut token;
+  all feature/control and combined/isolated comparisons were distinct
+- Renderer errors: 0; guards intact; six allocations reclaimed; gap-free BYE
+- Closure: the isolated Chiaki PID and exact `PPSA99996` title were closed;
+  no BigApp remained and all four console services were healthy
+
+The accepted compositor-visible sprite, particles and combined captures have
+SHA-256 values `da592df0f150849fe1008ab57115e0ff14c6d742e1a9fe06b09f06b73a2cb980`,
+`d11be0a14328f34714aa380a112926a6e4b362a18992d38712aa5edda5155b75`
+and `7034111a275c25f02e78e089ca4f4aa6c0853fa121b9281e6b3e19cc979ff730`.
+The registered Chiaki entry was reused without pairing or opening its main
+client. This closes Phase 4 sprites/particles only; studio models, brush
+entities and PVS/frustum culling remain open. `PPSA99998` remains absent.
+
 ## Phase 3 final 60,000-frame gate
 
 The complete ordered texture path passed its final structured soak on FW 12.02:

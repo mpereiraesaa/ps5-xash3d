@@ -181,5 +181,37 @@ by exact isolated PID. Exact-title closure then left no BigApp, all four
 services healthy and only `PPSA99996`, `PPSA99997` and `PPSA99999` in the
 local homebrew title range; `PPSA99998` remains absent.
 
-This closes implementation gates 1–4, not Phase 4. Sprites/particles, studio
-models, brush entities and PVS/frustum culling remain open.
+The sprite/particle gate is now closed too. `goldsrc_sprite_particles` creates
+a deterministic 64×32 RGBA8 atlas and one camera-facing sprite, 24 translucent
+smoke particles and 48 additive spark particles. Its constants, descriptors,
+292 vertices and 438 indices are rebuilt inside the current framebuffer slot
+of the existing transient ring. The semantic cache selects 3D alpha key 1 and
+additive key 2 with depth writes, culling, fog and lightmaps disabled. Four
+600-frame modes isolate control, sprite, particles and their combined result.
+
+Run `20260906T235831459Z_PPSA99996_ps5-xash3d_0x82bf1cd8fb89` completed
+10,000/10,000 frames on FW 12.02. It issued 0/1/2/3 effect draws and
+0/6/432/438 indices for those modes, kept effect allocations at 18,772 bytes
+per frame and captured exactly eight post-retirement framebuffer readbacks.
+Every feature hash differed from its same-slot control, and combined differed
+from both isolated features. Exact artifacts:
+
+- native ELF: `b88df7b004495d828db7a594d1579a56fe4925578d384bef01b95b8ae5d63778`;
+- signed fSELF: `33e804f669a7acdddaf8a38a6a3f51ee6b0ae2d946bd0fc97a347596d33dcf2a`;
+- private bundle: `0e6396cf2dbec287c4e2bc28f90a90e8f5cb26b98f43ebcd539dba7d9c171105`
+  (9,573,888 bytes);
+- transcript/manifest: `e6d77a34f5276f59c12ac987f67a7720394b88c2788ee06e72f9f6ec8b9d4a05` /
+  `6df527c58ea91bd060f3c570eda910d383b40a2018b5cb17751d128256a35899`.
+
+Three compositor-visible CLI-stream captures isolate sprite, particles and
+combined modes. Their SHA-256 values are
+`da592df0f150849fe1008ab57115e0ff14c6d742e1a9fe06b09f06b73a2cb980`,
+`d11be0a14328f34714aa380a112926a6e4b362a18992d38712aa5edda5155b75`
+and `7034111a275c25f02e78e089ca4f4aa6c0853fa121b9281e6b3e19cc979ff730`.
+The 284 records were gap-free, renderer errors stayed at zero, guards remained
+intact and six allocations were reclaimed. Chiaki's registered entry was
+reused through the isolated CLI process and closed by exact PID; exact-title
+closure left no BigApp and all four services healthy.
+
+This closes implementation gates 1–5, not Phase 4. Studio models, brush
+entities and PVS/frustum culling remain open. `PPSA99998` remains absent.

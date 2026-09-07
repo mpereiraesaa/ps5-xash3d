@@ -124,7 +124,11 @@
 - [x] Add real BSP lightstyle planes and face-local dynamic lights through the
   bounded Phase 3 atlas uploader; pass their four-mode, eight-readback
   10,000-frame FW 12.02 hardware gate.
-- [ ] Add transient sprites/particles, studio models and brush entities.
+- [x] Add camera-facing sprites plus alpha/additive particle batches from the
+  existing per-slot transient ring; pass four modes, eight post-retirement
+  readbacks and a clean 10,000-frame FW 12.02 hardware gate.
+- [ ] Add animated studio models with CPU skinning, per-model textures, chrome
+  and additive modes, then add independently transformed brush entities.
 - [ ] Add PVS plus frustum culling and pass the complete Phase 4 visual and
   continuous ownership soak with zero errors.
 - [x] Require pull requests on `main`; require the host CI check after this PR
