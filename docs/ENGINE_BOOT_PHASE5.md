@@ -200,9 +200,13 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
    24,535 connected samples, reached a 62-record batch, reported zero read
    errors and closed both ScePad and its owned UserService exactly. See
    `SCEPAD_PHASE5.md`.
-3. **Next:** SceAudioOut backend (`s_ps5.c`): ring-buffer ownership, underrun accounting,
-   audible output and exact shutdown.
-4. Engine allocator and GPU resources on direct memory, with ownership and
+3. **SceAudioOut complete.** The native PCM core and `s_ps5.c` binding own the
+   producer/consumer ring, continuous 147/160 resampling and worker-only port
+   lifetime. FW 12.02 run
+   `20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6` sent 282 whole
+   grains with matching PCM hashes, zero underruns and exact shutdown. See
+   `SCEAUDIOOUT_PHASE5.md`.
+4. **Next:** Engine allocator and GPU resources on direct memory, with ownership and
    teardown telemetry.
 5. pthreads, monotonic time and measured sleep granularity.
 6. Frametime instrumentation using GPU timestamps and VideoOut flip status.
