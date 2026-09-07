@@ -38,5 +38,8 @@
         __wrap_free;
         __wrap_realloc;
         __wrap_calloc;
+        __wrap_memalign;
+        __wrap_aligned_alloc;
+        __wrap_posix_memalign;
         PS5_*;
 };

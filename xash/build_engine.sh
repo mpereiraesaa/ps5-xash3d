@@ -34,6 +34,8 @@
 #                          minimal ABI smoke run (default 0 = full sequence)
 #   XASH_AUDIO             link the SNDDMA binding instead of s_stub.c in client
 #                          mode (compile/link proof only, default 0)
+#   XASH_MEMORY_GATE       exercise the direct-memory engine arena and the
+#                          generation-tagged GPU resource contract (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -53,6 +55,7 @@ audio_gate=${XASH_AUDIO_GATE:-0}
 audio_user=${XASH_AUDIO_USER:-system}
 audio_gate_frames=${XASH_AUDIO_GATE_FRAMES:-0}
 audio=${XASH_AUDIO:-0}
+memory_gate=${XASH_MEMORY_GATE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -61,6 +64,7 @@ ref_name=${XASH_REF:-soft}
 [[ $pad_gate == 0 || $pad_gate == 1 ]] || { echo "XASH_PAD_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio_gate == 0 || $audio_gate == 1 ]] || { echo "XASH_AUDIO_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio == 0 || $audio == 1 ]] || { echo "XASH_AUDIO must be 0 or 1" >&2; exit 2; }
+[[ $memory_gate == 0 || $memory_gate == 1 ]] || { echo "XASH_MEMORY_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -173,6 +177,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_AUDIO_USER_FOREGROUND $([[ $audio_user == foreground ]] && echo 1 || echo 0)
 #define PS5_XASH_AUDIO "$audio_user"
 #define PS5_XASH_AUDIO_GATE_FRAMES $audio_gate_frames
+#define PS5_XASH_MEMORY_GATE $memory_gate
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -302,6 +307,7 @@ engine_sources=$(
     echo "$root/xash/platform_ps5/sys_ps5.c"
     echo "$root/xash/platform_ps5/fs_ps5.c"
     echo "$root/xash/platform_ps5/mem_ps5.c"
+	echo "$root/xash/platform_ps5/memory_arena_ps5.c"
 	echo "$root/xash/platform_ps5/in_ps5.c"
     if [[ $audio_gate == 1 || $audio == 1 ]]; then
         echo "$root/xash/platform_ps5/audio_ps5.c"
@@ -309,6 +315,9 @@ engine_sources=$(
     fi
     if [[ $audio_gate == 1 ]]; then
         echo "$root/xash/platform_ps5/audio_gate_ps5.c"
+    fi
+    if [[ $memory_gate == 1 ]]; then
+        echo "$root/xash/platform_ps5/memory_gate_ps5.c"
     fi
     if [[ $mode == client ]]; then
         find "$xash/engine/client" -name '*.c'
@@ -533,11 +542,16 @@ echo "== link"
 "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti \
     -ffunction-sections -fdata-sections -c "$native/app_crt.cpp" \
     -o "$build/obj/app_crt.o"
-# Route the engine's large allocations to anonymous memory (xash/platform_ps5/mem_ps5.c).
+"${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti \
+    -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+    -o "$build/obj/app_cpp_runtime.o"
+# Route every statically linked engine allocation through the direct-memory arena.
 "$lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
     --wrap=malloc --wrap=free --wrap=realloc --wrap=calloc \
+    --wrap=memalign --wrap=aligned_alloc --wrap=posix_memalign \
     --version-script "$root/xash/platform_ps5/app-symbols.map" -e _start \
-    -o "$build/llvm-pie.elf" "$build/obj/app_crt.o" "${engine_objects[@]}" \
+    -o "$build/llvm-pie.elf" "$build/obj/app_crt.o" \
+    "$build/obj/app_cpp_runtime.o" "${engine_objects[@]}" \
     "${module_objects[@]}" \
     --as-needed "$sdk"/target/lib/*.so
 "$readelf" --dyn-syms "$build/llvm-pie.elf" > "$build/dynamic-symbols.txt"
@@ -545,6 +559,19 @@ if grep -qw strcasestr "$build/dynamic-symbols.txt"; then
     echo "PS5 engine must use Xash's Q_stristr fallback, not libc strcasestr" >&2
     exit 1
 fi
+for symbol in sceKernelReserveVirtualRange sceKernelAllocateMainDirectMemory \
+    sceKernelMapDirectMemory sceKernelMunmap sceKernelReleaseDirectMemory; do
+    if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+        echo "the direct-memory engine build did not retain $symbol" >&2
+        exit 1
+    fi
+done
+for symbol in _Znwm _Znam _ZdlPv _ZdaPv; do
+    if grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+        echo "C++ allocation operator escaped the direct-memory adapter: $symbol" >&2
+        exit 1
+    fi
+done
 if [[ $audio_gate == 1 || $audio == 1 ]]; then
     for symbol in sceAudioOutInit sceAudioOutOpen sceAudioOutSetVolume \
         sceAudioOutOutput sceAudioOutClose; do
@@ -569,6 +596,16 @@ if [[ $audio_gate == 1 ]]; then
         XASH_AUDIO_TEARDOWN XASH_AUDIO_COMPLETE; do
         if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
             echo "XASH_AUDIO_GATE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+fi
+if [[ $memory_gate == 1 ]]; then
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_MEMORY_BEGIN XASH_MEMORY_RESOURCE \
+        XASH_MEMORY_COMPLETE XASH_MEMORY_SUMMARY XASH_MEMORY_TEARDOWN; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_MEMORY_GATE=1 did not retain marker $marker" >&2
             exit 1
         fi
     done
@@ -633,4 +670,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate"

@@ -22,6 +22,7 @@ PATTERN_HASH = "0x9fd6b8c32bb54595"
 def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   mode: str = "dedicated", nonzero: int = 1,
                   pad_gate: bool = False, audio_gate: bool = False,
+                  memory_gate: bool = False, memory_failures: int = 0,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -32,7 +33,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
         ("MARK", f"XASH_BOOT schema=1 slice=engine-boot mode={mode} ref={ref} fw=12.02 "
                  f"engine={ENGINE} hlsdk={HLSDK} rodir=/app0/xash3d basedir=/download0/xash3d "
                  f"gamedir=valve map=c1a0 gate_seconds=90 pad_gate={int(pad_gate)} "
-                 f"audio_gate={int(audio_gate)} rodir_present=1"),
+                 f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} rodir_present=1"),
     ]
     if mode == "client":
         structured.append(("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
@@ -99,7 +100,39 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                      "output_hash=0x1122334455667788 input_rate=44100 output_rate=48000 "
                      "ratio=147/160 ownership=exact pass=1"),
         ]
-    structured.append(("MARK", f"XASH_EXIT result={exit_result}"))
+    if memory_gate:
+        structured += [
+            ("MARK", "XASH_MEMORY_BEGIN schema=1 arena=direct root_mib=128 "
+                     "cpu=malloc+calloc+realloc+free gpu=command+buffer+texture+depth"),
+            ("MARK", "XASH_MEMORY_RESOURCE kind=command bytes=2097152 alignment=256 "
+                     "generation=4 hash=1111111111111111 owner=gpu-active"),
+            ("MARK", "XASH_MEMORY_RESOURCE kind=buffer bytes=4194304 alignment=65536 "
+                     "generation=5 hash=2222222222222222 owner=gpu-active"),
+            ("MARK", "XASH_MEMORY_RESOURCE kind=texture bytes=8388608 alignment=65536 "
+                     "generation=6 hash=3333333333333333 owner=gpu-active"),
+            ("MARK", "XASH_MEMORY_RESOURCE kind=depth bytes=4194304 alignment=65536 "
+                     "generation=7 hash=4444444444444444 owner=gpu-active"),
+            ("MARK", "XASH_MEMORY_COMPLETE schema=1 result=0 resources=4 "
+                     "resource_bytes=18874368 hash=5555555555555555 "
+                     "retire_token=5048354d454d0001 completion=synthetic-contract "
+                     "live_bytes=0 live_cpu=0 live_gpu=0 retiring_gpu=0 "
+                     "peak_bytes=19927040 guards=intact alloc_failures=0 "
+                     "root_calls=1/1/1 pass=1"),
+            ("MARK", f"XASH_MEMORY_SUMMARY schema=1 arena_bytes=134217728 "
+                     "live_bytes=22565 peak_bytes=19927040 alloc_calls=100 free_calls=88 "
+                     f"realloc_calls=2 live_cpu=8 live_gpu=0 retiring_gpu=0 failures={memory_failures} "
+                     "guard_failures=0 stale_errors=0 retire_calls=4 reclaim_calls=4 "
+                     "process_lifetime_cpu=8 process_lifetime_bytes=22565 "
+                     "foreign_calls=0 foreign_bytes=0 pass=1"),
+            ("MARK", "XASH_MEMORY_TEARDOWN schema=1 result=0 reserve_calls=1 "
+                     "allocate_calls=1 map_calls=1 unmap_calls=1 release_calls=1 "
+                     "reserve_rc=0 allocate_rc=0 map_rc=0 unmap_rc=0 release_rc=0 "
+                     "mapped=0 allocated=0 live_bytes=0 live_cpu=0 live_gpu=0 "
+                     "retiring_gpu=0 lifetime_reclaims=8 lifetime_bytes=22565 "
+                     "ownership=exact pass=1"),
+        ]
+    structured.append(("MARK", f"XASH_EXIT result={exit_result} "
+                               f"memory_gate={int(memory_gate)} memory_pass=1"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -145,7 +178,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
 
 def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   pad_gate: bool = False,
-                  audio_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  audio_gate: bool = False,
+                  memory_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -153,6 +187,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--pad-gate")
     if audio_gate:
         command.append("--audio-gate")
+    if memory_gate:
+        command.append("--memory-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -202,6 +238,20 @@ def main() -> int:
 
         missing_audio = run_validator(make_evidence(directory), audio_gate=True)
         assert missing_audio.returncode != 0 and "not enabled" in missing_audio.stderr
+
+        memory = run_validator(make_evidence(directory, memory_gate=True),
+                               memory_gate=True)
+        assert memory.returncode == 0, memory.stderr
+        memory_summary = json.loads(memory.stdout)
+        assert memory_summary["memory_gate"]
+        assert memory_summary["memory_peak_bytes"] == 19927040
+        assert memory_summary["memory_alloc_calls"] == 100
+        missing_memory = run_validator(make_evidence(directory), memory_gate=True)
+        assert missing_memory.returncode != 0 and "not enabled" in missing_memory.stderr
+        memory_failure = run_validator(
+            make_evidence(directory, memory_gate=True, memory_failures=1),
+            memory_gate=True)
+        assert memory_failure.returncode != 0 and "failures" in memory_failure.stderr
 
         underrun = run_validator(
             make_evidence(directory, audio_gate=True, audio_underruns=1), audio_gate=True)

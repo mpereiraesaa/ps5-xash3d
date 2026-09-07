@@ -143,5 +143,14 @@
   and fire on FW 12.02 with chronological batch reads and exact teardown.
 - [x] Add SceAudioOut with an owned ring buffer, continuous 44.1-to-48 kHz
   resampling, underrun accounting, audible proof and exact shutdown.
+- [x] Route C/C++ engine allocations through a guarded 128 MiB direct-memory
+  arena; prove generation-tagged GPU-resource retirement and exact root teardown
+  on FW 12.02.
+- [ ] Measure pthread lifecycle, monotonic-clock behavior and sleep granularity
+  on the engine host, preserving exact thread ownership and shutdown.
+- [ ] Add GPU end-of-pipe timestamps and VideoOut flip-latency telemetry to the
+  Phase 4 backend for the later `ref_agc` integration.
+- [ ] Close the remaining `__assert`, identity-without-`getpwuid` and
+  logging-without-`dladdr` platform shims with host and FW 12.02 evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

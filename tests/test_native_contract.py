@@ -18,6 +18,12 @@ def main() -> None:
     pad_backend = (
         ROOT / "xash/platform_ps5/in_ps5.c"
     ).read_text(encoding="utf-8")
+    memory_backend = (
+        ROOT / "xash/platform_ps5/mem_ps5.c"
+    ).read_text(encoding="utf-8")
+    memory_gate = (
+        ROOT / "xash/platform_ps5/memory_gate_ps5.c"
+    ).read_text(encoding="utf-8")
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
@@ -63,6 +69,37 @@ def main() -> None:
     if "engine-pad-native-release" not in makefile or \
             "XASH_PAD_GATE=1" not in makefile:
         raise SystemExit("ScePad release target missing")
+    for item in (
+        "sceKernelReserveVirtualRange(",
+        "sceKernelAllocateMainDirectMemory(",
+        "sceKernelMapDirectMemory(",
+        "sceKernelMunmap(",
+        "sceKernelReleaseDirectMemory(",
+        "PS5_ENGINE_HEAP_BYTES ( 128u * 1024u * 1024u )",
+        "PS5_MemoryGpuRetire(",
+        "PS5_MemoryGpuReclaim(",
+    ):
+        if item not in memory_backend:
+            raise SystemExit(f"direct-memory adapter contract missing: {item}")
+    for item in (
+        "XASH_MEMORY_BEGIN schema=1",
+        "XASH_MEMORY_RESOURCE kind=%s",
+        "XASH_MEMORY_COMPLETE schema=1",
+        "completion=synthetic-contract",
+    ):
+        if item not in memory_gate:
+            raise SystemExit(f"direct-memory gate contract missing: {item}")
+    for item in (
+        "XASH_MEMORY_GATE",
+        "app_cpp_runtime.cpp",
+        "--wrap=malloc",
+        "sceKernelAllocateMainDirectMemory",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"direct-memory build contract missing: {item}")
+    if "engine-memory-native-release" not in makefile or \
+            "XASH_MEMORY_GATE=1" not in makefile:
+        raise SystemExit("direct-memory release target missing")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

@@ -1,191 +1,339 @@
 /*
-mem_ps5.c - large-allocation router for the Xash3D engine on PlayStation 5
+mem_ps5.c - direct-memory allocator adapter for Xash3D on PlayStation 5
 Copyright (C) 2026 Manuel Pereira
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-libSceLibcInternal's malloc refused a 21 MiB request while the engine loaded
-its first map (FW 12.02), and the application cannot size that heap: the
-sceLibcHeapSize knobs are not part of the SDK stubs and the native converter
-publishes no application exports. Anonymous mmap, measured in the laboratory
-up to 432 MiB, is the memory the engine can actually reach.
-
-The final link wraps malloc/free/realloc/calloc (lld --wrap), so every
-allocation made by the engine, the statically linked modules and the
-telemetry client passes through here: requests at or above
-PS5_LARGE_ALLOC_BYTES are served by mmap and tracked in a small registry,
-everything else stays with libc. This is the interim allocator; the direct-
-memory engine allocator of the platform phase replaces it.
+All allocation calls made by the statically linked engine and its modules are
+wrapped at final link. A single direct-memory mapping owns the arena; allocations
+inside it carry generation cookies and tail guards. Pointers originating in a
+shared system library remain owned by libc and are returned to libc unchanged.
 */
+
+#include "mem_ps5.h"
+#include "ps5_platform.h"
 
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 
-#ifndef PS5_LARGE_ALLOC_BYTES
-#define PS5_LARGE_ALLOC_BYTES ( 256 * 1024 )
+#ifndef PS5_ENGINE_HEAP_BYTES
+#define PS5_ENGINE_HEAP_BYTES ( 128u * 1024u * 1024u )
 #endif
-#define PS5_PAGE 16384u
-#define PS5_LARGE_SLOTS 4096
+#define PS5_ENGINE_HEAP_ALIGNMENT 65536u
+#define PS5_ENGINE_MEMORY_TYPE 0x0c
+#define PS5_ENGINE_PROTECTION 0xf2
+#define PS5_ENGINE_MAP_FIXED 0x10
+#define PS5_ENGINE_CPU_ALIGNMENT 16u
+
+enum ps5_root_state
+{
+	PS5_ROOT_UNINITIALIZED = 0,
+	PS5_ROOT_INITIALIZING = 1,
+	PS5_ROOT_READY = 2,
+	PS5_ROOT_FAILED = 3,
+	PS5_ROOT_SHUTDOWN = 4,
+};
 
 extern void *__real_malloc( size_t size );
-extern void __real_free( void *ptr );
-extern void *__real_realloc( void *ptr, size_t size );
-extern void *__real_calloc( size_t count, size_t size );
-extern size_t malloc_usable_size( void *ptr );
-extern int ps5log_printf( const char *level, const char *fmt, ... );
-#define PS5LOG_WARN "WARN"
-#define PS5LOG_INFO "INFO"
+extern void __real_free( void *pointer );
+extern void *__real_realloc( void *pointer, size_t size );
 
-typedef struct { void *ptr; size_t size; } ps5_large_t;
+static Ps5MemoryArena ps5_arena;
+static Ps5MemoryStats ps5_final_stats;
+static Ps5MemoryRootStats ps5_root = {
+	.offset = -1,
+	.reserve_rc = -1,
+	.allocate_rc = -1,
+	.map_rc = -1,
+	.unmap_rc = -1,
+	.release_rc = -1,
+};
+static void *ps5_root_address;
+static volatile int ps5_root_state;
 
-static ps5_large_t ps5_large[PS5_LARGE_SLOTS];
-static int ps5_large_count;
-static size_t ps5_large_bytes, ps5_large_peak;
-static int ps5_large_failures;
-static unsigned long long ps5_libc_calls, ps5_libc_bytes;
-static int ps5_libc_oom_reported;
-
-static void *libc_checked( void *p, size_t size, const char *who )
+static void foreign_call( size_t bytes )
 {
-	ps5_libc_calls++;
-	ps5_libc_bytes += size;
-	if( !p && size && !ps5_libc_oom_reported )
-	{
-		ps5_libc_oom_reported = 1;
-		(void)ps5log_printf( PS5LOG_WARN,
-			"XASH_LIBC_OOM who=%s size=%zu libc_calls=%llu libc_bytes=%llu large_bytes=%zu",
-			who, size, ps5_libc_calls, ps5_libc_bytes, ps5_large_bytes );
-	}
-	return p;
+	__atomic_add_fetch( &ps5_root.foreign_calls, 1u, __ATOMIC_RELAXED );
+	__atomic_add_fetch( &ps5_root.foreign_bytes, bytes, __ATOMIC_RELAXED );
 }
 
-static ps5_large_t *find_large( void *ptr )
+static int initialize_root( void )
 {
-	int i;
-	for( i = 0; i < PS5_LARGE_SLOTS; i++ )
-		if( ps5_large[i].ptr == ptr && ptr )
-			return &ps5_large[i];
-	return NULL;
-}
+	int expected = PS5_ROOT_UNINITIALIZED;
+	if( __atomic_compare_exchange_n( &ps5_root_state, &expected,
+		PS5_ROOT_INITIALIZING, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE ))
+	{
+		void *address = NULL;
+		ps5_root.bytes = PS5_ENGINE_HEAP_BYTES;
+		ps5_root.reserve_calls = 1;
+		ps5_root.reserve_rc = sceKernelReserveVirtualRange( &address,
+			PS5_ENGINE_HEAP_BYTES, 0, PS5_ENGINE_HEAP_ALIGNMENT );
+		if( ps5_root.reserve_rc != 0 || !address )
+			goto failed;
+		ps5_root_address = address;
+		ps5_root.allocate_calls = 1;
+		ps5_root.allocate_rc = sceKernelAllocateMainDirectMemory(
+			PS5_ENGINE_HEAP_BYTES, PS5_ENGINE_HEAP_ALIGNMENT,
+			PS5_ENGINE_MEMORY_TYPE, &ps5_root.offset );
+		if( ps5_root.allocate_rc != 0 || ps5_root.offset < 0 )
+			goto failed;
+		ps5_root.allocated = 1;
+		ps5_root.map_calls = 1;
+		ps5_root.map_rc = sceKernelMapDirectMemory( &address,
+			PS5_ENGINE_HEAP_BYTES, PS5_ENGINE_PROTECTION,
+			PS5_ENGINE_MAP_FIXED, ps5_root.offset, 0 );
+		if( ps5_root.map_rc != 0 || address != ps5_root_address )
+			goto failed;
+		ps5_root.mapped = 1;
+		if( PS5_MemoryArenaInit( &ps5_arena, address,
+			PS5_ENGINE_HEAP_BYTES ) != PS5_MEMORY_OK )
+			goto failed;
+		ps5_root.initialized = 1;
+		__atomic_store_n( &ps5_root_state, PS5_ROOT_READY, __ATOMIC_RELEASE );
+		return 0;
 
-static void *large_alloc( size_t size )
-{
-	size_t rounded = ( size + PS5_PAGE - 1 ) & ~(size_t)( PS5_PAGE - 1 );
-	void *mem;
-	int i;
-	if( ps5_large_count >= PS5_LARGE_SLOTS )
-	{
-		ps5_large_failures++;
-		return NULL;
-	}
-	mem = mmap( NULL, rounded, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
-	if( mem == MAP_FAILED )
-	{
-		ps5_large_failures++;
-		return NULL;
-	}
-	for( i = 0; i < PS5_LARGE_SLOTS; i++ )
-	{
-		if( ps5_large[i].ptr == NULL )
+failed:
+		if( ps5_root.mapped || ps5_root_address )
 		{
-			ps5_large[i].ptr = mem;
-			ps5_large[i].size = rounded;
-			break;
+			ps5_root.unmap_calls++;
+			ps5_root.unmap_rc = sceKernelMunmap( ps5_root_address,
+				PS5_ENGINE_HEAP_BYTES );
+			if( ps5_root.unmap_rc == 0 )
+				ps5_root.mapped = 0;
 		}
+		if( ps5_root.allocated )
+		{
+			ps5_root.release_calls++;
+			ps5_root.release_rc = sceKernelReleaseDirectMemory(
+				ps5_root.offset, PS5_ENGINE_HEAP_BYTES );
+			if( ps5_root.release_rc == 0 )
+				ps5_root.allocated = 0;
+		}
+		__atomic_store_n( &ps5_root_state, PS5_ROOT_FAILED, __ATOMIC_RELEASE );
+		return -1;
 	}
-	ps5_large_count++;
-	ps5_large_bytes += rounded;
-	if( ps5_large_bytes > ps5_large_peak )
-		ps5_large_peak = ps5_large_bytes;
-	return mem;
+
+	while( expected == PS5_ROOT_INITIALIZING )
+		expected = __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE );
+	return expected == PS5_ROOT_READY ? 0 : -1;
 }
 
-static void large_free( ps5_large_t *slot )
+static int ready( void )
 {
-	munmap( slot->ptr, slot->size );
-	ps5_large_bytes -= slot->size;
-	ps5_large_count--;
-	slot->ptr = NULL;
-	slot->size = 0;
+	const int state = __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE );
+	if( state == PS5_ROOT_READY )
+		return 1;
+	if( state == PS5_ROOT_FAILED || state == PS5_ROOT_SHUTDOWN )
+		return 0;
+	return initialize_root( ) == 0;
 }
 
 void *__wrap_malloc( size_t size )
 {
-	if( size >= PS5_LARGE_ALLOC_BYTES )
-		return large_alloc( size );
-	return libc_checked( __real_malloc( size ), size, "malloc" );
+	void *pointer;
+	if( !size )
+		size = 1;
+	if( !ready( ))
+	{
+		errno = ENOMEM;
+		return NULL;
+	}
+	pointer = PS5_MemoryArenaAlloc( &ps5_arena, size,
+		PS5_ENGINE_CPU_ALIGNMENT );
+	if( !pointer )
+		errno = ENOMEM;
+	return pointer;
 }
 
-void __wrap_free( void *ptr )
+void __wrap_free( void *pointer )
 {
-	ps5_large_t *slot;
-	if( !ptr )
+	if( !pointer )
 		return;
-	slot = find_large( ptr );
-	if( slot )
-		large_free( slot );
-	else
-		__real_free( ptr );
+	if( PS5_MemoryArenaOwns( &ps5_arena, pointer ))
+	{
+		(void)PS5_MemoryArenaFree( &ps5_arena, pointer );
+		return;
+	}
+	foreign_call( 0 );
+	__real_free( pointer );
 }
 
 void *__wrap_calloc( size_t count, size_t size )
 {
-	size_t total;
 	if( count && size > SIZE_MAX / count )
 	{
 		errno = ENOMEM;
 		return NULL;
 	}
-	total = count * size;
-	if( total >= PS5_LARGE_ALLOC_BYTES )
-		return large_alloc( total ); /* fresh anonymous pages are zero */
-	return libc_checked( __real_calloc( count, size ), total, "calloc" );
-}
-
-void *__wrap_realloc( void *ptr, size_t size )
-{
-	ps5_large_t *slot;
-	void *mem;
-	size_t old_size;
-	if( !ptr )
-		return __wrap_malloc( size );
-	if( size == 0 )
+	if( !count || !size )
+		return __wrap_malloc( 1 );
+	if( !ready( ))
 	{
-		__wrap_free( ptr );
+		errno = ENOMEM;
 		return NULL;
 	}
-	slot = find_large( ptr );
-	if( !slot && size < PS5_LARGE_ALLOC_BYTES )
-		return libc_checked( __real_realloc( ptr, size ), size, "realloc" );
-	if( slot && size <= slot->size )
-		return ptr;
-	mem = __wrap_malloc( size );
-	if( !mem )
-		return NULL;
-	old_size = slot ? slot->size : malloc_usable_size( ptr );
-	memcpy( mem, ptr, old_size < size ? old_size : size );
-	__wrap_free( ptr );
-	return mem;
+	void *pointer = PS5_MemoryArenaCalloc( &ps5_arena, count, size );
+	if( !pointer )
+		errno = ENOMEM;
+	return pointer;
 }
 
-void PS5_MemStats( size_t *bytes, size_t *peak, int *count, int *failures )
+void *__wrap_realloc( void *pointer, size_t size )
 {
-	*bytes = ps5_large_bytes;
-	*peak = ps5_large_peak;
-	*count = ps5_large_count;
-	*failures = ps5_large_failures;
+	if( !pointer )
+		return __wrap_malloc( size );
+	if( PS5_MemoryArenaOwns( &ps5_arena, pointer ))
+	{
+		void *result = PS5_MemoryArenaRealloc( &ps5_arena, pointer, size );
+		if( size && !result )
+			errno = ENOMEM;
+		return result;
+	}
+	foreign_call( size );
+	return __real_realloc( pointer, size );
 }
 
-unsigned long long PS5_LibcCalls( void ) { return ps5_libc_calls; }
-unsigned long long PS5_LibcBytes( void ) { return ps5_libc_bytes; }
+void *__wrap_memalign( size_t alignment, size_t size )
+{
+	if( !alignment || ( alignment & ( alignment - 1u )) ||
+		alignment < sizeof( void * ))
+	{
+		errno = EINVAL;
+		return NULL;
+	}
+	if( !size )
+		size = 1;
+	if( !ready( ))
+	{
+		errno = ENOMEM;
+		return NULL;
+	}
+	void *pointer = PS5_MemoryArenaAlloc( &ps5_arena, size, alignment );
+	if( !pointer )
+		errno = ENOMEM;
+	return pointer;
+}
+
+void *__wrap_aligned_alloc( size_t alignment, size_t size )
+{
+	if( !alignment || size % alignment )
+	{
+		errno = EINVAL;
+		return NULL;
+	}
+	return __wrap_memalign( alignment, size );
+}
+
+int __wrap_posix_memalign( void **result, size_t alignment, size_t size )
+{
+	void *pointer;
+	if( !result || alignment < sizeof( void * ) ||
+		( alignment & ( alignment - 1u )))
+		return EINVAL;
+	pointer = __wrap_memalign( alignment, size );
+	if( !pointer )
+		return ENOMEM;
+	*result = pointer;
+	return 0;
+}
+
+void PS5_MemStats( Ps5MemoryStats *arena, Ps5MemoryRootStats *root )
+{
+	if( arena )
+	{
+		if( __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+			PS5_ROOT_READY )
+			PS5_MemoryArenaStats( &ps5_arena, arena );
+		else
+			*arena = ps5_final_stats;
+	}
+	if( root )
+		*root = ps5_root;
+}
+
+int PS5_MemValidate( void )
+{
+	return __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+		PS5_ROOT_READY ? PS5_MemoryArenaValidate( &ps5_arena ) :
+		PS5_MEMORY_PRECONDITION;
+}
+
+int PS5_MemGpuAllocate( size_t bytes, size_t alignment,
+	Ps5GpuAllocation *allocation )
+{
+	if( !ready( ))
+		return PS5_MEMORY_EXHAUSTED;
+	return PS5_MemoryGpuAllocate( &ps5_arena, bytes, alignment, allocation );
+}
+
+void *PS5_MemGpuPointer( const Ps5GpuAllocation *allocation )
+{
+	return __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+		PS5_ROOT_READY ?
+		PS5_MemoryGpuPointer( &ps5_arena, allocation ) : NULL;
+}
+
+int PS5_MemGpuReleaseUnsubmitted( const Ps5GpuAllocation *allocation )
+{
+	return __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+		PS5_ROOT_READY ? PS5_MemoryGpuReleaseUnsubmitted( &ps5_arena,
+		allocation ) : PS5_MEMORY_PRECONDITION;
+}
+
+int PS5_MemGpuRetire( const Ps5GpuAllocation *allocation,
+	uint64_t retire_token )
+{
+	return __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+		PS5_ROOT_READY ? PS5_MemoryGpuRetire( &ps5_arena,
+		allocation, retire_token ) : PS5_MEMORY_PRECONDITION;
+}
+
+int PS5_MemGpuReclaim( const Ps5GpuAllocation *allocation,
+	uint64_t completed_token, int completion_proven )
+{
+	return __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) ==
+		PS5_ROOT_READY ? PS5_MemoryGpuReclaim( &ps5_arena,
+		allocation, completed_token, completion_proven ) :
+		PS5_MEMORY_PRECONDITION;
+}
+
+int PS5_MemShutdown( void )
+{
+	Ps5MemoryStats stats;
+	if( __atomic_load_n( &ps5_root_state, __ATOMIC_ACQUIRE ) != PS5_ROOT_READY )
+		return PS5_MEMORY_STATE;
+	if( PS5_MemoryArenaValidate( &ps5_arena ) != PS5_MEMORY_OK )
+		return PS5_MEMORY_CORRUPT;
+	PS5_MemoryArenaStats( &ps5_arena, &stats );
+	if( stats.live_gpu || stats.retiring_gpu ||
+		stats.guard_failures )
+		return PS5_MEMORY_STATE;
+	if( PS5_MemoryArenaReleaseProcessLifetime( &ps5_arena ) !=
+		PS5_MEMORY_OK )
+		return PS5_MEMORY_STATE;
+	if( PS5_MemoryArenaValidate( &ps5_arena ) != PS5_MEMORY_OK )
+		return PS5_MEMORY_CORRUPT;
+	PS5_MemoryArenaStats( &ps5_arena, &stats );
+	if( stats.live_bytes || stats.live_cpu || stats.live_gpu ||
+		stats.retiring_gpu )
+		return PS5_MEMORY_STATE;
+	ps5_final_stats = stats;
+	__atomic_store_n( &ps5_root_state, PS5_ROOT_SHUTDOWN, __ATOMIC_RELEASE );
+	ps5_root.unmap_calls++;
+	ps5_root.unmap_rc = sceKernelMunmap( ps5_root_address, ps5_root.bytes );
+	if( ps5_root.unmap_rc != 0 )
+		return PS5_MEMORY_STATE;
+	ps5_root.mapped = 0;
+	ps5_root.release_calls++;
+	ps5_root.release_rc = sceKernelReleaseDirectMemory( ps5_root.offset,
+		ps5_root.bytes );
+	if( ps5_root.release_rc != 0 )
+		return PS5_MEMORY_STATE;
+	ps5_root.allocated = 0;
+	return PS5_MEMORY_OK;
+}

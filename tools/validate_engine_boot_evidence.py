@@ -208,6 +208,87 @@ def validate_audio_gate(messages: list[str]) -> dict[str, str]:
     return complete
 
 
+def validate_memory_gate(messages: list[str]) -> dict[str, str]:
+    """Validate the direct-memory arena, GPU lifetime and root teardown."""
+    begin = one(messages, "XASH_MEMORY_BEGIN")
+    complete = one(messages, "XASH_MEMORY_COMPLETE")
+    summary = one(messages, "XASH_MEMORY_SUMMARY")
+    teardown = one(messages, "XASH_MEMORY_TEARDOWN")
+    if begin.get("schema") != "1" or begin.get("arena") != "direct" \
+            or begin.get("root_mib") != "128":
+        fail("direct-memory root contract mismatch")
+
+    resources = [parse_fields(message) for message in messages
+                 if message.startswith("XASH_MEMORY_RESOURCE ")]
+    expected = {
+        "command": (2 * 1024 * 1024, 256),
+        "buffer": (4 * 1024 * 1024, 65536),
+        "texture": (8 * 1024 * 1024, 65536),
+        "depth": (4 * 1024 * 1024, 65536),
+    }
+    if len(resources) != len(expected) or {item.get("kind") for item in resources} != set(expected):
+        fail("direct-memory resource set mismatch")
+    generations: set[int] = set()
+    for resource in resources:
+        kind = resource["kind"]
+        if (int(resource.get("bytes", "0"), 10),
+                int(resource.get("alignment", "0"), 10)) != expected[kind]:
+            fail(f"direct-memory {kind} size/alignment mismatch")
+        generation = int(resource.get("generation", "0"), 10)
+        if generation <= 0 or generation in generations:
+            fail("direct-memory generations are not unique and non-zero")
+        generations.add(generation)
+        if resource.get("owner") != "gpu-active" or not re.fullmatch(
+                r"[0-9a-f]{16}", resource.get("hash", "")):
+            fail(f"direct-memory {kind} ownership/hash mismatch")
+
+    if complete.get("schema") != "1" or complete.get("result") != "0" \
+            or complete.get("resources") != "4" \
+            or complete.get("resource_bytes") != str(18 * 1024 * 1024) \
+            or complete.get("completion") != "synthetic-contract" \
+            or complete.get("guards") != "intact" \
+            or complete.get("alloc_failures") != "0" \
+            or complete.get("root_calls") != "1/1/1" \
+            or complete.get("pass") != "1":
+        fail("direct-memory exercise did not complete cleanly")
+    for field in ("live_bytes", "live_cpu", "live_gpu", "retiring_gpu"):
+        if complete.get(field) != "0":
+            fail(f"direct-memory exercise retained {field}")
+
+    if summary.get("schema") != "1" \
+            or summary.get("arena_bytes") != str(128 * 1024 * 1024) \
+            or summary.get("pass") != "1":
+        fail("direct-memory final arena summary mismatch")
+    for field in ("live_gpu", "retiring_gpu", "failures",
+                  "guard_failures", "stale_errors"):
+        if summary.get(field) != "0":
+            fail(f"direct-memory final summary reports {field}")
+    if summary.get("process_lifetime_cpu") != summary.get("live_cpu") \
+            or summary.get("process_lifetime_bytes") != summary.get("live_bytes"):
+        fail("direct-memory process-lifetime accounting mismatch")
+    if int(summary.get("retire_calls", "0"), 10) < 4 \
+            or summary.get("retire_calls") != summary.get("reclaim_calls"):
+        fail("direct-memory retirement/reclamation is not balanced")
+
+    if teardown.get("schema") != "1" or teardown.get("result") != "0" \
+            or teardown.get("ownership") != "exact" \
+            or teardown.get("pass") != "1":
+        fail("direct-memory teardown contract failed")
+    for field in ("reserve_calls", "allocate_calls", "map_calls",
+                  "unmap_calls", "release_calls"):
+        if teardown.get(field) != "1":
+            fail(f"direct-memory teardown has non-exact {field}")
+    for field in ("reserve_rc", "allocate_rc", "map_rc", "unmap_rc",
+                  "release_rc", "mapped", "allocated", "live_bytes",
+                  "live_cpu", "live_gpu", "retiring_gpu"):
+        if teardown.get(field) != "0":
+            fail(f"direct-memory teardown reports {field}")
+    if teardown.get("lifetime_reclaims") != summary.get("process_lifetime_cpu") \
+            or teardown.get("lifetime_bytes") != summary.get("process_lifetime_bytes"):
+        fail("direct-memory process-lifetime reclamation mismatch")
+    return summary
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -217,6 +298,7 @@ def validate(
     mode: str = "dedicated",
     pad_gate: bool = False,
     audio_gate: bool = False,
+    memory_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -301,10 +383,15 @@ def validate(
         fail("ScePad gate was not enabled in the artifact")
     if audio_gate and boot.get("audio_gate") != "1":
         fail("SceAudioOut gate was not enabled in the artifact")
+    if memory_gate and boot.get("memory_gate") != "1":
+        fail("direct-memory gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
         fail("engine returned a non-zero result")
+    if memory_gate and (exit_fields.get("memory_gate") != "1" or
+                        exit_fields.get("memory_pass") != "1"):
+        fail("direct-memory result was not successful")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -335,6 +422,10 @@ def validate(
     audio_complete: dict[str, str] | None = None
     if audio_gate:
         audio_complete = validate_audio_gate(messages)
+
+    memory_summary: dict[str, str] | None = None
+    if memory_gate:
+        memory_summary = validate_memory_gate(messages)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -416,6 +507,11 @@ def validate(
         "audio_frames_sent": int(audio_complete["sent"], 10) if audio_complete else 0,
         "audio_source_hash": audio_complete["source_hash"] if audio_complete else None,
         "audio_output_hash": audio_complete["output_hash"] if audio_complete else None,
+        "memory_gate": memory_gate,
+        "memory_peak_bytes": int(memory_summary["peak_bytes"], 10)
+        if memory_summary else 0,
+        "memory_alloc_calls": int(memory_summary["alloc_calls"], 10)
+        if memory_summary else 0,
     }
 
 
@@ -428,6 +524,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("dedicated", "client"), default="dedicated")
     parser.add_argument("--pad-gate", action="store_true")
     parser.add_argument("--audio-gate", action="store_true")
+    parser.add_argument("--memory-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -441,6 +538,7 @@ def main() -> int:
             mode=args.mode,
             pad_gate=args.pad_gate,
             audio_gate=args.audio_gate,
+            memory_gate=args.memory_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc
