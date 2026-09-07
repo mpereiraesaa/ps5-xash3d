@@ -141,7 +141,7 @@
   modules, resolve the complete 4,823-entry asset tree and load `c1a0` cleanly.
 - [x] Add the native ScePad backend and pass movement, look, jump, crouch, use
   and fire on FW 12.02 with chronological batch reads and exact teardown.
-- [ ] Add SceAudioOut with an owned ring buffer, underrun accounting, audible
-  proof and exact shutdown.
+- [x] Add SceAudioOut with an owned ring buffer, continuous 44.1-to-48 kHz
+  resampling, underrun accounting, audible proof and exact shutdown.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.
