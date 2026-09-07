@@ -43,6 +43,9 @@ extern void __real_free( void *ptr );
 extern void *__real_realloc( void *ptr, size_t size );
 extern void *__real_calloc( size_t count, size_t size );
 extern size_t malloc_usable_size( void *ptr );
+extern int ps5log_printf( const char *level, const char *fmt, ... );
+#define PS5LOG_WARN "WARN"
+#define PS5LOG_INFO "INFO"
 
 typedef struct { void *ptr; size_t size; } ps5_large_t;
 
@@ -50,6 +53,22 @@ static ps5_large_t ps5_large[PS5_LARGE_SLOTS];
 static int ps5_large_count;
 static size_t ps5_large_bytes, ps5_large_peak;
 static int ps5_large_failures;
+static unsigned long long ps5_libc_calls, ps5_libc_bytes;
+static int ps5_libc_oom_reported;
+
+static void *libc_checked( void *p, size_t size, const char *who )
+{
+	ps5_libc_calls++;
+	ps5_libc_bytes += size;
+	if( !p && size && !ps5_libc_oom_reported )
+	{
+		ps5_libc_oom_reported = 1;
+		(void)ps5log_printf( PS5LOG_WARN,
+			"XASH_LIBC_OOM who=%s size=%zu libc_calls=%llu libc_bytes=%llu large_bytes=%zu",
+			who, size, ps5_libc_calls, ps5_libc_bytes, ps5_large_bytes );
+	}
+	return p;
+}
 
 static ps5_large_t *find_large( void *ptr )
 {
@@ -105,7 +124,7 @@ void *__wrap_malloc( size_t size )
 {
 	if( size >= PS5_LARGE_ALLOC_BYTES )
 		return large_alloc( size );
-	return __real_malloc( size );
+	return libc_checked( __real_malloc( size ), size, "malloc" );
 }
 
 void __wrap_free( void *ptr )
@@ -131,7 +150,7 @@ void *__wrap_calloc( size_t count, size_t size )
 	total = count * size;
 	if( total >= PS5_LARGE_ALLOC_BYTES )
 		return large_alloc( total ); /* fresh anonymous pages are zero */
-	return __real_calloc( count, size );
+	return libc_checked( __real_calloc( count, size ), total, "calloc" );
 }
 
 void *__wrap_realloc( void *ptr, size_t size )
@@ -148,7 +167,7 @@ void *__wrap_realloc( void *ptr, size_t size )
 	}
 	slot = find_large( ptr );
 	if( !slot && size < PS5_LARGE_ALLOC_BYTES )
-		return __real_realloc( ptr, size );
+		return libc_checked( __real_realloc( ptr, size ), size, "realloc" );
 	if( slot && size <= slot->size )
 		return ptr;
 	mem = __wrap_malloc( size );
@@ -167,3 +186,6 @@ void PS5_MemStats( size_t *bytes, size_t *peak, int *count, int *failures )
 	*count = ps5_large_count;
 	*failures = ps5_large_failures;
 }
+
+unsigned long long PS5_LibcCalls( void ) { return ps5_libc_calls; }
+unsigned long long PS5_LibcBytes( void ) { return ps5_libc_bytes; }

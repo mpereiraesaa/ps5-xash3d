@@ -54,6 +54,52 @@ its stack at `~0x7eeff0000`. `pc` is in a system module that
 come back), i.e. inside `libSceLibcInternal`/`libkernel`, operating on a bad
 pointer the engine handed it while scanning `gfx/` or `resource/`.
 
+## Progress on hardware (2026-09-07)
+
+The client build is not a single blocker but a serial bring-up. With the crash
+reporter, the allocator NULL-return probe and a directory-open trace (behind
+`PS5_XASH_FS_TRACE`), the runs establish:
+
+1. **It is not the libc heap.** The probe emits `XASH_LIBC_OOM` the instant
+   `malloc`/`calloc`/`realloc` returns NULL; it never fired before any crash.
+   So `sceLibcHeapSize` being absent from the SDK is not the cause, and Ghidra
+   on `libSceLibcInternal` for the heap size would be the wrong lead here.
+2. **First blocker is `valve/gfx`, in the filesystem scan.** The directory-open
+   trace shows the fault immediately after `opendir(/app0/xash3d/valve/gfx)`
+   (index-backed, 8 entries), while the engine resolves a file under `gfx/`
+   through `FS_FixFileCase`. It is a hard `SIGSEGV` at a fixed `pc=0x7eeffa2d0`
+   with `rsp=0`, i.e. a corrupted return address (stack smash), not an
+   allocation. Our `ps5_open_indexed` sizing and fill passes are symmetric and
+   the synthesized `dirent` records are well-formed, so the overrun is either
+   in the engine's per-lookup path handling over `gfx/` or in an interaction
+   our `readdir` provokes. Removing `gfx/` (and `resource/`) clears it.
+3. **With minimal data (subset + WADs, no `gfx/`), the client reaches the
+   renderer.** Console gets to `Dll loaded`, `execing video.cfg` and
+   `Loading renderer: soft -> ref_soft`. So the engine, `filesystem_stdio`,
+   the hlsdk client and the module tables all work; the client path is sound.
+4. **Second blocker is renderer bring-up.** `ref_soft` faults during its init
+   (different `pc=0x8800a5b88`). Switching to `ref_null` gets further, through
+   renderer load into client HUD/font loading (`failed to load console font`,
+   expected with a null renderer), then faults again in that region. Both are
+   separate from the `gfx/` FS crash.
+
+Also observed: with case-sensitive directories (our target returns true from
+`Platform_GetDirectoryCaseSensitivity`), the engine re-scans directories per
+file lookup, so our `opendir` was called ~11,670 times before the renderer.
+Not fatal, but the per-directory case-fix cache is not being reused as
+expected; worth confirming it is not repopulating every lookup.
+
+## Prioritized blockers
+
+1. `valve/gfx` filesystem-scan stack smash (fixed `pc=0x7eeffa2d0`). Bisect
+   `gfx/`'s 8 entries to the file, and audit the engine's `FS_FixFileCase` /
+   `FS_PopulateDirEntries` path over an index-backed directory with subdirs.
+2. `ref_soft` init fault, then the `ref_null` HUD/font fault. Decide whether
+   the gate-2 harness uses `ref_null` (accepting no textures) purely to prove
+   the frame loop, and defer real rasterization to `ref_agc` in gate 3.
+3. The excessive re-scan (case-fix cache reuse).
+
+## Next iteration
 ## Next iteration
 
 1. The crash reporter now walks the faulting thread's stack (from `mc_rsp`,

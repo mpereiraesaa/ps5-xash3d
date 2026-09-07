@@ -49,6 +49,9 @@ extern int sceKernelUnlink( const char *path );
 extern int sceKernelRename( const char *from, const char *to );
 extern int sceKernelUtimes( const char *path, const struct timeval *times );
 extern int sceKernelGetdents( int fd, char *buf, int nbytes );
+extern int ps5log_printf( const char *level, const char *fmt, ... );
+#define PS5LOG_INFO "INFO"
+static unsigned ps5_opendir_seq;
 
 #define PS5_PATH_MAX 1024
 
@@ -469,9 +472,22 @@ DIR *opendir( const char *path )
 	    ( full[root_len] == 0 || full[root_len] == '/' ))
 	{
 		const char *relative = full + root_len;
+		unsigned matches = 0; int k;
 		while( *relative == '/' ) relative++;
+		for( k = 0; k < ps5_index_count; k++ )
+			if( ps5_index[k].parent_len == strlen( relative ) &&
+			    strncmp( ps5_index[k].path, relative, strlen( relative )) == 0 ) matches++;
+#ifdef PS5_XASH_FS_TRACE
+		(void)ps5log_printf( PS5LOG_INFO, "XASH_OPENDIR seq=%u kind=index path=%s rel=%s entries=%u",
+			++ps5_opendir_seq, full, relative, matches );
+#else
+		(void)matches;
+#endif
 		return (DIR *)ps5_open_indexed( relative );
 	}
+#ifdef PS5_XASH_FS_TRACE
+	(void)ps5log_printf( PS5LOG_INFO, "XASH_OPENDIR seq=%u kind=kernel path=%s", ++ps5_opendir_seq, full );
+#endif
 	fd = sceKernelOpen( full, O_RDONLY | O_DIRECTORY, 0 );
 	if( fd < 0 )
 	{

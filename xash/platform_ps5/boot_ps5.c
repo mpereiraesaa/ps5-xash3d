@@ -41,6 +41,8 @@ void PS5_LogModuleMap( void );
 void PS5_SetCwd( const char *dir );
 void PS5_ConsoleFlush( void );
 void PS5_MemStats( size_t *bytes, size_t *peak, int *count, int *failures );
+unsigned long long PS5_LibcCalls( void );
+unsigned long long PS5_LibcBytes( void );
 extern void *__real_malloc( size_t size );
 extern void __real_free( void *ptr );
 int PS5_ListingRefusedCount( void );
@@ -255,8 +257,8 @@ int main( int argc, char **argv )
 		size_t bytes, peak;
 		int count, failures;
 		PS5_MemStats( &bytes, &peak, &count, &failures );
-		(void)ps5log_printf( PS5LOG_MARK, "XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu large_alloc_peak=%zu large_alloc_count=%d large_alloc_failures=%d",
-			result, PS5_ListingRefusedCount( ), bytes, peak, count, failures );
+		(void)ps5log_printf( PS5LOG_MARK, "XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu large_alloc_peak=%zu large_alloc_count=%d large_alloc_failures=%d libc_calls=%llu libc_bytes=%llu",
+			result, PS5_ListingRefusedCount( ), bytes, peak, count, failures, PS5_LibcCalls( ), PS5_LibcBytes( ) );
 	}
 	ps5log_close( "xash-engine-boot-complete" );
 	_exit( 0 );
