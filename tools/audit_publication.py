@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "PUBLICATION_ALLOWLIST.txt"
 TEXT_SUFFIXES = {
-    "", ".c", ".example", ".h", ".json", ".md", ".pipe", ".py", ".s", ".sh", ".txt", ".yml"
+    "", ".c", ".example", ".h", ".json", ".map", ".md", ".pipe", ".py", ".s", ".sh", ".txt", ".yml"
 }
 PINNED_BINARY_SHA256 = {
     "assets/branding/icon-master.png":

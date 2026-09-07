@@ -285,3 +285,6 @@ tests/test_generate_static_library_tables.py
 tools/validate_engine_boot_evidence.py
 tests/test_validate_engine_boot_evidence.py
 docs/ENGINE_BOOT_PHASE5.md
+xash/platform_ps5/app-symbols.map
+xash/platform_ps5/fs_ps5.c
+xash/platform_ps5/mem_ps5.c

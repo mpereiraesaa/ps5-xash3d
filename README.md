@@ -21,7 +21,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
-| 5 — Platform layer | In progress | Gate 1 prepared: the Xash3D FWGS engine builds for PS5 in dedicated mode with `filesystem_stdio` and the hlsdk-portable server statically linked, three libc shims and a bounded boot; ScePad, AudioOut and the direct-memory allocator follow |
+| 5 — Platform layer | In progress, gate 1 passed | The Xash3D FWGS engine boots on the console in dedicated mode: static `filesystem_stdio` and hlsdk server, `c1a0` spawned with all 251 entity classes, 90 s of simulation and a clean bounded quit; ScePad, AudioOut and the direct-memory allocator follow |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 

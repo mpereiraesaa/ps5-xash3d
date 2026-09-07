@@ -123,7 +123,7 @@ lld="$sdk/bin/prospero-lld"
 engine_defines=(
     -DXASH_STATIC_LIBS=1 -DXASH_DEDICATED=1 -DXASH_NO_LIBDL=1
     -DXASH_CRASHHANDLER=0 -DXASH_LOW_MEMORY=0 -DENGINE_DLL=1
-    -DXASH_PS5=1 -DXASH_TIMER=TIMER_POSIX -DXASH_MESSAGEBOX=MSGBOX_STDERR
+    -DXASH_PS5=1 -DXASH_TIMER=TIMER_POSIX -DXASH_MESSAGEBOX=99
     "-DXASH_GAMEDIR=\"valve\"" "-DXASH_BUILD_COMMIT=\"$engine_commit\""
     "-DXASH_BUILD_BRANCH=\"ps5\"" "-DXASH_BUILD_COMMIT_DATE=\"$engine_date\""
     "-DSTDINT_H=<stdint.h>" "-DALLOCA_H=<stdlib.h>"
@@ -176,6 +176,8 @@ engine_sources=$(
     echo "$xash/engine/platform/misc/lib_static.c"
     echo "$xash/3rdparty/library_suffix/src/library_suffix.c"
     echo "$root/xash/platform_ps5/sys_ps5.c"
+    echo "$root/xash/platform_ps5/fs_ps5.c"
+    echo "$root/xash/platform_ps5/mem_ps5.c"
     echo "$root/xash/platform_ps5/boot_ps5.c"
     for f in blocksort huffman crctable randtable compress decompress bzlib; do
         echo "$xash/3rdparty/bzip2/bzip2/$f.c"
@@ -221,7 +223,7 @@ server_cxx=$(find "$hlsdk/dlls" -name '*.cpp' \
     ! -name 'mpstubb.cpp' ! -name 'stats.cpp' ! -name 'Wxdebug.cpp')
 server_c=$(find "$hlsdk/pm_shared" -name '*.c'; echo "$hlsdk/public/safe_snprintf.c"
     echo "$hlsdk/external/openbsd/strlcpy.c"; echo "$hlsdk/external/openbsd/strlcat.c"
-    echo "$gen/link_helper_server.c"; echo "$gen/vcs_info_server.c")
+    echo "$gen/vcs_info_server.c")
 printf '%s\n' "$server_cxx" | sort -u |
     compile_set "$build/server-cxx.objects" "$build/obj/server" -std=gnu++11 "${module_cflags[@]}" \
         -fno-exceptions -fno-rtti "${server_defines[@]}" "${server_includes[@]}"
@@ -230,14 +232,46 @@ printf '%s\n' "$server_c" | sort -u |
         "${server_defines[@]}" "${server_includes[@]}"
 mapfile -t server_objects < "$build/server-cxx.objects"
 mapfile -t server_c_objects < "$build/server-c.objects"
-build_module server "${server_objects[@]}" "${server_c_objects[@]}"
+# The engine resolves every map entity class through COM_GetProcAddress on
+# the server module, so the export table must list each LINK_ENTITY_TO_CLASS
+# symbol the compiled module actually defines, not only the three entry points.
+"$ld_reloc" -r -o "$build/server.stage1.o" "${server_objects[@]}" "${server_c_objects[@]}"
+llvm_nm=${LLVM_NM:-$(command -v llvm-nm-18 || command -v llvm-nm)}
+"$llvm_nm" -g --defined-only "$build/server.stage1.o" | awk '$2 ~ /^[TtWw]$/ {print $3}' | sort -u \
+    > "$build/server.defined"
+python3 - "$hlsdk" "$root/xash/exports/server.txt" "$build/server.defined" \
+    "$gen/server_exports.txt" <<'PY'
+import pathlib, re, sys
+hlsdk, fixed, defined, out = (pathlib.Path(a) for a in sys.argv[1:5])
+names = [l.split("#", 1)[0].strip() for l in fixed.read_text().splitlines()]
+names = [n for n in names if n]
+pattern = re.compile(r"LINK_ENTITY_TO_CLASS\s*\(\s*([A-Za-z0-9_]+)")
+classes = set()
+for folder in ("dlls", "game_shared"):
+    for src in (hlsdk / folder).rglob("*.cpp"):
+        classes.update(pattern.findall(src.read_text(encoding="utf-8", errors="replace")))
+have = set(defined.read_text().split())
+exported = names + sorted(c for c in classes if c in have and c not in names)
+missing = sorted(c for c in classes if c not in have)
+out.write_text("# generated: fixed entry points + LINK_ENTITY_TO_CLASS symbols defined by the module\n"
+               + "".join(n + "\n" for n in exported))
+print(f"server exports: {len(exported)} ({len(classes)} entity classes scanned, {len(missing)} not compiled in)")
+PY
+python3 "$root/xash/tools/generate_static_library_tables.py" "$gen" \
+    filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" \
+    server="$gen/server_exports.txt"
+"${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/link_helper_server.c" \
+    -o "$build/obj/server/link_helper_server.o"
+build_module server "$build/server.stage1.o" "$build/obj/server/link_helper_server.o"
 
 echo "== link"
 "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti \
     -ffunction-sections -fdata-sections -c "$native/app_crt.cpp" \
     -o "$build/obj/app_crt.o"
+# Route the engine's large allocations to anonymous memory (xash/platform_ps5/mem_ps5.c).
 "$lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
-    --version-script "$native/app-symbols.map" -e _start \
+    --wrap=malloc --wrap=free --wrap=realloc --wrap=calloc \
+    --version-script "$root/xash/platform_ps5/app-symbols.map" -e _start \
     -o "$build/llvm-pie.elf" "$build/obj/app_crt.o" "${engine_objects[@]}" \
     "$build/filesystem_stdio.o" "$build/server.o" \
     --as-needed "$sdk"/target/lib/*.so
@@ -251,14 +285,34 @@ cp "$foundation/runtime/libc.prx" "$dist/sce_module/libc.prx"
 if [[ -f $dev_conf ]]; then
     cp "$dev_conf" "$dist/dev.conf"
 fi
+mkdir -p "$dist/xash3d"
 if [[ -n $game_data ]]; then
     [[ -d $game_data/valve ]] || {
         echo "XASH_GAME_DATA must contain a valve/ directory" >&2; exit 2;
     }
-    mkdir -p "$dist/xash3d"
     cp -R "$game_data/valve" "$dist/xash3d/valve"
     echo "staged game data: $(find "$dist/xash3d" -type f | wc -l) files (private, not published)"
 fi
+# The packaged image cannot be enumerated on the console (getdents returns
+# EINVAL under /app0); the PS5 backend lists it from this index instead.
+python3 - "$dist/xash3d" <<'PY'
+import os, sys
+root = sys.argv[1]
+lines = []
+for base, dirs, files in os.walk(root):
+    rel = os.path.relpath(base, root)
+    rel = "" if rel == "." else rel.replace(os.sep, "/")
+    for name in dirs:
+        lines.append(f"{rel + '/' if rel else ''}{name}\td")
+    for name in files:
+        if base == root and name == ".dirindex":
+            continue
+        lines.append(f"{rel + '/' if rel else ''}{name}\tf")
+lines.sort()
+with open(os.path.join(root, ".dirindex"), "w", encoding="utf-8") as out:
+    out.write("".join(line + "\n" for line in lines))
+print(f"directory index: {len(lines)} entries")
+PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
