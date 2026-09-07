@@ -141,6 +141,9 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_phase4_render_state_evidence.py
 	python3 tests/test_validate_phase4_final_evidence.py
 	python3 tests/test_generate_static_library_tables.py
+	python3 tests/test_instrument_fs_trace.py
+	python3 tests/test_deploy_game_data.py
+	python3 tests/test_ps5_libc_contract.py
 	python3 tests/test_validate_engine_boot_evidence.py
 	rm -rf build tools/__pycache__ tests/__pycache__
 

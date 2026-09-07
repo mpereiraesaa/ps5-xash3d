@@ -15,9 +15,12 @@
 #   XASH_BOOT_MAP          map executed after boot (default c1a0)
 #   XASH_GATE_SECONDS      queue "quit" after N seconds (default 90; 0 = never)
 #   XASH_JOBS              parallel compile jobs (default nproc)
-#   XASH_MODE              dedicated (gate 1) or client (gate 2: engine, mainui,
-#                          hlsdk client, ref_null and ref_soft, headless video)
+#   XASH_MODE              dedicated (Phase 5 evidence) or client (early Phase 6
+#                          diagnostic: engine, mainui, hlsdk client, ref_null
+#                          and ref_soft, headless video)
 #   XASH_REF               renderer requested in client mode (default soft)
+#   XASH_FS_TRACE          generate guarded upstream FS trace copies (default 0)
+#   XASH_FS_TRACE_PATH     exact relative path selected by the trace build
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,13 +33,16 @@ boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
+fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
+[[ $fs_trace_path =~ ^[A-Za-z0-9_./-]+$ ]] || { echo "XASH_FS_TRACE_PATH contains unsafe characters" >&2; exit 2; }
 jobs=${XASH_JOBS:-$(nproc)}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 game_data=${XASH_GAME_DATA:-}
 objcopy=${LLVM_OBJCOPY:-$(command -v llvm-objcopy-18 || command -v llvm-objcopy || true)}
+readelf=${LLVM_READELF:-$(command -v llvm-readelf-18 || command -v llvm-readelf || true)}
 # Relocatable module links use a host linker: the SDK lld emits one .rela.text
 # per COMDAT group when merging, which the final link then rejects.
 ld_reloc=${LD_RELOCATABLE:-$(command -v ld.lld-18 || command -v ld.bfd || command -v ld || true)}
@@ -44,6 +50,7 @@ ld_reloc=${LD_RELOCATABLE:-$(command -v ld.lld-18 || command -v ld.bfd || comman
 [[ $boot_map =~ ^[A-Za-z0-9_]+$ ]] || { echo "XASH_BOOT_MAP must be a map name" >&2; exit 2; }
 [[ $gate_seconds =~ ^[0-9]+$ ]] || { echo "XASH_GATE_SECONDS must be an integer" >&2; exit 2; }
 [[ -n $objcopy && -x $objcopy ]] || { echo "llvm-objcopy is required" >&2; exit 2; }
+[[ -n $readelf && -x $readelf ]] || { echo "llvm-readelf is required" >&2; exit 2; }
 [[ -n $ld_reloc && -x $ld_reloc ]] || { echo "a host ld for relocatable links is required" >&2; exit 2; }
 [[ -f $xash/engine/common/host.c ]] || {
     echo "third_party/xash3d-fwgs is not checked out; run git submodule update --init" >&2
@@ -149,7 +156,9 @@ engine_defines=(
     "-DXASH_BUILD_BRANCH=\"ps5\"" "-DXASH_BUILD_COMMIT_DATE=\"$engine_date\""
     "-DSTDINT_H=<stdint.h>" "-DALLOCA_H=<stdlib.h>"
     # libc functions the SDK stubs export (checked with llvm-nm on target/lib)
-    -DHAVE_STRCASECMP=1 -DHAVE_STRCASESTR=1 -DHAVE_STRNLEN=1 -DHAVE_STRLCPY=1 -DHAVE_STRLCAT=1
+    # libSceLibcInternal exports strcasestr, but the FW 12.02 implementation
+    # faults on valid engine strings. Compile Xash's bounded portable fallback.
+    -DHAVE_STRCASECMP=1 -DHAVE_STRCASESTR=0 -DHAVE_STRNLEN=1 -DHAVE_STRLCPY=1 -DHAVE_STRLCAT=1
     # fs_ps5.c fills a valid FreeBSD d_type; let the engine trust it (waf sets this).
     -DHAVE_DIRENT_D_TYPE=1
 )
@@ -178,8 +187,8 @@ OGG
     # The client makes far more small allocations than the server; keep more of
     # them away from the 8 MiB libc heap.
     engine_defines+=(-DPS5_LARGE_ALLOC_BYTES=65536)
-    [[ $fs_trace == 1 ]] && engine_defines+=(-DPS5_XASH_FS_TRACE=1)
 fi
+[[ $fs_trace == 1 ]] && engine_defines+=(-DPS5_XASH_FS_TRACE=1 "-DPS5_XASH_FS_TRACE_PATH=\"$fs_trace_path\"")
 engine_includes_client=("${engine_includes_client[@]:-}")
 engine_includes=(
     -I"$gen" -I"$root/xash/platform_ps5" -I"$root/native/ps5log"
@@ -195,6 +204,16 @@ cflags=(-O2 -w -fno-strict-aliasing -ffunction-sections -fdata-sections)
 # Modules go through ld -r; lld rejects relocatable output whose merged
 # sections carry several relocation sections, so they keep whole sections.
 module_cflags=(-O2 -w -fno-strict-aliasing)
+if [[ $fs_trace == 1 ]]; then
+    module_cflags+=(-fno-omit-frame-pointer)
+    mkdir -p "$gen/fs_trace"
+    python3 "$root/xash/tools/instrument_fs_trace.py" \
+        --io "$xash/filesystem/io.c" \
+        --searchpath "$xash/filesystem/searchpath.c" \
+        --img-main "$xash/engine/common/imagelib/img_main.c" \
+        --img-wad "$xash/engine/common/imagelib/img_wad.c" \
+        --output "$gen/fs_trace"
+fi
 
 # Compile a list of sources (stdin, one per line, absolute) into $1 with
 # the flags in the remaining arguments; prints the object paths.
@@ -220,8 +239,14 @@ compile_set() {
 echo "== engine (dedicated, static libs)"
 engine_sources=$(
     find "$xash/engine/common" "$xash/engine/server" -maxdepth 1 -name '*.c'
-    find "$xash/engine/common/imagelib" "$xash/engine/common/soundlib" \
-         "$xash/engine/common/http" -name '*.c'
+    if [[ $fs_trace == 1 ]]; then
+        find "$xash/engine/common/imagelib" -name '*.c' ! -name 'img_main.c' ! -name 'img_wad.c'
+        echo "$gen/fs_trace/img_main.c"
+        echo "$gen/fs_trace/img_wad.c"
+    else
+        find "$xash/engine/common/imagelib" -name '*.c'
+    fi
+    find "$xash/engine/common/soundlib" "$xash/engine/common/http" -name '*.c'
     find "$xash/public" -maxdepth 1 -name '*.c'
     find "$xash/engine/platform/posix" -name '*.c' \
         ! -name 'sys_posix.c' ! -name 'crash_*.c' ! -name 'lib_posix.c'
@@ -289,7 +314,14 @@ build_module() {
 }
 
 echo "== filesystem_stdio module"
-fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c'; echo "$gen/link_helper_filesystem_stdio.c")
+if [[ $fs_trace == 1 ]]; then
+    fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c' \
+        ! -name 'io.c' ! -name 'searchpath.c'; \
+        echo "$gen/fs_trace/io.c"; echo "$gen/fs_trace/searchpath.c"; \
+        echo "$gen/link_helper_filesystem_stdio.c")
+else
+    fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c'; echo "$gen/link_helper_filesystem_stdio.c")
+fi
 printf '%s\n' "$fs_sources" | sort -u |
     compile_set "$build/filesystem.objects" "$build/obj/filesystem" -std=gnu11 "${module_cflags[@]}" \
         "${engine_defines[@]}" "${engine_includes[@]}"
@@ -449,6 +481,10 @@ echo "== link"
     -o "$build/llvm-pie.elf" "$build/obj/app_crt.o" "${engine_objects[@]}" \
     "${module_objects[@]}" \
     --as-needed "$sdk"/target/lib/*.so
+if "$readelf" --dyn-syms "$build/llvm-pie.elf" | grep -qw strcasestr; then
+    echo "PS5 engine must use Xash's Q_stristr fallback, not libc strcasestr" >&2
+    exit 1
+fi
 "$tool" link --in "$build/llvm-pie.elf" --out "$build/eboot.elf" \
     --stub-dir "$sdk/target/lib" --module-sdk 0x02000009 \
     --companion-sdk 0x08050001 --file-name eboot.elf

@@ -156,11 +156,31 @@ escapes gluing a structured record to a console line, and finally a
 `PS5_XASH_GATE_SECONDS` definition that had not reached the backend. Each
 answer is a shim or a build step above; the engine sources are untouched.
 
-## What follows in Phase 5
+## Remaining Phase 5 gates
 
-1. Gate 2: `filesystem_stdio` as an application-owned PRX loaded through
-   `modules/prx_loader.h`, replacing the static table entry.
-2. Gate 3: ScePad input backend (`in_ps5.c`) driven from the engine console.
-3. Gate 4: AudioOut backend (`s_ps5.c`) with a ring buffer.
-4. Gate 5: direct-memory engine allocator replacing the mmap router, and
-   frametime instrumentation.
+The authoritative phase boundary is `docs/XASH3D_PS5_PLAN.html` in the lab
+repository.  Client mode, `mainui`, the hlsdk client and renderer loading are
+**Phase 6 engine-integration work**, even when they are useful as an early
+diagnostic harness.  They are not a substitute for any platform-layer gate.
+
+1. Filesystem contract: `/app0` directory listing, large reads and case
+   handling.  The dedicated pass proves the curated server subset; it does not
+   yet prove the complete retail asset tree.  The `gfx/palette.lmp` filesystem
+   lifecycle now passes completely on FW 12.02. The apparent FS crash was an
+   unsafe imported libc `strcasestr`; selecting Xash's portable `Q_stristr`
+   removes the signal fault. A complete 4,823-entry retail index then resolves
+   `delta.lst`, executes `c1a0`, and closes the 90-second gate cleanly.
+2. ScePad input backend (`in_ps5.c`): movement, look, jump, crouch, use and
+   fire, with structured input evidence and clean teardown.
+3. SceAudioOut backend (`s_ps5.c`): ring-buffer ownership, underrun accounting,
+   audible output and exact shutdown.
+4. Engine allocator and GPU resources on direct memory, with ownership and
+   teardown telemetry.
+5. pthreads, monotonic time and measured sleep granularity.
+6. Frametime instrumentation using GPU timestamps and VideoOut flip status.
+7. Project-owned `__assert`, fixed/SceUserService identity instead of
+   `getpwuid`, and logging that does not require `dladdr`.
+
+The application-owned PRX conversion and `ref_agc` remain Phase 6.  The
+accepted dedicated run above stays immutable evidence for the first engine
+bring-up; later gates add evidence rather than rewriting it.

@@ -1,9 +1,9 @@
-# Xash3D client engine boot — Phase 5 gate 2 (in progress)
+# Xash3D client engine boot — Phase 6 pre-gate diagnostic (in progress)
 
-Gate 2 brings the engine up in **client mode** without a display, as the
-correctness harness before the AGC renderer of gate 3. It builds and boots;
-it does not pass yet. This document records the working machinery and the one
-blocker, so the next iteration starts with the exact target.
+This branch brings the engine up in **client mode** without a display as an
+early Phase 6 integration harness. It builds and boots; it is not a completed
+Phase 5 gate. The harness exposed a real Phase 5 filesystem blocker, so this
+document records the measured evidence while keeping the plan boundary clear.
 
 ## What works
 
@@ -25,7 +25,7 @@ and begins `FS_AddGameHierarchy`. All modules link with no undefined symbols
 (193 SDK imports) and the large-allocation threshold drops to 64 KiB for the
 client's heavier small-allocation load.
 
-## The blocker: a data-triggered SIGSEGV in the filesystem scan
+## Resolved blocker: a libc `strcasestr` fault exposed by palette loading
 
 Bisection on FW 12.02, one variable at a time, same engine sources:
 
@@ -38,15 +38,15 @@ Bisection on FW 12.02, one variable at a time, same engine sources:
 | full retail `valve/` (541 MB) | dedicated | **crash** |
 | full retail `valve/` | client | **crash** |
 
-So the trigger is the content of `gfx/` or `resource/`, it is **independent of
-client vs dedicated mode**, and it is not the renderer (the crash precedes
-`Loading renderer`). The crash is a hard `SIGSEGV` (`si_code=1`, `addr=0`)
+The historical trigger was the content of `gfx/` or `resource/`, independent
+of client vs dedicated mode and earlier than `Loading renderer`. The affected
+builds produced a hard `SIGSEGV` (`si_code=1`, `addr=0`)
 during the tail of `FS_AddGameHierarchy`/`FS_InitStdio`, right after the four
 `Adding directory` lines and before `Dll loaded`. No `Sys_Error`/`Host_Error`
 console line precedes it, so it is a genuine memory fault, not the engine's
 `longjmp` error path.
 
-The fault signature is byte-identical across every build:
+The fault signature was byte-identical across the affected builds:
 `pc=0x7eeffa2d0`, `rax=pc`, `rsp=0` (the kernel does not populate `mc_rsp`
 for this fault), `rbp=0x300`, `rdi=rsi=0`, faulting thread `0x880f4c540` with
 its stack at `~0x7eeff0000`. `pc` is in a system module that
@@ -64,15 +64,23 @@ reporter, the allocator NULL-return probe and a directory-open trace (behind
    `malloc`/`calloc`/`realloc` returns NULL; it never fired before any crash.
    So `sceLibcHeapSize` being absent from the SDK is not the cause, and Ghidra
    on `libSceLibcInternal` for the heap size would be the wrong lead here.
-2. **First blocker is `valve/gfx`, in the filesystem scan.** The directory-open
-   trace shows the fault immediately after `opendir(/app0/xash3d/valve/gfx)`
-   (index-backed, 8 entries), while the engine resolves a file under `gfx/`
-   through `FS_FixFileCase`. It is a hard `SIGSEGV` at a fixed `pc=0x7eeffa2d0`
-   with `rsp=0`, i.e. a corrupted return address (stack smash), not an
-   allocation. Our `ps5_open_indexed` sizing and fill passes are symmetric and
-   the synthesized `dirent` records are well-formed, so the overrun is either
-   in the engine's per-lookup path handling over `gfx/` or in an interaction
-   our `readdir` provokes. Removing `gfx/` (and `resource/`) clears it.
+2. **Initial localization placed the fault after the `valve/gfx` scan.** The
+   directory-open trace showed the fault after `opendir(/app0/xash3d/valve/gfx)`
+   (index-backed, 8 entries), while the engine resolves `gfx/palette.lmp`
+   through `FS_FixFileCase`. Run
+   `20260907T141702358Z_PPSA99996_xash3d-engine_0xb19844082dbc` reaches the end
+   of that indexed listing and logs a successful directory-search match before
+   a hard `SIGSEGV` at `pc=0x7eeffa2d0`, with unusable `mc_rsp=0`.
+
+   Symbolization corrects the earlier caller attribution: runtime return address
+   `0x5a1699` is the instruction after `FS_FindFile` in the static
+   `FS_LoadFile_` helper from `filesystem/io.c`; it is **not**
+   `FS_OpenReadFile` (whose corresponding return site is `0x5a0704`). The fault
+   PC is 16 bytes above the caller's frame pointer and is consistent with bad
+   control flow, but the available signal context does not by itself prove
+   which buffer was overwritten or even that the synthetic `dirent` producer
+   is at fault. The observed eight records are internally consistent; the full
+   filesystem ABI and bounds still require explicit guards and host tests.
 3. **With minimal data (subset + WADs, no `gfx/`), the client reaches the
    renderer.** Console gets to `Dll loaded`, `execing video.cfg` and
    `Loading renderer: soft -> ref_soft`. So the engine, `filesystem_stdio`,
@@ -82,6 +90,41 @@ reporter, the allocator NULL-return probe and a directory-open trace (behind
    renderer load into client HUD/font loading (`failed to load console font`,
    expected with a null renderer), then faults again in that region. Both are
    separate from the `gfx/` FS crash.
+5. **The filesystem lifecycle is correct for `gfx/palette.lmp`.** Reproducible
+   generated-source instrumentation proves `FS_FindFile` returns a bounded,
+   NUL-terminated path with its 64-byte canary intact. Run
+   `20260907T153636232Z_PPSA99996_xash3d-engine_0xb5efc0ffe3e0` records
+   `real_length=768`, allocation of 769 bytes, a 768-byte read ending at
+   position 768, `FS_Close` returning zero, the caller size write, and the
+   buffer returning successfully. This rejects the proposed split descriptor
+   namespace: libc `lseek`, `read` and `close` all operate correctly on the
+   descriptor returned by the PS5 `open` shim.
+6. **The actual fault was `strcasestr` in `libSceLibcInternal`.** Run
+   `20260907T154117469Z_PPSA99996_xash3d-engine_0xb6313bc05f6a` reaches the
+   `Image_LoadLMP` callback at runtime address `0x4017d0` and faults on its
+   first case-insensitive substring test. Disassembly and the dynamic
+   relocation table identify that call as imported `strcasestr`. The PS5
+   build had asserted `HAVE_STRCASESTR=1` without a target runtime test.
+7. **The portable Xash implementation fixes the crash.** Building with
+   `HAVE_STRCASESTR=0` removes the dynamic import and includes `Q_stristr`.
+   Artifact `b622cec5561f1cfb49731e6cad9b58cad49480afd970ee8fe9e6e858952666dc`
+   loads and expands the palette, returns from the image loader, loads the
+   Half-Life DLL, and exits cleanly through the engine error path in run
+   `20260907T154452596Z_PPSA99996_xash3d-engine_0xb663524c9f61`. The apparent
+   next `delta.lst` false negative was deployment state, not an engine fault:
+   the console still had the earlier 530-entry curated `.dirindex` although
+   the local release contained the complete file.
+8. **The complete retail filesystem path passes.** A transactional game-data
+   deployment promoted 4,741 files (555,437,162 bytes) and a 4,823-entry index
+   after full-size checks plus SHA-256 verification of `.dirindex`,
+   `valve/delta.lst`, and `valve/gfx/palette.lmp`. Client trace artifact
+   `a1925f37995ed6af8268d703bd8f8ee29e364c6c76fc12ef1d0d7747777b7678`
+   produced run
+   `20260907T155915636Z_PPSA99996_xash3d-engine_0xb72c42a8f42f`, which resolves
+   and reads `delta.lst` twice at exactly 12,565 bytes, executes `c1a0`, remains
+   active for the 90-second gate, and closes with `XASH_EXIT result=0`, zero
+   large-allocation failures, and a gap-free `BYE`. The validated rollback was
+   then removed; no `.xash3d.staging-*` or `.xash3d.previous-*` trees remain.
 
 Also observed: with case-sensitive directories (our target returns true from
 `Platform_GetDirectoryCaseSensitivity`), the engine re-scans directories per
@@ -91,31 +134,20 @@ expected; worth confirming it is not repopulating every lookup.
 
 ## Prioritized blockers
 
-1. `valve/gfx` filesystem-scan stack smash (fixed `pc=0x7eeffa2d0`). Bisect
-   `gfx/`'s 8 entries to the file, and audit the engine's `FS_FixFileCase` /
-   `FS_PopulateDirEntries` path over an index-backed directory with subdirs.
-2. `ref_soft` init fault, then the `ref_null` HUD/font fault. Decide whether
+1. `ref_soft` init fault, then the `ref_null` HUD/font fault. Decide whether
    the gate-2 harness uses `ref_null` (accepting no textures) purely to prove
    the frame loop, and defer real rasterization to `ref_agc` in gate 3.
-3. The excessive re-scan (case-fix cache reuse).
+2. The excessive re-scan (case-fix cache reuse).
 
 ## Next iteration
-## Next iteration
 
-1. The crash reporter now walks the faulting thread's stack (from `mc_rsp`,
-   falling back to the handler frame) and prints every return address inside
-   `eboot.bin` as an offset from `main`, so the next run yields a backtrace
-   that `llvm-symbolizer --obj build/engine-boot/llvm-pie.elf` resolves.
-2. Split the trigger: stage subset + WADs + `gfx/` only, then + `resource/`
-   only, to name the directory, then bisect to the file.
-3. Likely areas given the timing: `FS_InitStdio` enumerating game
-   subdirectories (`listdirectory` + `FS_SysFolderExists` + `FS_ParseGameInfo`)
-   or the per-directory case-fix cache (`FS_PopulateDirEntries` in
-   `filesystem/dir.c`) over a directory whose entries our index-backed
-   `readdir` returns; verify our synthesized `dirent` records for `gfx/env`,
-   `gfx/vgui`, `gfx/shell` and the `resource/` tree against what the engine
-   expects (`d_reclen` rounding, `d_type`, name termination).
+1. Preserve the complete-tree filesystem run as the Phase 5 FS evidence and
+   keep the generated trace path selectable for future single-file probes.
+2. Continue the Phase 5 platform gates (input, audio, direct memory,
+   threads/time, frametime telemetry, and libc shims) independently of this
+   Phase 6 client integration harness.
+3. Resume the client/ref renderer work only under the Phase 6 boundary.
 
-Game data for this gate does not need the full 541 MB; a curated render set
-(subset + WADs + `gfx/` + `resource/`) reproduces the blocker and is faster to
-iterate.
+A curated render set (subset + WADs + `gfx/` + `resource/`) is sufficient to
+reproduce the historical libc fault. The accepted complete-tree filesystem
+gate uses the full 541 MB dataset and its 4,823-entry index.

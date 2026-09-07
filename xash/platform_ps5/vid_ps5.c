@@ -12,11 +12,11 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
-Phase 5 gate 2 runs the client engine without a display. The window hooks
+The early Phase 6 diagnostic runs the client engine without a display. The window hooks
 report one fixed mode; the software-renderer buffer lives in ordinary memory
 and every frame the renderer presents is hashed into the telemetry stream,
 so a headless run still proves that the engine drew something and what.
-The AGC renderer of the next gate replaces this file's presentation path.
+The Phase 6 AGC renderer replaces this file's presentation path.
 */
 
 #include "common.h"
@@ -198,4 +198,3 @@ platform_orientation_t Platform_GetDisplayOrientation( void )
 {
 	return ORIENTATION_UNKNOWN;
 }
-
