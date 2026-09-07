@@ -21,7 +21,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 2 — Resource foundation | Complete | Fence-retired pool, two-slot transient ring, V#/T#/S# descriptors, per-frame constants, clean 60,000-frame gate |
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
-| 5 — Platform layer | In progress, engine/FS/ScePad/AudioOut/direct memory passed | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input and audio have exact native lifecycle; all C/C++ engine allocations now use a 128 MiB direct-memory arena, and its generation-tagged GPU contract passed with four representative resources, zero errors and exact teardown. Threads/time instrumentation is next |
+| 5 — Platform layer | In progress, engine/FS/ScePad/AudioOut/direct memory/threads-time passed | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread ownership, monotonic clock and sleep granularity have exact FW 12.02 evidence. GPU timestamps and VideoOut flip-latency telemetry are next |
 | 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
@@ -129,6 +129,18 @@ The fixed-VA mapping policy, allocator/GPU ownership model and accepted FW
 12.02 run are recorded in
 [`docs/DIRECT_MEMORY_PHASE5.md`](docs/DIRECT_MEMORY_PHASE5.md).
 
+Build the thread/time gate. It exercises joined and detached workers, mutex
+ownership, `CLOCK_MONOTONIC`, `nanosleep` and the engine's historical `usleep`
+surface before loading the normal engine workload:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  XASH_GATE_SECONDS=30 make engine-thread-time-native-release
+```
+
+The exact lifecycle, timing acceptance bounds and accepted FW 12.02 run are
+recorded in [`docs/THREAD_TIME_PHASE5.md`](docs/THREAD_TIME_PHASE5.md).
+
 ## Design and scope
 
 The renderer covers native initialization, direct memory, color/depth surfaces,
@@ -153,6 +165,7 @@ Useful references:
 - [`docs/SCEPAD_PHASE5.md`](docs/SCEPAD_PHASE5.md) — native ScePad contract, Xash mapping and hardware evidence
 - [`docs/SCEAUDIOOUT_PHASE5.md`](docs/SCEAUDIOOUT_PHASE5.md) — native SceAudioOut contract, the 44.1 to 48 kHz conversion and hardware evidence
 - [`docs/DIRECT_MEMORY_PHASE5.md`](docs/DIRECT_MEMORY_PHASE5.md) — direct-memory engine arena, GPU lifetime contract and exact teardown
+- [`docs/THREAD_TIME_PHASE5.md`](docs/THREAD_TIME_PHASE5.md) — pthread ownership, monotonic clock and sleep-granularity gate
 - [`docs/GOLDSRC_RENDER_STATES_PHASE4.md`](docs/GOLDSRC_RENDER_STATES_PHASE4.md) — Phase 4 state space, gate order and current checkpoint
 - [`docs/BACKEND_PROVENANCE.md`](docs/BACKEND_PROVENANCE.md) — source provenance boundary
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — hardware evidence

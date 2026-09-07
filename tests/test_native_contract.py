@@ -24,6 +24,12 @@ def main() -> None:
     memory_gate = (
         ROOT / "xash/platform_ps5/memory_gate_ps5.c"
     ).read_text(encoding="utf-8")
+    thread_time = (
+        ROOT / "xash/platform_ps5/thread_time_ps5.c"
+    ).read_text(encoding="utf-8")
+    thread_time_gate = (
+        ROOT / "xash/platform_ps5/thread_time_gate_ps5.c"
+    ).read_text(encoding="utf-8")
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
@@ -100,6 +106,31 @@ def main() -> None:
     if "engine-memory-native-release" not in makefile or \
             "XASH_MEMORY_GATE=1" not in makefile:
         raise SystemExit("direct-memory release target missing")
+    for item in (
+        "pthread_create(", "pthread_join(", "pthread_detach(",
+        "pthread_mutex_init(", "pthread_mutex_destroy(",
+        "clock_gettime( CLOCK_MONOTONIC", "nanosleep(", "usleep(",
+        "PS5_THREAD_TIME_CLOCK_SAMPLES", "PS5_THREAD_TIME_SLEEP_SAMPLES",
+    ):
+        if item not in thread_time:
+            raise SystemExit(f"thread/time core contract missing: {item}")
+    for item in (
+        "XASH_THREAD_TIME_BEGIN schema=1", "XASH_THREAD_RESULT schema=1",
+        "XASH_CLOCK_RESULT schema=1", "XASH_SLEEP_RESULT schema=1",
+        "XASH_THREAD_TIME_COMPLETE schema=1", "ownership=exact",
+    ):
+        if item not in thread_time_gate:
+            raise SystemExit(f"thread/time telemetry contract missing: {item}")
+    for item in (
+        "XASH_THREAD_TIME_GATE", "#define PS5_XASH_THREAD_TIME_GATE $thread_time_gate",
+        "xash/platform_ps5/thread_time_ps5.c", "pthread_join", "nanosleep",
+        "usleep",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"thread/time build contract missing: {item}")
+    if "engine-thread-time-native-release" not in makefile or \
+            "XASH_THREAD_TIME_GATE=1" not in makefile:
+        raise SystemExit("thread/time release target missing")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

@@ -848,6 +848,38 @@ records and bulk-reclaims that root-owned class only after guards pass and all
 GPU ownership has ended. The gate proves allocator semantics and representative
 resource lifetime; real `ref_agc` binding remains Phase 6.
 
+## Phase 5 threads and monotonic-time gate
+
+- Run: `20260907T220548886Z_PPSA99996_xash3d-engine_0xcb2ce47a2f65`
+- fSELF SHA-256:
+  `cd691f19664e44cd8cd6cfb9b019f5b6794f7a8410470a77ba86aec11e95bdde`
+- Linked ELF SHA-256:
+  `3e22c9f8d686dee19f94a4780e7494ccc6e0e9312c98662b854ee4c4e7b75bbf`
+- Transcript/manifest SHA-256:
+  `45a5cb16d0f1fd2123db8075626c2007e7a01948609f14a1f31fc7a01146a50b`
+- Engine/hlsdk commits: `9aa39ad` / `e277ffa`; map `c1a0`
+- Worker ownership: create / join / detach = 2 / 1 / 1, all rc 0; two
+  distinct workers completed before mutex destruction
+- Mutex-protected counter: 32,768 / 32,768; mutex errors 0
+- Monotonic clock: 8,192 reads, 8,191 advances, zero errors/regressions,
+  minimum step 801 ns, observed span 7,221,259 ns
+- Sleep surface: 16 samples for each API/duration pair; both `nanosleep` and
+  `usleep` passed 1, 2, 5 and 10 ms with zero errors and zero early wakes
+- Engine workload: complete 4,823-entry index and `c1a0` for 30 seconds;
+  `Host_Main` result 0
+- Inherited memory gate: 35,632,244-byte peak, final zero ownership and exact
+  reserve/allocate/map/unmap/release with zero failures
+- Transport: 37 structured records, no gaps, clean
+  `BYE reason=xash-engine-boot-complete`
+
+The validator was invoked with `--thread-time-gate`; it requires every marker,
+the exact pthread lifecycle and counter, positive monotonic progress, all eight
+sleep buckets, zero errors/early wakes, the normal engine exit and the matching
+immutable manifest. The build's 171 imports contain 35 hardware-pass entries,
+three fail-guarded entries and 133 exported-only entries; no banned import is
+present. Temporary remote backups were deleted only after acceptance, leaving
+the passing `PPSA99996` executable installed.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

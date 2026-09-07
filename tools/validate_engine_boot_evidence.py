@@ -289,6 +289,81 @@ def validate_memory_gate(messages: list[str]) -> dict[str, str]:
     return summary
 
 
+def validate_thread_time_gate(messages: list[str]) -> dict[str, str]:
+    """Validate pthread lifecycle, CLOCK_MONOTONIC and measured sleeps."""
+    begin = one(messages, "XASH_THREAD_TIME_BEGIN")
+    thread = one(messages, "XASH_THREAD_RESULT")
+    clock = one(messages, "XASH_CLOCK_RESULT")
+    complete = one(messages, "XASH_THREAD_TIME_COMPLETE")
+    sleeps = [parse_fields(message) for message in messages
+              if message.startswith("XASH_SLEEP_RESULT ")]
+
+    for name, fields in (("begin", begin), ("thread", thread),
+                         ("clock", clock), ("complete", complete)):
+        if fields.get("schema") != "1":
+            fail(f"thread/time {name} marker is not schema 1")
+    expected_begin = {
+        "workers": "2", "iterations": "16384", "clock_samples": "8192",
+        "sleep_samples": "16", "sleep_buckets": "8",
+    }
+    if any(begin.get(key) != value for key, value in expected_begin.items()):
+        fail("thread/time workload contract mismatch")
+
+    exact_thread = {
+        "create_calls": "2", "create_join_rc": "0", "create_detach_rc": "0",
+        "join_calls": "1", "join_rc": "0", "detach_calls": "1",
+        "detach_rc": "0", "completions": "2", "detached_complete": "1",
+        "distinct": "2", "mutex_init_rc": "0", "mutex_destroy_rc": "0",
+        "mutex_errors": "0", "counter": "32768", "expected": "32768",
+        "ownership": "exact", "pass": "1",
+    }
+    if any(thread.get(key) != value for key, value in exact_thread.items()):
+        fail("pthread execution or exact teardown contract mismatch")
+
+    if clock.get("clock") != "monotonic" or clock.get("reads") != "8192" \
+            or clock.get("errors") != "0" or clock.get("regressions") != "0" \
+            or clock.get("pass") != "1":
+        fail("monotonic clock contract mismatch")
+    for field in ("advances", "min_step_ns", "span_ns"):
+        if int(clock.get(field, "0"), 10) <= 0:
+            fail(f"monotonic clock lacks positive {field}")
+
+    expected_sleeps = {(api, requested) for api in ("nanosleep", "usleep")
+                       for requested in (1000, 2000, 5000, 10000)}
+    observed_sleeps: set[tuple[str, int]] = set()
+    if len(sleeps) != 8:
+        fail(f"expected 8 sleep buckets, found {len(sleeps)}")
+    for sleep in sleeps:
+        if sleep.get("schema") != "1" or sleep.get("samples") != "16" \
+                or sleep.get("errors") != "0" or sleep.get("early") != "0" \
+                or sleep.get("pass") != "1":
+            fail("sleep bucket reports an error or early wake")
+        api = sleep.get("api", "")
+        requested = int(sleep.get("requested_us", "0"), 10)
+        observed_sleeps.add((api, requested))
+        minimum = int(sleep.get("min_ns", "0"), 10)
+        average = int(sleep.get("average_ns", "0"), 10)
+        p95 = int(sleep.get("p95_ns", "0"), 10)
+        maximum = int(sleep.get("max_ns", "0"), 10)
+        if not 0 < minimum <= average <= maximum or not minimum <= p95 <= maximum:
+            fail("sleep distribution fields are inconsistent")
+        if minimum + 50_000 < requested * 1000:
+            fail("sleep bucket woke earlier than its tolerance")
+        if maximum > 500_000_000:
+            fail("sleep bucket exceeded the bounded scheduler allowance")
+    if observed_sleeps != expected_sleeps:
+        fail("sleep API/request matrix mismatch")
+
+    exact_complete = {
+        "create": "2", "join": "1", "detach": "1", "workers": "2",
+        "counter": "32768", "clock_regressions": "0", "sleep_errors": "0",
+        "sleep_early": "0", "ownership": "exact", "pass": "1",
+    }
+    if any(complete.get(key) != value for key, value in exact_complete.items()):
+        fail("thread/time completion contract failed")
+    return complete
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -299,6 +374,7 @@ def validate(
     pad_gate: bool = False,
     audio_gate: bool = False,
     memory_gate: bool = False,
+    thread_time_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -385,6 +461,8 @@ def validate(
         fail("SceAudioOut gate was not enabled in the artifact")
     if memory_gate and boot.get("memory_gate") != "1":
         fail("direct-memory gate was not enabled in the artifact")
+    if thread_time_gate and boot.get("thread_time_gate") != "1":
+        fail("thread/time gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -392,6 +470,9 @@ def validate(
     if memory_gate and (exit_fields.get("memory_gate") != "1" or
                         exit_fields.get("memory_pass") != "1"):
         fail("direct-memory result was not successful")
+    if thread_time_gate and (exit_fields.get("thread_time_gate") != "1" or
+                             exit_fields.get("thread_time_pass") != "1"):
+        fail("thread/time result was not successful")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -426,6 +507,10 @@ def validate(
     memory_summary: dict[str, str] | None = None
     if memory_gate:
         memory_summary = validate_memory_gate(messages)
+
+    thread_time_complete: dict[str, str] | None = None
+    if thread_time_gate:
+        thread_time_complete = validate_thread_time_gate(messages)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -512,6 +597,11 @@ def validate(
         if memory_summary else 0,
         "memory_alloc_calls": int(memory_summary["alloc_calls"], 10)
         if memory_summary else 0,
+        "thread_time_gate": thread_time_gate,
+        "thread_time_workers": int(thread_time_complete["workers"], 10)
+        if thread_time_complete else 0,
+        "thread_time_counter": int(thread_time_complete["counter"], 10)
+        if thread_time_complete else 0,
     }
 
 
@@ -525,6 +615,7 @@ def main() -> int:
     parser.add_argument("--pad-gate", action="store_true")
     parser.add_argument("--audio-gate", action="store_true")
     parser.add_argument("--memory-gate", action="store_true")
+    parser.add_argument("--thread-time-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -539,6 +630,7 @@ def main() -> int:
             pad_gate=args.pad_gate,
             audio_gate=args.audio_gate,
             memory_gate=args.memory_gate,
+            thread_time_gate=args.thread_time_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

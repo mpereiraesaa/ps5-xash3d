@@ -146,8 +146,9 @@
 - [x] Route C/C++ engine allocations through a guarded 128 MiB direct-memory
   arena; prove generation-tagged GPU-resource retirement and exact root teardown
   on FW 12.02.
-- [ ] Measure pthread lifecycle, monotonic-clock behavior and sleep granularity
-  on the engine host, preserving exact thread ownership and shutdown.
+- [x] Measure pthread lifecycle, monotonic-clock behavior and sleep granularity
+  on the engine host; pass joined/detached ownership, 32,768 locked increments,
+  8,192 monotonic reads and all eight 1–10 ms sleep buckets on FW 12.02.
 - [ ] Add GPU end-of-pipe timestamps and VideoOut flip-latency telemetry to the
   Phase 4 backend for the later `ref_agc` integration.
 - [ ] Close the remaining `__assert`, identity-without-`getpwuid` and

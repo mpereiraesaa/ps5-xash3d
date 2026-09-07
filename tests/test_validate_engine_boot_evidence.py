@@ -23,6 +23,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   mode: str = "dedicated", nonzero: int = 1,
                   pad_gate: bool = False, audio_gate: bool = False,
                   memory_gate: bool = False, memory_failures: int = 0,
+                  thread_time_gate: bool = False,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -33,7 +34,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
         ("MARK", f"XASH_BOOT schema=1 slice=engine-boot mode={mode} ref={ref} fw=12.02 "
                  f"engine={ENGINE} hlsdk={HLSDK} rodir=/app0/xash3d basedir=/download0/xash3d "
                  f"gamedir=valve map=c1a0 gate_seconds=90 pad_gate={int(pad_gate)} "
-                 f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} rodir_present=1"),
+                 f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} "
+                 f"thread_time_gate={int(thread_time_gate)} rodir_present=1"),
     ]
     if mode == "client":
         structured.append(("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
@@ -131,8 +133,34 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                      "retiring_gpu=0 lifetime_reclaims=8 lifetime_bytes=22565 "
                      "ownership=exact pass=1"),
         ]
+    if thread_time_gate:
+        structured += [
+            ("MARK", "XASH_THREAD_TIME_BEGIN schema=1 workers=2 iterations=16384 "
+                     "clock_samples=8192 sleep_samples=16 sleep_buckets=8"),
+            ("MARK", "XASH_THREAD_RESULT schema=1 create_calls=2 create_join_rc=0 "
+                     "create_detach_rc=0 join_calls=1 join_rc=0 detach_calls=1 "
+                     "detach_rc=0 completions=2 detached_complete=1 distinct=2 "
+                     "mutex_init_rc=0 mutex_destroy_rc=0 mutex_errors=0 "
+                     "counter=32768 expected=32768 ownership=exact pass=1"),
+            ("MARK", "XASH_CLOCK_RESULT schema=1 clock=monotonic reads=8192 "
+                     "advances=8191 min_step_ns=20 span_ns=163820 errors=0 "
+                     "regressions=0 pass=1"),
+        ]
+        for api in ("nanosleep", "usleep"):
+            for requested in (1000, 2000, 5000, 10000):
+                minimum = requested * 1000
+                structured.append(("MARK", f"XASH_SLEEP_RESULT schema=1 api={api} "
+                                           f"requested_us={requested} samples=16 "
+                                           f"min_ns={minimum} average_ns={minimum + 50000} "
+                                           f"p95_ns={minimum + 90000} max_ns={minimum + 100000} "
+                                           "errors=0 early=0 pass=1"))
+        structured.append(("MARK", "XASH_THREAD_TIME_COMPLETE schema=1 create=2 "
+                                   "join=1 detach=1 workers=2 counter=32768 "
+                                   "clock_regressions=0 sleep_errors=0 sleep_early=0 "
+                                   "ownership=exact pass=1"))
     structured.append(("MARK", f"XASH_EXIT result={exit_result} "
-                               f"memory_gate={int(memory_gate)} memory_pass=1"))
+                               f"memory_gate={int(memory_gate)} memory_pass=1 "
+                               f"thread_time_gate={int(thread_time_gate)} thread_time_pass=1"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -179,7 +207,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
 def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   pad_gate: bool = False,
                   audio_gate: bool = False,
-                  memory_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  memory_gate: bool = False,
+                  thread_time_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -189,6 +218,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--audio-gate")
     if memory_gate:
         command.append("--memory-gate")
+    if thread_time_gate:
+        command.append("--thread-time-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -252,6 +283,19 @@ def main() -> int:
             make_evidence(directory, memory_gate=True, memory_failures=1),
             memory_gate=True)
         assert memory_failure.returncode != 0 and "failures" in memory_failure.stderr
+
+        thread_time = run_validator(
+            make_evidence(directory, thread_time_gate=True),
+            thread_time_gate=True)
+        assert thread_time.returncode == 0, thread_time.stderr
+        thread_summary = json.loads(thread_time.stdout)
+        assert thread_summary["thread_time_gate"]
+        assert thread_summary["thread_time_workers"] == 2
+        assert thread_summary["thread_time_counter"] == 32768
+        missing_thread_time = run_validator(
+            make_evidence(directory), thread_time_gate=True)
+        assert missing_thread_time.returncode != 0 \
+            and "not enabled" in missing_thread_time.stderr
 
         underrun = run_validator(
             make_evidence(directory, audio_gate=True, audio_underruns=1), audio_gate=True)

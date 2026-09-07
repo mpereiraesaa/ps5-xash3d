@@ -36,6 +36,8 @@
 #                          mode (compile/link proof only, default 0)
 #   XASH_MEMORY_GATE       exercise the direct-memory engine arena and the
 #                          generation-tagged GPU resource contract (default 0)
+#   XASH_THREAD_TIME_GATE  exercise the engine's pthread surface, monotonic
+#                          clock and measured nanosleep/usleep timing (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -56,6 +58,7 @@ audio_user=${XASH_AUDIO_USER:-system}
 audio_gate_frames=${XASH_AUDIO_GATE_FRAMES:-0}
 audio=${XASH_AUDIO:-0}
 memory_gate=${XASH_MEMORY_GATE:-0}
+thread_time_gate=${XASH_THREAD_TIME_GATE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -65,6 +68,7 @@ ref_name=${XASH_REF:-soft}
 [[ $audio_gate == 0 || $audio_gate == 1 ]] || { echo "XASH_AUDIO_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio == 0 || $audio == 1 ]] || { echo "XASH_AUDIO must be 0 or 1" >&2; exit 2; }
 [[ $memory_gate == 0 || $memory_gate == 1 ]] || { echo "XASH_MEMORY_GATE must be 0 or 1" >&2; exit 2; }
+[[ $thread_time_gate == 0 || $thread_time_gate == 1 ]] || { echo "XASH_THREAD_TIME_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -178,6 +182,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_AUDIO "$audio_user"
 #define PS5_XASH_AUDIO_GATE_FRAMES $audio_gate_frames
 #define PS5_XASH_MEMORY_GATE $memory_gate
+#define PS5_XASH_THREAD_TIME_GATE $thread_time_gate
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -308,6 +313,7 @@ engine_sources=$(
     echo "$root/xash/platform_ps5/fs_ps5.c"
     echo "$root/xash/platform_ps5/mem_ps5.c"
 	echo "$root/xash/platform_ps5/memory_arena_ps5.c"
+	echo "$root/xash/platform_ps5/thread_time_ps5.c"
 	echo "$root/xash/platform_ps5/in_ps5.c"
     if [[ $audio_gate == 1 || $audio == 1 ]]; then
         echo "$root/xash/platform_ps5/audio_ps5.c"
@@ -318,6 +324,9 @@ engine_sources=$(
     fi
     if [[ $memory_gate == 1 ]]; then
         echo "$root/xash/platform_ps5/memory_gate_ps5.c"
+    fi
+    if [[ $thread_time_gate == 1 ]]; then
+        echo "$root/xash/platform_ps5/thread_time_gate_ps5.c"
     fi
     if [[ $mode == client ]]; then
         find "$xash/engine/client" -name '*.c'
@@ -610,6 +619,24 @@ if [[ $memory_gate == 1 ]]; then
         fi
     done
 fi
+if [[ $thread_time_gate == 1 ]]; then
+    for symbol in clock_gettime nanosleep usleep pthread_create pthread_join \
+        pthread_detach pthread_self pthread_equal pthread_mutex_init \
+        pthread_mutex_lock pthread_mutex_unlock pthread_mutex_destroy; do
+        if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+            echo "XASH_THREAD_TIME_GATE=1 did not retain the $symbol dynamic import" >&2
+            exit 1
+        fi
+    done
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_THREAD_TIME_BEGIN XASH_THREAD_RESULT XASH_CLOCK_RESULT \
+        XASH_SLEEP_RESULT XASH_THREAD_TIME_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_THREAD_TIME_GATE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+fi
 if [[ $libc_smoke == 1 ]]; then
     for symbol in strcasecmp strnlen strlcpy strlcat; do
         if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
@@ -670,4 +697,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate"

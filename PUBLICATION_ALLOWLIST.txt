@@ -321,3 +321,8 @@ xash/exports/menu.txt
 xash/exports/ref.txt
 xash/platform_ps5/vid_ps5.c
 docs/ENGINE_BOOT_PHASE5_GATE2.md
+docs/THREAD_TIME_PHASE5.md
+tests/test_thread_time_ps5.c
+xash/platform_ps5/thread_time_gate_ps5.c
+xash/platform_ps5/thread_time_ps5.c
+xash/platform_ps5/thread_time_ps5.h
