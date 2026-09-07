@@ -590,6 +590,44 @@ controller state was observed but not a success dependency. No Remote Play
 capture was required: actual post-retirement framebuffer measurements bind the
 visibility reduction to stable visible output. `PPSA99998` remained absent.
 
+## Phase 4 final integrated gate
+
+- Run: `20260907T020656141Z_PPSA99996_ps5-xash3d_0x89c0f978ef68`
+- Native ELF SHA-256:
+  `d5499ae773f72e99a2eb7082206a04cb7deb00e43d6bbd463d7ecceb6c685dee`
+- Signed fSELF SHA-256:
+  `8af678d50024aa09caeae82abc97101d9f4fd859a7f7ac11420e783461054de0`
+- Private BSP bundle SHA-256/bytes:
+  `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa` /
+  9,971,952
+- Private Studio bundle SHA-256/bytes:
+  `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31` /
+  93,952
+- Transcript/server-manifest SHA-256:
+  `0bbccaee2e59eb8f516a29296300fb4f061fa2151aa22ceadf3c511a2b298f9f` /
+  `a08dd9d7b851f75e8f22d875358cac76f933246a50821c38759fb2c9c16feebe`
+- Requested/completed: 60,000/60,000 in one process
+- Final combined draws: world 362, brush 69, Studio 12, effects 3, screen 2
+- Final brush scene: five real submodels, including `func_water` entity 65
+  (35 draws/312 indices) and `glass_med` entity 27 (6 draws/36 indices)
+- Final dynamic work: 48 lit luxels, 704-byte atlas patch and 86,810 transient
+  bytes inside each 131,072-byte retired slot
+- Post-retirement framebuffer readbacks: 2, both slots
+- GPU fences/VideoOut tokens: zero/exact before readback and reuse
+- Resource guards/reclaimed allocations/renderer errors: intact/6/0
+- Teardown: 2,613 gap-free records, dedicated BYE, exact `PPSA99996` closure,
+  no remaining BigApp and four healthy payload services
+
+The final validator accepted the immutable manifest against both exact private
+bundle identities. A compositor-visible capture from this artifact shows the
+map with source water/glass brush content, transient effects, animated Studio
+instances and the blended 2D overlay; its SHA-256 is
+`751d0fee9d54bb815acf3a5edc1ded8981cce0aca3f07b83ae4ff2344a8800a1`.
+World work is filtered by real BSP PVS plus draw-AABB frustum tests; inline
+brush submodels retain their independently transformed render path. Chiaki
+used only its registered CLI entry and closed by exact PID. `PPSA99998`
+remained absent. This gate closes Phase 4.
+
 ## Continuous production-runtime evidence
 
 The production lifecycle has no frame limit and is closed by the PS5

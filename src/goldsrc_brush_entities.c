@@ -91,7 +91,7 @@ static void entity_counts(const BspBundleView *bundle,
 }
 
 static int find_candidate(const BspBundleView *bundle, uint32_t desired_mode,
-                          const uint32_t selected[3], uint32_t selected_count,
+                          const uint32_t *selected, uint32_t selected_count,
                           uint32_t *entity_out, uint32_t *draws_out,
                           uint32_t *indices_out)
 {
@@ -103,6 +103,54 @@ static int find_candidate(const BspBundleView *bundle, uint32_t desired_mode,
             duplicate |= selected[prior] == index;
         if (duplicate || (desired_mode != UINT32_MAX &&
                           entity->render_mode != desired_mode))
+            continue;
+        uint32_t draws;
+        uint32_t indices;
+        entity_counts(bundle, entity, &draws, &indices);
+        if (draws != 0u && indices != 0u) {
+            *entity_out = index;
+            *draws_out = draws;
+            *indices_out = indices;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int entity_uses_texture(const BspBundleView *bundle,
+                               const BspBundleBrushEntity *entity,
+                               uint32_t texture_name_hash)
+{
+    const uint32_t end = entity->first_face + entity->face_count;
+    for (uint32_t draw = 0u; draw < bundle->draw_count; ++draw) {
+        const BspBundleDraw *const source = &bundle->draws[draw];
+        if (source->face_id >= entity->first_face &&
+            source->face_id < end &&
+            source->base_texture < bundle->texture_count &&
+            bundle->textures[source->base_texture].name_hash ==
+                texture_name_hash)
+            return 1;
+    }
+    return 0;
+}
+
+static int find_scene_candidate(
+    const BspBundleView *bundle, uint32_t classname_hash,
+    uint32_t texture_name_hash, const uint32_t *selected,
+    uint32_t selected_count, uint32_t *entity_out, uint32_t *draws_out,
+    uint32_t *indices_out)
+{
+    for (uint32_t index = 0u; index < bundle->brush_entity_count; ++index) {
+        const BspBundleBrushEntity *const entity =
+            &bundle->brush_entities[index];
+        int duplicate = 0;
+        for (uint32_t prior = 0u; prior < selected_count; ++prior)
+            duplicate |= selected[prior] == index;
+        if (duplicate ||
+            (classname_hash != 0u &&
+             entity->classname_hash != classname_hash) ||
+            (texture_name_hash != 0u &&
+             !entity_uses_texture(bundle, entity, texture_name_hash)))
             continue;
         uint32_t draws;
         uint32_t indices;
@@ -140,7 +188,44 @@ int goldsrc_brush_plan_build(GoldSrcBrushPlan *out,
         out->source_render_modes[instance] = entity->render_mode;
         out->classname_hashes[instance] = entity->classname_hash;
     }
+    out->instance_count = GOLDSRC_BRUSH_INSTANCE_COUNT;
     return 0;
+}
+
+int goldsrc_brush_phase4_scene_plan_extend(GoldSrcBrushPlan *plan,
+                                           const BspBundleView *bundle)
+{
+    /* FNV-1a32("func_water") and FNV-1a32("glass_med"). */
+    static const uint32_t water_class = UINT32_C(0xd5807c07);
+    static const uint32_t glass_texture = UINT32_C(0x10944ba2);
+    if (!plan || !bundle || plan->instance_count !=
+            GOLDSRC_BRUSH_INSTANCE_COUNT)
+        return -1;
+    if (find_scene_candidate(
+            bundle, water_class, 0u, plan->entity_indices,
+            plan->instance_count,
+            &plan->entity_indices[GOLDSRC_BRUSH_INSTANCE_WATER],
+            &plan->draw_counts[GOLDSRC_BRUSH_INSTANCE_WATER],
+            &plan->index_counts[GOLDSRC_BRUSH_INSTANCE_WATER]) != 0)
+        return -2;
+    plan->instance_count += 1u;
+    if (find_scene_candidate(
+            bundle, 0u, glass_texture, plan->entity_indices,
+            plan->instance_count,
+            &plan->entity_indices[GOLDSRC_BRUSH_INSTANCE_GLASS],
+            &plan->draw_counts[GOLDSRC_BRUSH_INSTANCE_GLASS],
+            &plan->index_counts[GOLDSRC_BRUSH_INSTANCE_GLASS]) != 0)
+        return -3;
+    plan->instance_count += 1u;
+    for (uint32_t instance = GOLDSRC_BRUSH_INSTANCE_WATER;
+         instance < plan->instance_count; ++instance) {
+        const BspBundleBrushEntity *const entity =
+            &bundle->brush_entities[plan->entity_indices[instance]];
+        plan->source_render_modes[instance] = entity->render_mode;
+        plan->classname_hashes[instance] = entity->classname_hash;
+    }
+    return plan->instance_count ==
+        GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT ? 0 : -4;
 }
 
 static Matrix4 model_matrix(const BspBundleBrushEntity *entity,
@@ -185,7 +270,8 @@ int goldsrc_brush_frame_build(
 {
     if (!out || !plan || !bundle || !ring || slot_index >= ring->slot_count ||
         !gpu_mapping || !gpu_mapping_bytes || !camera_position ||
-        !camera_forward)
+        !camera_forward || plan->instance_count < GOLDSRC_BRUSH_INSTANCE_COUNT ||
+        plan->instance_count > GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT)
         return -1;
     memset(out, 0, sizeof(*out));
     out->mode = goldsrc_brush_mode(frame_index);
@@ -207,19 +293,25 @@ int goldsrc_brush_frame_build(
         return -2;
     const Vec3 camera_up = cross(right, forward);
     uint64_t transform_hash = UINT64_C(14695981039346656037);
-    for (uint32_t instance = 0u; instance < 3u; ++instance) {
+    for (uint32_t instance = 0u; instance < plan->instance_count; ++instance) {
         const BspBundleBrushEntity *const entity =
             &bundle->brush_entities[plan->entity_indices[instance]];
         const float phase = (float)(frame_index % 3600u) *
                             (0.0035f + 0.0007f * (float)instance);
-        const float lateral = ((float)instance - 1.0f) * 38.0f;
+        static const float lateral_offsets[
+            GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT] = {
+                -38.0f, 0.0f, 38.0f, -22.0f, 22.0f,
+            };
+        const float lateral = lateral_offsets[instance];
         const float vertical = 3.0f + 4.0f * sinf(phase * 1.7f + instance);
+        const float distance = instance < GOLDSRC_BRUSH_INSTANCE_COUNT
+            ? 100.0f : 68.0f;
         const Vec3 target = {
-            camera_position[0] + forward.x * 100.0f + right.x * lateral +
+            camera_position[0] + forward.x * distance + right.x * lateral +
                 camera_up.x * vertical,
-            camera_position[1] + forward.y * 100.0f + right.y * lateral +
+            camera_position[1] + forward.y * distance + right.y * lateral +
                 camera_up.y * vertical,
-            camera_position[2] + forward.z * 100.0f + right.z * lateral +
+            camera_position[2] + forward.z * distance + right.z * lateral +
                 camera_up.z * vertical,
         };
         const Matrix4 model = model_matrix(entity, target, phase);
@@ -240,10 +332,13 @@ int goldsrc_brush_frame_build(
         BspResourceConstants *const constants = constants_slice.cpu;
         memset(constants, 0, sizeof(*constants));
         memcpy(constants->mvp, mvp.v, sizeof(mvp.v));
-        static const float colors[3][4] = {
+        static const float colors[
+            GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT][4] = {
             {1.0f, 0.85f, 0.55f, 1.0f},
             {0.25f, 0.85f, 1.0f, 0.48f},
             {1.0f, 0.28f, 0.08f, 0.72f},
+            {0.22f, 0.58f, 1.0f, 0.42f},
+            {0.72f, 0.92f, 1.0f, 0.30f},
         };
         memcpy(constants->control, colors[instance], sizeof(colors[instance]));
         constants->debug_values[4] = (float)(frame_index & 0xffffu);
@@ -270,7 +365,9 @@ int goldsrc_brush_compose_instance(
     GoldSrcBrushComposeResult *result)
 {
     if (!cursor || !*cursor || !end || *cursor > end || !frame || !plan ||
-        !resource_frame || !bundle || instance >= 3u || !gpu_mapping ||
+        !resource_frame || !bundle ||
+        (uint32_t)instance >= GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT ||
+        (uint32_t)instance >= plan->instance_count || !gpu_mapping ||
         !gpu_mapping_bytes || !modifier || !set_sh_direct || !draw_indexed ||
         !result || !frame->constant_tables[instance] ||
         !resource_frame->map_vertex_table || !resource_frame->texture_tables)

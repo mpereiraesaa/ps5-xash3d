@@ -135,7 +135,7 @@
   a clean 10,000-frame FW 12.02 hardware gate.
 - [x] Add real world-tree PVS plus draw-AABB frustum culling; pass four modes,
   eight post-retirement readbacks and a clean 10,000-frame FW 12.02 gate.
-- [ ] Pass the complete integrated Phase 4 visual and continuous ownership
+- [x] Pass the complete integrated Phase 4 visual and continuous ownership
   soak with zero errors.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

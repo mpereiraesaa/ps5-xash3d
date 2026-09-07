@@ -198,6 +198,14 @@ int main(int argc, char **argv)
                brush.draw_counts[0], brush.draw_counts[1],
                brush.draw_counts[2], brush.index_counts[0],
                brush.index_counts[1], brush.index_counts[2]);
+        if (goldsrc_brush_phase4_scene_plan_extend(&brush, &view) == 0)
+            printf(" phase4_water=%u:%u:%u phase4_glass=%u:%u:%u",
+                   brush.entity_indices[GOLDSRC_BRUSH_INSTANCE_WATER],
+                   brush.draw_counts[GOLDSRC_BRUSH_INSTANCE_WATER],
+                   brush.index_counts[GOLDSRC_BRUSH_INSTANCE_WATER],
+                   brush.entity_indices[GOLDSRC_BRUSH_INSTANCE_GLASS],
+                   brush.draw_counts[GOLDSRC_BRUSH_INSTANCE_GLASS],
+                   brush.index_counts[GOLDSRC_BRUSH_INSTANCE_GLASS]);
     }
     if (view.lightmap_image)
         printf(" lightmap=%ux%u lightmap_pixels=%u lightmap_faces=%u "

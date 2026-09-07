@@ -388,6 +388,29 @@ def main() -> None:
     if "bsp-phase4-visibility-native-release" not in makefile or \
             "GOLDSRC_VISIBILITY_GATE=1" not in makefile:
         raise SystemExit("Phase 4 visibility release target missing")
+    for item in (
+        "GOLDSRC_PHASE4_FINAL_GATE requires GOLDSRC_PHASE4=1",
+        "GOLDSRC_PHASE4_FINAL_GATE requires STUDIO_BUNDLE",
+        "-DPS5_GOLDSRC_PHASE4_FINAL_GATE=1",
+    ):
+        if item not in builder:
+            raise SystemExit(f"Phase 4 final build contract missing: {item}")
+    for item in (
+        "BSP_TEXTURE_PATH_BOOT schema=1 slice=goldsrc-phase4-final",
+        "BSP_LOOP_BEGIN mode=goldsrc-phase4-final-soak buffers=2",
+        "GOLDSRC_PHASE4_FINAL_READY schema=1 frames=%u",
+        "GOLDSRC_PHASE4_SCENE_READY schema=1 water_entity=%u",
+        "GOLDSRC_PHASE4_FINAL_FRAME schema=1 frame=%llu slot=%u",
+        "GOLDSRC_PHASE4_FINAL_READBACK schema=1 frame=%llu",
+        "GOLDSRC_PHASE4_FINAL_COMPLETE schema=1 frames=%llu",
+        "brush_entities=true water=true ",
+        'ps5log_close("goldsrc-phase4-final-soak-complete")',
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 4 final runtime contract missing: {item}")
+    if "bsp-phase4-final-native-release" not in makefile or \
+            "GOLDSRC_PHASE4_FINAL_GATE=1" not in makefile:
+        raise SystemExit("Phase 4 final release target missing")
     for item in ("PS5_STUDIO_BUNDLE_SHA256", "PS5_STUDIO_BUNDLE_BYTES"):
         if item not in studio_metadata:
             raise SystemExit(f"studio metadata contract missing: {item}")

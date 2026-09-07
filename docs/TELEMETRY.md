@@ -175,6 +175,19 @@ from control stays within the declared 64-pixel tolerance; exact fence plus
 VideoOut retirement; six reclaimed resources; intact guards; zero errors; and
 the dedicated gap-free completion BYE.
 
+The final integrated gate adds `GOLDSRC_PHASE4_SCENE_READY`,
+`GOLDSRC_PHASE4_FINAL_READY`, four bookend `GOLDSRC_PHASE4_FINAL_FRAME` rows,
+two `GOLDSRC_PHASE4_FINAL_READBACK` rows and
+`GOLDSRC_PHASE4_FINAL_COMPLETE`. The scene row binds the selected real water
+and glass entities to their source modes, draw and index counts. Final frame
+rows bind the simultaneous lighting, effects, Studio, brush, visibility and
+2D modes to exact draw counts, changing pose/transform hashes and transient
+bytes. Acceptance requires the 60,000-frame process, a 600-frame combined
+window, both retired slots, real water/glass, all Phase 4 component bookends,
+the inherited pool/ring/lightmap/pipeline/2D completion markers, exact
+fence/VideoOut ownership, intact guards, six reclaimed allocations, zero
+errors and `goldsrc-phase4-final-soak-complete` as the gap-free BYE reason.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

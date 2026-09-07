@@ -31,32 +31,36 @@ int main(void)
     BspBundleVertex *vertices = (BspBundleVertex *)memory;
     uint16_t *indices = (uint16_t *)(memory + 256u);
     BspBundleDraw *draws = (BspBundleDraw *)(memory + 512u);
-    BspBundleTexture *texture = (BspBundleTexture *)(memory + 1024u);
+    BspBundleTexture *textures = (BspBundleTexture *)(memory + 1024u);
     BspBundleBrushEntity *entities =
         (BspBundleBrushEntity *)(memory + 1280u);
-    for (uint32_t index = 0u; index < 9u; ++index)
+    for (uint32_t index = 0u; index < 15u; ++index)
         indices[index] = (uint16_t)(index % 3u);
-    for (uint32_t index = 0u; index < 3u; ++index) {
+    for (uint32_t index = 0u; index < 5u; ++index) {
         draws[index].first_index = index * 3u;
         draws[index].index_count = 3u;
         draws[index].face_id = 10u + index;
+        draws[index].base_texture = index == 4u ? 1u : 0u;
         entities[index].model_index = index + 1u;
         entities[index].first_face = 10u + index;
         entities[index].face_count = 1u;
-        entities[index].render_mode = (uint32_t[]){0u, 2u, 5u}[index];
+        entities[index].render_mode =
+            (uint32_t[]){0u, 2u, 5u, 2u, 0u}[index];
         entities[index].mins[0] = entities[index].mins[1] =
             entities[index].mins[2] = -1.0f;
         entities[index].maxs[0] = entities[index].maxs[1] =
             entities[index].maxs[2] = 1.0f;
         entities[index].classname_hash = 100u + index;
     }
-    texture->name_hash = 1u;
+    entities[3].classname_hash = UINT32_C(0xd5807c07);
+    textures[0].name_hash = 1u;
+    textures[1].name_hash = UINT32_C(0x10944ba2);
     BspBundleView bundle = {
         .vertices = vertices, .vertex_count = 3u,
-        .indices = indices, .index_count = 9u,
-        .draws = draws, .draw_count = 3u,
-        .textures = texture, .texture_count = 1u,
-        .brush_entities = entities, .brush_entity_count = 3u,
+        .indices = indices, .index_count = 15u,
+        .draws = draws, .draw_count = 5u,
+        .textures = textures, .texture_count = 2u,
+        .brush_entities = entities, .brush_entity_count = 5u,
     };
     GoldSrcBrushPlan plan;
     assert(goldsrc_brush_plan_build(&plan, &bundle) == 0);
@@ -65,6 +69,13 @@ int main(void)
         assert(plan.draw_counts[index] == 1u);
         assert(plan.index_counts[index] == 3u);
     }
+    assert(plan.instance_count == GOLDSRC_BRUSH_INSTANCE_COUNT);
+    assert(goldsrc_brush_phase4_scene_plan_extend(&plan, &bundle) == 0);
+    assert(plan.instance_count == GOLDSRC_BRUSH_PHASE4_SCENE_INSTANCE_COUNT);
+    assert(plan.entity_indices[GOLDSRC_BRUSH_INSTANCE_WATER] == 3u);
+    assert(plan.entity_indices[GOLDSRC_BRUSH_INSTANCE_GLASS] == 4u);
+    assert(plan.draw_counts[GOLDSRC_BRUSH_INSTANCE_WATER] == 1u);
+    assert(plan.draw_counts[GOLDSRC_BRUSH_INSTANCE_GLASS] == 1u);
     Ps5TransientRing ring;
     assert(ps5_transient_ring_init(&ring, memory + 4096u,
                                    sizeof(memory) - 4096u, 2u, 256u) ==

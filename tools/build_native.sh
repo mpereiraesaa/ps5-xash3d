@@ -49,6 +49,7 @@ goldsrc_sprite_particle_gate=${GOLDSRC_SPRITE_PARTICLE_GATE:-0}
 goldsrc_studio_gate=${GOLDSRC_STUDIO_GATE:-0}
 goldsrc_brush_gate=${GOLDSRC_BRUSH_GATE:-0}
 goldsrc_visibility_gate=${GOLDSRC_VISIBILITY_GATE:-0}
+goldsrc_phase4_final_gate=${GOLDSRC_PHASE4_FINAL_GATE:-0}
 studio_bundle=${STUDIO_BUNDLE:-}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
@@ -83,6 +84,26 @@ bsp_flags=()
 [[ $goldsrc_phase4 == 0 || $goldsrc_phase4 == 1 ]] || {
     echo "GOLDSRC_PHASE4 must be 0 or 1" >&2; exit 2;
 }
+[[ $goldsrc_phase4_final_gate == 0 ||
+   $goldsrc_phase4_final_gate == 1 ]] || {
+    echo "GOLDSRC_PHASE4_FINAL_GATE must be 0 or 1" >&2; exit 2;
+}
+if [[ $goldsrc_phase4_final_gate == 1 && $goldsrc_phase4 != 1 ]]; then
+    echo "GOLDSRC_PHASE4_FINAL_GATE requires GOLDSRC_PHASE4=1" >&2
+    exit 2
+fi
+if [[ $goldsrc_phase4_final_gate == 1 && -z $studio_bundle ]]; then
+    echo "GOLDSRC_PHASE4_FINAL_GATE requires STUDIO_BUNDLE" >&2
+    exit 2
+fi
+if [[ $goldsrc_phase4_final_gate == 1 ]]; then
+    goldsrc_2d_gate=1
+    goldsrc_lighting_gate=1
+    goldsrc_sprite_particle_gate=1
+    goldsrc_studio_gate=1
+    goldsrc_brush_gate=1
+    goldsrc_visibility_gate=1
+fi
 [[ $goldsrc_viewport_gate == 0 || $goldsrc_viewport_gate == 1 ]] || {
     echo "GOLDSRC_VIEWPORT_GATE must be 0 or 1" >&2; exit 2;
 }
@@ -140,7 +161,8 @@ if [[ $goldsrc_visibility_gate == 1 && $goldsrc_phase4 != 1 ]]; then
     echo "GOLDSRC_VISIBILITY_GATE requires GOLDSRC_PHASE4=1" >&2
     exit 2
 fi
-if ((goldsrc_viewport_gate + goldsrc_state_matrix_gate +
+if [[ $goldsrc_phase4_final_gate != 1 ]] &&
+   ((goldsrc_viewport_gate + goldsrc_state_matrix_gate +
      goldsrc_2d_gate + goldsrc_lighting_gate +
      goldsrc_sprite_particle_gate + goldsrc_studio_gate +
      goldsrc_brush_gate + goldsrc_visibility_gate > 1)); then
@@ -268,6 +290,9 @@ if [[ -n $bsp_bundle ]]; then
     fi
     if [[ $goldsrc_visibility_gate == 1 ]]; then
         bsp_flags+=(-DPS5_GOLDSRC_VISIBILITY_GATE=1)
+    fi
+    if [[ $goldsrc_phase4_final_gate == 1 ]]; then
+        bsp_flags+=(-DPS5_GOLDSRC_PHASE4_FINAL_GATE=1)
     fi
 fi
 

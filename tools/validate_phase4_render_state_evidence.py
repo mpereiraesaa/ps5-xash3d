@@ -98,7 +98,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
                 "reason=goldsrc-phase4-sprite-particle-soak-complete",
                 "reason=goldsrc-phase4-studio-soak-complete",
                 "reason=goldsrc-phase4-brush-soak-complete",
-                "reason=goldsrc-phase4-visibility-soak-complete")):
+                "reason=goldsrc-phase4-visibility-soak-complete",
+                "reason=goldsrc-phase4-final-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:

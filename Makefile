@@ -15,7 +15,7 @@ STUDIO_SEQUENCE ?= fire
 	bsp-phase4-lighting-native-release \
 	bsp-phase4-sprite-particles-native-release \
 	bsp-phase4-studio-native-release bsp-phase4-brush-native-release \
-	bsp-phase4-visibility-native-release \
+	bsp-phase4-visibility-native-release bsp-phase4-final-native-release \
 	audit clean
 all: test audit
 
@@ -138,6 +138,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_texture_path_accounting_evidence.py
 	python3 tests/test_validate_texture_path_final_evidence.py
 	python3 tests/test_validate_phase4_render_state_evidence.py
+	python3 tests/test_validate_phase4_final_evidence.py
 	rm -rf build tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
@@ -336,6 +337,13 @@ bsp-phase4-visibility-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" BSP_NOCLIP=1 \
 		BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 BSP_TEXTURE_PATH=1 \
 		GOLDSRC_PHASE4=1 GOLDSRC_VISIBILITY_GATE=1 bash tools/build_native.sh
+
+bsp-phase4-final-native-release: bsp-bundle studio-bundle
+	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" \
+		STUDIO_BUNDLE="$(CURDIR)/build/studio/model.ps5mdl" \
+		BSP_NOCLIP=1 BSP_TEXTURED=1 BSP_RESOURCE_FOUNDATION=1 \
+		BSP_TEXTURE_PATH=1 GOLDSRC_PHASE4=1 \
+		GOLDSRC_PHASE4_FINAL_GATE=1 bash tools/build_native.sh
 
 audit:
 	python3 tools/audit_publication.py

@@ -307,3 +307,44 @@ Exact artifacts:
 Exact-title closure left no BigApp and all four services healthy. This closes
 implementation gate 8. The complete integrated Phase 4 ownership soak remains
 open; `PPSA99998` remains absent.
+
+The complete Phase 4 gate is now closed. The final build composes all renderer
+work in one uninterrupted 60,000-frame process: real BSP lightstyles and a
+face-local dynamic light, one sprite plus 72 particles, three animated Studio
+instances, five independently transformed brush entities, the orthographic
+HUD/console/menu/font overlay, and the world-tree PVS/frustum intersection.
+The final brush plan extends the isolated gate with source entity 65
+(`func_water`, mode 2, 35 draws/312 indices) and the `glass_med` submodel from
+entity 27 (6 draws/36 indices), so the required water and glass are real map
+content rather than synthetic proof geometry. Inline brush submodels remain on
+their independent transformed path; PVS and draw-AABB frustum filtering apply
+to the BSP world tree.
+
+Run `20260907T020656141Z_PPSA99996_ps5-xash3d_0x89c0f978ef68` completed
+60,000/60,000 frames on FW 12.02. During its final 600-frame combined window it
+issued 362 world, 69 brush, 12 Studio, 3 effect and 2 screen draws per frame;
+used 86,810 bytes of the current 131,072-byte transient slot; updated 48
+dynamic luxels through a 704-byte lightmap patch; and retained changing Studio
+pose and brush-transform hashes. Two post-retirement framebuffer readbacks
+covered both slots. The run ended with 2,613 gap-free records, exact GPU fences
+and VideoOut tokens, an exactly retired two-slot ring, six reclaimed
+allocations, intact guards, a clean dedicated BYE and zero renderer errors.
+
+Exact artifacts and evidence:
+
+- native ELF: `d5499ae773f72e99a2eb7082206a04cb7deb00e43d6bbd463d7ecceb6c685dee`;
+- signed fSELF: `8af678d50024aa09caeae82abc97101d9f4fd859a7f7ac11420e783461054de0`;
+- private enriched BSP bundle: `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa`
+  (9,971,952 bytes);
+- private Studio bundle: `d5b3a1f9b5c9035b02e678079b3586a5fe35987d55167dab27868050969b3e31`
+  (93,952 bytes);
+- transcript/manifest: `0bbccaee2e59eb8f516a29296300fb4f061fa2151aa22ceadf3c511a2b298f9f` /
+  `a08dd9d7b851f75e8f22d875358cac76f933246a50821c38759fb2c9c16feebe`;
+- compositor-visible CLI-stream capture:
+  `751d0fee9d54bb815acf3a5edc1ded8981cce0aca3f07b83ae4ff2344a8800a1`.
+
+The fail-closed final validator accepted the immutable manifest against both
+private bundle identities. Chiaki reused the registered CLI entry and was
+closed by exact PID. Exact-title closure then left no BigApp and all four
+services healthy. Xash3D remains installed as `PPSA99996`, frozen Gears remains
+`PPSA99997`, and `PPSA99998` remains absent. Phase 4 is complete.
