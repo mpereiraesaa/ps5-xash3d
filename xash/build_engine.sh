@@ -21,6 +21,8 @@
 #   XASH_REF               renderer requested in client mode (default soft)
 #   XASH_FS_TRACE          generate guarded upstream FS trace copies (default 0)
 #   XASH_FS_TRACE_PATH     exact relative path selected by the trace build
+#   XASH_LIBC_SMOKE        call four optional libc helpers at boot (default 0;
+#                          evidence-only build, never the production default)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -34,10 +36,12 @@ gate_seconds=${XASH_GATE_SECONDS:-90}
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
+libc_smoke=${XASH_LIBC_SMOKE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
 [[ $fs_trace_path =~ ^[A-Za-z0-9_./-]+$ ]] || { echo "XASH_FS_TRACE_PATH contains unsafe characters" >&2; exit 2; }
+[[ $libc_smoke == 0 || $libc_smoke == 1 ]] || { echo "XASH_LIBC_SMOKE must be 0 or 1" >&2; exit 2; }
 jobs=${XASH_JOBS:-$(nproc)}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 game_data=${XASH_GAME_DATA:-}
@@ -131,6 +135,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_MODE "$mode"
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)
 #define PS5_XASH_REF "$ref_name"
+#define PS5_XASH_LIBC_SMOKE $libc_smoke
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -155,9 +160,10 @@ engine_defines=(
     "-DXASH_GAMEDIR=\"valve\"" "-DXASH_BUILD_COMMIT=\"$engine_commit\""
     "-DXASH_BUILD_BRANCH=\"ps5\"" "-DXASH_BUILD_COMMIT_DATE=\"$engine_date\""
     "-DSTDINT_H=<stdint.h>" "-DALLOCA_H=<stdlib.h>"
-    # libc functions the SDK stubs export (checked with llvm-nm on target/lib)
-    # libSceLibcInternal exports strcasestr, but the FW 12.02 implementation
-    # faults on valid engine strings. Compile Xash's bounded portable fallback.
+    # Exported is not the same as hardware-validated. strcasestr failed its FW
+    # 12.02 execution test, so only that helper uses Xash's portable fallback.
+    # The other four stay enabled and XASH_LIBC_SMOKE=1 revalidates them by
+    # direct execution before engine startup.
     -DHAVE_STRCASECMP=1 -DHAVE_STRCASESTR=0 -DHAVE_STRNLEN=1 -DHAVE_STRLCPY=1 -DHAVE_STRLCAT=1
     # fs_ps5.c fills a valid FreeBSD d_type; let the engine trust it (waf sets this).
     -DHAVE_DIRENT_D_TYPE=1
@@ -481,10 +487,30 @@ echo "== link"
     -o "$build/llvm-pie.elf" "$build/obj/app_crt.o" "${engine_objects[@]}" \
     "${module_objects[@]}" \
     --as-needed "$sdk"/target/lib/*.so
-if "$readelf" --dyn-syms "$build/llvm-pie.elf" | grep -qw strcasestr; then
+"$readelf" --dyn-syms "$build/llvm-pie.elf" > "$build/dynamic-symbols.txt"
+if grep -qw strcasestr "$build/dynamic-symbols.txt"; then
     echo "PS5 engine must use Xash's Q_stristr fallback, not libc strcasestr" >&2
     exit 1
 fi
+if [[ $libc_smoke == 1 ]]; then
+    for symbol in strcasecmp strnlen strlcpy strlcat; do
+        if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+            echo "XASH_LIBC_SMOKE=1 did not retain the $symbol dynamic import" >&2
+            exit 1
+        fi
+    done
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_LIBC_SMOKE_BEGIN XASH_LIBC_SMOKE_END; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_LIBC_SMOKE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+fi
+python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
+    --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+    --stub-dir "$sdk/target/lib" \
+    --output "$build/PS5_DYNAMIC_IMPORT_AUDIT.md"
 "$tool" link --in "$build/llvm-pie.elf" --out "$build/eboot.elf" \
     --stub-dir "$sdk/target/lib" --module-sdk 0x02000009 \
     --companion-sdk 0x08050001 --file-name eboot.elf

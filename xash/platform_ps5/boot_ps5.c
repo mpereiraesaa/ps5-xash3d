@@ -75,6 +75,51 @@ static uint64_t now_ns( void )
 	return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
 
+#if PS5_XASH_LIBC_SMOKE
+/*
+ * Evidence-only calls through volatile pointers prevent the compiler from
+ * folding these into builtins. This gate answers whether the named FW exports
+ * used by the production engine execute correctly on representative input.
+ */
+static int probe_optional_libc( void )
+{
+	int ( *volatile system_strcasecmp )( const char *, const char * ) = strcasecmp;
+	size_t ( *volatile system_strnlen )( const char *, size_t ) = strnlen;
+	size_t ( *volatile system_strlcpy )( char *, const char *, size_t ) = strlcpy;
+	size_t ( *volatile system_strlcat )( char *, const char *, size_t ) = strlcat;
+	char copy[8] = "";
+	char cat[12] = "gfx/";
+	int rc;
+	size_t n;
+	int passed = 1;
+
+	(void)ps5log_line( PS5LOG_MARK, "XASH_LIBC_SMOKE_BEGIN schema=1 symbols=strcasecmp,strnlen,strlcpy,strlcat" );
+	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strcasecmp" );
+	rc = system_strcasecmp( "PaLeTtE.LmP", "palette.lmp" );
+	passed &= rc == 0;
+	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_RESULT symbol=strcasecmp result=%d pass=%d", rc, rc == 0 );
+
+	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strnlen" );
+	n = system_strnlen( "palette", 4 );
+	passed &= n == 4;
+	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_RESULT symbol=strnlen result=%zu pass=%d", n, n == 4 );
+
+	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strlcpy" );
+	n = system_strlcpy( copy, "palette", sizeof( copy ));
+	passed &= n == 7 && strcmp( copy, "palette" ) == 0;
+	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_RESULT symbol=strlcpy result=%zu value=%s pass=%d",
+		n, copy, n == 7 && strcmp( copy, "palette" ) == 0 );
+
+	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strlcat" );
+	n = system_strlcat( cat, "palette", sizeof( cat ));
+	passed &= n == 11 && strcmp( cat, "gfx/palette" ) == 0;
+	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_RESULT symbol=strlcat result=%zu value=%s pass=%d",
+		n, cat, n == 11 && strcmp( cat, "gfx/palette" ) == 0 );
+	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_END pass=%d", passed );
+	return passed;
+}
+#endif
+
 static void change_game_stub( const char *progname )
 {
 	(void)progname;
@@ -197,6 +242,15 @@ int main( int argc, char **argv )
 	(void)ps5log_hex64( PS5LOG_INFO, "LOG_BOOT_MONOTONIC_NS", boot_token );
 	(void)ps5log_printf( PS5LOG_INFO, "LOG_CONFIG_RESULT=%d LOG_INIT_RESULT=%d path=%s",
 		config_result, log_result, log_path ? log_path : "unavailable" );
+
+#if PS5_XASH_LIBC_SMOKE
+	if( !probe_optional_libc( ))
+	{
+		(void)ps5log_line( PS5LOG_ERR, "XASH_LIBC_SMOKE_FAILED" );
+		ps5log_close( "xash-libc-smoke-failed" );
+		_exit( 2 );
+	}
+#endif
 
 	(void)ps5log_printf( PS5LOG_INFO, "XASH_DIRINDEX root=%s entries=%d",
 		PS5_XASH_RODIR, PS5_LoadDirIndex( PS5_XASH_RODIR, PS5_XASH_RODIR "/.dirindex" ));

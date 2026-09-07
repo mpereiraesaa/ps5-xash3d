@@ -51,7 +51,7 @@ The fault signature was byte-identical across the affected builds:
 for this fault), `rbp=0x300`, `rdi=rsi=0`, faulting thread `0x880f4c540` with
 its stack at `~0x7eeff0000`. `pc` is in a system module that
 `sceKernelGetModuleList` does not enumerate (only `eboot.bin` and `libc.prx`
-come back), i.e. inside `libSceLibcInternal`/`libkernel`, operating on a bad
+come back), i.e. inside a system module, operating on a bad
 pointer the engine handed it while scanning `gfx/` or `resource/`.
 
 ## Progress on hardware (2026-09-07)
@@ -99,7 +99,8 @@ reporter, the allocator NULL-return probe and a directory-open trace (behind
    buffer returning successfully. This rejects the proposed split descriptor
    namespace: libc `lseek`, `read` and `close` all operate correctly on the
    descriptor returned by the PS5 `open` shim.
-6. **The actual fault was `strcasestr` in `libSceLibcInternal`.** Run
+6. **The actual fault was `strcasestr` routed through
+   `libScePosixForWebKit`.** Run
    `20260907T154117469Z_PPSA99996_xash3d-engine_0xb6313bc05f6a` reaches the
    `Image_LoadLMP` callback at runtime address `0x4017d0` and faults on its
    first case-insensitive substring test. Disassembly and the dynamic
@@ -125,6 +126,42 @@ reporter, the allocator NULL-return probe and a directory-open trace (behind
    active for the 90-second gate, and closes with `XASH_EXIT result=0`, zero
    large-allocation failures, and a gap-free `BYE`. The validated rollback was
    then removed; no `.xash3d.staging-*` or `.xash3d.previous-*` trees remain.
+9. **The remaining optional libc helpers pass an explicit FW 12.02
+   pre-flight.** `XASH_LIBC_SMOKE=1` forces volatile indirect calls to
+   `strcasecmp`, `strnlen`, `strlcpy` and `strlcat` before engine startup and
+   makes the build reject an ELF that does not retain all four imports and
+   both telemetry markers. The ELF
+   `f40d7c2b3cad0f56e96ef974785cbc53b4c6512bf3dd05b871ef985ed4aec7a1`
+   imports those four symbols and has no `strcasestr` dynamic symbol. Signed
+   artifact
+   `3aa7835949b1dd0f98de9fc8d6a9dec36fc16c68460617304b20eabb7cb5ce9f`
+   produced clean run
+   `20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3`: every
+   representative string operation returned its expected value, the engine
+   spawned `c1a0`, the 20-second gate ended with `XASH_EXIT result=0`, and the
+   manifest contains a gap-free `BYE`. Consequently the four validated
+   `HAVE_*` settings remain enabled; only `HAVE_STRCASESTR=0` is required.
+
+The policy is evidence-driven rather than a blanket avoidance of Prospero
+libraries. A system implementation stays selected when it passes an actual
+target smoke test. Ghidra and firmware dumps are the next inspection layer
+when a symbol fails or its ABI/provider is ambiguous, but an exported stub or
+static disassembly alone is not runtime acceptance.
+
+The linked-ELF audit is now automated by
+`xash/tools/audit_dyn_imports.py` and the evidence ledger
+`xash/ps5_import_evidence.json`. The smoke ELF currently contains 167 dynamic
+imports: 21 have hardware evidence, three known-unavailable imports are
+explicitly guarded/dormant, and 143 remain labelled `EXPORTED ONLY` until a
+future Phase 5 path exercises or individually probes them. This is the desired
+honest state: every import is visible, and no stub-table entry is silently
+treated as proof.
+
+The provider column is derived independently from the SDK stubs. It maps
+`strcasecmp`, `strnlen`, `strlcpy` and `strlcat` to
+`libSceLibcInternal.so`, while the rejected `strcasestr` symbol exists in
+`libScePosixForWebKit.so`, not `libSceLibcInternal.so`. Provider mapping is
+useful routing evidence but remains distinct from execution evidence.
 
 Also observed: with case-sensitive directories (our target returns true from
 `Platform_GetDirectoryCaseSensitivity`), the engine re-scans directories per

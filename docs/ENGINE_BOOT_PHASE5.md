@@ -145,6 +145,29 @@ an upload is verified against `build/engine-boot/eboot.elf` by prefix.
   exactly one global symbol; the interposed libc symbols are kept out of the
   dynamic symbol table by `xash/platform_ps5/app-symbols.map`.
 
+### Optional libc pre-flight
+
+`XASH_LIBC_SMOKE=1` builds an evidence-only gate that calls `strcasecmp`,
+`strnlen`, `strlcpy` and `strlcat` through volatile function pointers before
+the engine starts. The linker audit requires all four imports, rejects
+`strcasestr`, and verifies that the begin/end markers are present in the ELF.
+On FW 12.02 all four calls passed with representative engine strings in run
+`20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3`; the engine then
+spawned `c1a0` and exited cleanly. Therefore their `HAVE_*` flags remain `1`.
+`HAVE_STRCASESTR` remains `0` because that system export failed on hardware.
+
+This is not a blanket avoidance of Prospero libraries. A system implementation
+stays selected after a real target smoke test. Firmware dumps and Ghidra are
+the next inspection layer when a failure or ABI ambiguity needs explanation;
+an exported stub or disassembly alone is not runtime acceptance.
+
+Every engine build also writes `build/engine-boot/PS5_DYNAMIC_IMPORT_AUDIT.md`
+from the linked ELF and `xash/ps5_import_evidence.json`. The report enumerates
+every undefined dynamic symbol and labels it `HW PASS`, `HW FAIL / GUARDED`,
+or `EXPORTED ONLY`; the last label is intentionally unresolved evidence, not a
+green check. A banned symbol such as `strcasestr` fails the build. This keeps
+the complete import review current as later Phase 5 paths become executable.
+
 ## Iteration record
 
 Nineteen hardware launches closed the gate. In order they exposed: no stdio

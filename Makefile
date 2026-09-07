@@ -143,9 +143,10 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_generate_static_library_tables.py
 	python3 tests/test_instrument_fs_trace.py
 	python3 tests/test_deploy_game_data.py
+	python3 tests/test_audit_dyn_imports.py
 	python3 tests/test_ps5_libc_contract.py
 	python3 tests/test_validate_engine_boot_evidence.py
-	rm -rf build tools/__pycache__ tests/__pycache__
+	rm -rf build tools/__pycache__ xash/tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
 	@test -n "$(BSP_INPUT)" || { echo 'BSP_INPUT is required' >&2; exit 2; }

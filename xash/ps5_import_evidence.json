@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "hardware_pass": {
+    "bind": "Existing FW 12.02 ps5log/socket gates",
+    "clock_gettime": "Existing FW 12.02 engine and timing gates",
+    "poll": "Existing FW 12.02 ps5log/socket gates",
+    "pthread_create": "Existing FW 12.02 engine gate",
+    "pthread_detach": "Existing FW 12.02 engine gate",
+    "pthread_equal": "Existing FW 12.02 engine gate",
+    "pthread_mutex_destroy": "Existing FW 12.02 engine gate",
+    "pthread_mutex_init": "Existing FW 12.02 engine gate",
+    "pthread_mutex_lock": "Existing FW 12.02 engine gate",
+    "pthread_mutex_unlock": "Existing FW 12.02 engine gate",
+    "pthread_self": "Existing FW 12.02 engine gate",
+    "sceKernelClose": "Existing FW 12.02 filesystem gate",
+    "sceKernelGetdents": "Existing FW 12.02 filesystem gate",
+    "sceKernelOpen": "Existing FW 12.02 filesystem gate",
+    "sceKernelStat": "Existing FW 12.02 filesystem gate",
+    "sendto": "Existing FW 12.02 ps5log/socket gates",
+    "socket": "Existing FW 12.02 ps5log/socket gates",
+    "strcasecmp": "Run 20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3",
+    "strlcat": "Run 20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3",
+    "strlcpy": "Run 20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3",
+    "strnlen": "Run 20260907T162442485Z_PPSA99996_xash3d-engine_0xb88fc0cf77a3"
+  },
+  "hardware_fail_guarded": {
+    "dup": "Unavailable in the title sandbox; no accepted path may call it",
+    "dup2": "Returns EPERM in the title sandbox; stdio capture is bypassed",
+    "execv": "Filesystem process execution is unavailable; engine path is disabled"
+  },
+  "banned": {
+    "strcasestr": "Faults on valid strings on FW 12.02; use Xash Q_stristr"
+  }
+}
