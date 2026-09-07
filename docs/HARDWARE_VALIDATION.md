@@ -560,6 +560,36 @@ connected/read-error continuity. It did not require another DualSense movement
 or Remote Play handoff, and Chiaki used its existing registered console entry.
 See `BSP_RESOURCE_FOUNDATION_PHASE2.md` for the exact resource contract.
 
+## Phase 4 PVS/frustum gate
+
+- Run: `20260907T013429215Z_PPSA99996_ps5-xash3d_0x87fbad4e6ed0`
+- Native ELF SHA-256:
+  `fe5bd0f54a700c828a0de215404191276d190d99c735b8ecff1f1912f69980e0`
+- Signed fSELF SHA-256:
+  `423a8a353c2779825f2fe34ff15e0c4eb49b4d3a3b324f59db13d2a5f6090259`
+- Private `c1a0e` bundle SHA-256/bytes:
+  `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa` /
+  9,971,952
+- Transcript/server-manifest SHA-256:
+  `3252fea371c41a8de03e287fa358dbd638ee406f81bb4f8d5549c80163e94d29` /
+  `6ff1227399b3367c4308d205791545266389a969fa8c3e66269164641757a8ce`
+- Requested/completed: 10,000/10,000
+- World tree: 1,323 nodes, 683 leaves, 86-byte PVS rows
+- Visibility references/draw bounds: 2,610/3,210
+- Selected draws, control/PVS/frustum/combined: 1,952/646/414/362
+- Post-retirement readbacks: 8, both slots and all four modes
+- Maximum bright-pixel delta/tolerance: 22/64
+- GPU fences/VideoOut tokens: zero/exact before readback and reuse
+- Resource guards/reclaimed allocations/renderer errors: intact/6/0
+- Teardown: gap-free BYE at sequence 284, exact `PPSA99996` closure, no
+  remaining BigApp and four healthy payload services
+
+The fail-closed validator accepted the immutable manifest against the exact
+private bundle identity. The gate deliberately locked the camera, so
+controller state was observed but not a success dependency. No Remote Play
+capture was required: actual post-retirement framebuffer measurements bind the
+visibility reduction to stable visible output. `PPSA99998` remained absent.
+
 ## Continuous production-runtime evidence
 
 The production lifecycle has no frame limit and is closed by the PS5

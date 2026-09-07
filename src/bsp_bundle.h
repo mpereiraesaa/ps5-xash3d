@@ -105,6 +105,42 @@ typedef struct BspBundleBrushEntity {
     uint32_t reserved[3];
 } BspBundleBrushEntity;
 
+typedef struct BspBundleVisibilityHeader {
+    uint32_t root_node;
+    uint32_t plane_count;
+    uint32_t node_count;
+    uint32_t leaf_count;
+    uint32_t pvs_row_bytes;
+    uint32_t draw_ref_count;
+    uint32_t world_first_face;
+    uint32_t world_face_count;
+} BspBundleVisibilityHeader;
+
+typedef struct BspBundleVisibilityPlane {
+    float normal[3];
+    float distance;
+} BspBundleVisibilityPlane;
+
+typedef struct BspBundleVisibilityNode {
+    uint32_t plane;
+    int32_t children[2];
+    uint32_t reserved;
+} BspBundleVisibilityNode;
+
+typedef struct BspBundleVisibilityLeaf {
+    int32_t contents;
+    uint32_t pvs_offset;
+    float mins[3];
+    float maxs[3];
+    uint32_t first_draw_ref;
+    uint32_t draw_ref_count;
+} BspBundleVisibilityLeaf;
+
+typedef struct BspBundleDrawBounds {
+    float mins[3];
+    float maxs[3];
+} BspBundleDrawBounds;
+
 typedef struct BspBundleView {
     const void *data;
     size_t bytes;
@@ -129,6 +165,13 @@ typedef struct BspBundleView {
     uint32_t brush_model_count;
     const BspBundleBrushEntity *brush_entities;
     uint32_t brush_entity_count;
+    const BspBundleVisibilityHeader *visibility;
+    const BspBundleVisibilityPlane *visibility_planes;
+    const BspBundleVisibilityNode *visibility_nodes;
+    const BspBundleVisibilityLeaf *visibility_leaves;
+    const uint32_t *visibility_draw_refs;
+    const uint8_t *visibility_pvs;
+    const BspBundleDrawBounds *draw_bounds;
     float camera_position[3];
     float camera_forward[3];
 } BspBundleView;

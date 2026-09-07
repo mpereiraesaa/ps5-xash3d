@@ -18,7 +18,8 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
                   lighting: bool = False,
                   sprite_particles: bool = False,
                   studio: bool = False,
-                  brush: bool = False) -> Path:
+                  brush: bool = False,
+                  visibility: bool = False) -> Path:
     matrix = (
         ("opaque", 68, 0, 1, 0, 0, 1, "surface_lightmap",
          "00000000", "000000b6", "00000240"),
@@ -172,13 +173,43 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
         "fence=zero videoout_token=exact"
         for mode, name in enumerate(brush_names) for slot in range(2)
     ]
-    slice_name = "goldsrc-brush" if brush else (
+    visibility_names = ("control", "pvs", "frustum", "combined")
+    visibility_counts = (1952, 646, 414, 362)
+    visibility_frames = [
+        "GOLDSRC_VISIBILITY_FRAME schema=1 "
+        f"frame={mode * 600 + slot} slot={slot} mode={mode} name={name} "
+        "camera_leaf=251 visible_leaves=263 world_draws=1952 "
+        f"selected_draws={visibility_counts[mode]} "
+        f"opaque={visibility_counts[mode]} alpha=0 sky=0 "
+        "pvs_culled=1306 frustum_culled=1538 "
+        f"mask_hash={0xd00 + mode:016x} transient_bytes=3210"
+        for mode, name in enumerate(visibility_names) for slot in range(2)
+    ]
+    visibility_draws = [
+        "GOLDSRC_VISIBILITY_DRAW schema=1 "
+        f"frame={mode * 600} slot=0 mode={mode} name={name} "
+        f"draws={visibility_counts[mode]} opaque={visibility_counts[mode]} "
+        f"alpha=0 sky=0 pvs={'on' if mode in (1, 3) else 'off'} "
+        f"frustum={'on' if mode in (2, 3) else 'off'} "
+        "ownership=fence+videoout"
+        for mode, name in enumerate(visibility_names)
+    ]
+    visibility_readbacks = [
+        "GOLDSRC_VISIBILITY_READBACK schema=1 "
+        f"frame={mode * 600 + slot} slot={slot} mode={mode} name={name} "
+        f"hash={0xe00 + mode * 2 + slot:016x} bright_pixels=10 "
+        f"draws={visibility_counts[mode]} fence=zero videoout_token=exact"
+        for mode, name in enumerate(visibility_names) for slot in range(2)
+    ]
+    slice_name = "goldsrc-visibility" if visibility else (
+        "goldsrc-brush" if brush else (
         "goldsrc-studio" if studio else (
         "goldsrc-sprite-particles" if sprite_particles else (
         "goldsrc-lighting" if lighting else (
-        "goldsrc-2d" if screen_2d else "dynamic-lightmap"))))
+        "goldsrc-2d" if screen_2d else "dynamic-lightmap")))))
     input_gate = "not-required" if (
-        screen_2d or lighting or sprite_particles or studio or brush
+        screen_2d or lighting or sprite_particles or studio or brush or
+        visibility
     ) else "not-repeated"
     studio_boot = (
         f" studio_sha256={STUDIO_SHA} studio_bytes=93952" if studio else "")
@@ -193,6 +224,7 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
         *( ["GOLDSRC_SPRITE_PARTICLE_READY schema=1 atlas=64x32 format=rgba8 modes=control+sprite+particles+combined hold_frames=600 sprite_quads=1 alpha_particles=24 additive_particles=48 batches=alpha+additive geometry=per-frame-transient camera=locked-relative ownership=fence+videoout"] if sprite_particles else []),
         *( ["GOLDSRC_STUDIO_READY schema=1 source_fnv64=a6ae39400826b1f4 model_hash=1111111111111111 sequence_hash=2222222222222222 bones=8 frames=7 fps_milli=33000 vertices=134 indices=282 draws=4 textures=4 chrome_textures=1 texture_bytes=86528 modes=control+textured+chrome+additive+combined hold_frames=600 skinning=cpu geometry=per-frame-transient texture_residency=shared-bsp-allocation camera=locked-relative ownership=fence+videoout"] if studio else []),
         *( ["GOLDSRC_BRUSH_READY schema=1 models=95 entities=94 modes=control+opaque+alpha+additive+combined hold_frames=600 entity_indices=1,26,46 source_modes=0,2,5 classname_hashes=11111111,22222222,33333333 draws=16,6,6 indices=120,36,24 transforms=independent animated=true geometry=real-bsp-submodels texture_residency=shared-bsp camera=locked-relative ownership=fence+videoout"] if brush else []),
+        *( ["GOLDSRC_VISIBILITY_READY schema=1 planes=11746 nodes=1323 leaves=683 pvs_row_bytes=86 draw_refs=2610 world_first_face=0 world_face_count=1952 draw_bounds=3210 modes=control+pvs+frustum+combined hold_frames=600 camera=locked-bsp-tree ownership=fence+videoout"] if visibility else []),
         *matrix_frames,
         *matrix_readbacks,
         *(lighting_frames if lighting else []),
@@ -206,6 +238,9 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
         *(brush_frames if brush else []),
         *(brush_draws if brush else []),
         *(brush_readbacks if brush else []),
+        *(visibility_frames if visibility else []),
+        *(visibility_draws if visibility else []),
+        *(visibility_readbacks if visibility else []),
         "GOLDSRC_VIEWPORT_FRAME schema=1 frame=0 slot=0 sequence=full-clear,inset-opaque,inset-alpha,full-restore inset_scissor_tl=80dc0190 inset_scissor_br=035c05f0 full_scissor_tl=80000000 full_scissor_br=04380780",
         "GOLDSRC_STATE_FRAME schema=1 frame=0 slot=0 opaque_key=68 opaque_pass=0 opaque_shader=surface_lightmap opaque_blend=00000000 opaque_depth=000000b6 opaque_raster=00000240 alpha_key=71 alpha_pass=1 alpha_shader=masked_lightmap alpha_blend=00000000 alpha_depth=000000b6 alpha_raster=00000240",
         "RESOURCE_FRAME_READY frame=0 slot=0 transient_bytes=1",
@@ -221,7 +256,7 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
         "BSP_FRAME frame=9999 completed=10000 compose_avg_ns=1 gpu_wait_avg_ns=1 video_wait_avg_ns=1 present_interval_avg_ns=1 present_interval_max_ns=1 present_interval_over_budget=3 errors=0 terminal=0",
         "RESOURCE_RING_RETIRED slots=2 reusable=true tokens=exact last_token=10099",
         "BSP_RESOURCE_READBACK buffer0=1111111111111111 buffer1=2222222222222222 bytes=64 bright_pixels0=1 bright_pixels1=2 guards=intact frames=10000 errors=0 overlay=transient",
-        ("DYNAMIC_LIGHTMAP_READBACK slot0=3333333333333333 slot1=3333333333333333 final_mode=base slots_equal=true surrounding=stable guards=intact frames=10000" if lighting else "DYNAMIC_LIGHTMAP_READBACK pattern0=3333333333333333 pattern1=4444444444444444 gpu_buffer0=1111111111111111 gpu_buffer1=2222222222222222 buffers_distinct=true surrounding=stable guards=intact frames=10000"),
+        ("DYNAMIC_LIGHTMAP_READBACK slot0=3333333333333333 slot1=3333333333333333 final_mode=base slots_equal=true surrounding=stable guards=intact frames=10000" if lighting else ("DYNAMIC_LIGHTMAP_READBACK slot0=3333333333333333 slot1=3333333333333333 final_pattern=0 slots_equal=true surrounding=stable guards=intact frames=10000" if visibility else "DYNAMIC_LIGHTMAP_READBACK pattern0=3333333333333333 pattern1=4444444444444444 gpu_buffer0=1111111111111111 gpu_buffer1=2222222222222222 buffers_distinct=true surrounding=stable guards=intact frames=10000")),
         "GOLDSRC_PIPELINE_GATE_COMPLETE schema=1 frames=10000 semantic_permutations=99 shader_variants=9 opaque_key=68 opaque_shader=surface_lightmap alpha_key=71 alpha_shader=masked_lightmap framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
         "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1 frames=10000 sequence=full-clear,inset-opaque,inset-alpha,full-restore framebuffer_distinct=true input_required=false tokens=exact guards=intact errors=0",
         "GOLDSRC_STATE_MATRIX_COMPLETE schema=1 frames=10000 cases=9 readbacks=18 both_slots=true control_pairs=distinct coverage=opaque+alpha+additive+alpha-test+depth-write+cull-front-back-none+fog+lightmap tokens=exact guards=intact errors=0",
@@ -232,6 +267,7 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
         *( ["GOLDSRC_SPRITE_PARTICLE_COMPLETE schema=1 frames=10000 modes=4 readbacks=8 both_slots=true control_pairs=distinct combined_pairs=distinct sprite_quads=1 alpha_particles=24 additive_particles=48 batches=alpha+additive geometry=per-frame-transient camera=locked-proof-view input_dependency=none tokens=exact guards=intact errors=0"] if sprite_particles else []),
         *( ["GOLDSRC_STUDIO_COMPLETE schema=1 frames=10000 modes=5 readbacks=10 both_slots=true control_pairs=distinct combined_pairs=distinct animation_pose_changes=true skinning=cpu textures=per-model chrome=normal-generated additive=separate-pipeline geometry=per-frame-transient texture_residency=shared-bsp-allocation camera=locked-proof-view input_dependency=none tokens=exact guards=intact errors=0"] if studio else []),
         *( ["GOLDSRC_BRUSH_COMPLETE schema=1 frames=10000 modes=5 readbacks=10 both_slots=true control_pairs=distinct combined_pairs=distinct transform_changes=true entities=real-bsp-submodels transforms=independent render_modes=opaque+alpha+additive depth_write=opaque-only texture_residency=shared-bsp camera=locked-proof-view input_dependency=none tokens=exact guards=intact errors=0"] if brush else []),
+        *( ["GOLDSRC_VISIBILITY_COMPLETE schema=1 frames=10000 modes=4 readbacks=8 both_slots=true framebuffer_stable=true bright_delta_max=22 bright_tolerance=64 draws=1952,646,414,362 reductions=true pvs=real-leaf-rows frustum=draw-aabb combined=intersection world_model_only=true camera=locked-bsp-tree input_dependency=none tokens=exact guards=intact errors=0"] if visibility else []),
         "RESOURCE_POOL_RETIRED token=10099 reclaimed=6 completion=fence+videoout",
     ]
     rows = []
@@ -241,7 +277,7 @@ def make_evidence(directory: Path, *, screen_2d: bool = False,
     payload = "\n".join([
         "HELLO ps5log/1 title=PPSA99996 app=ps5-xash3d boot=0x1234 tag=test",
         *rows,
-        f"BYE seq={len(rows)} reason={'goldsrc-phase4-brush-soak-complete' if brush else ('goldsrc-phase4-studio-soak-complete' if studio else ('goldsrc-phase4-sprite-particle-soak-complete' if sprite_particles else ('goldsrc-phase4-lighting-soak-complete' if lighting else ('goldsrc-phase4-2d-soak-complete' if screen_2d else 'bsp-texture-path-lightmap-soak-complete'))))}",
+        f"BYE seq={len(rows)} reason={'goldsrc-phase4-visibility-soak-complete' if visibility else ('goldsrc-phase4-brush-soak-complete' if brush else ('goldsrc-phase4-studio-soak-complete' if studio else ('goldsrc-phase4-sprite-particle-soak-complete' if sprite_particles else ('goldsrc-phase4-lighting-soak-complete' if lighting else ('goldsrc-phase4-2d-soak-complete' if screen_2d else 'bsp-texture-path-lightmap-soak-complete')))))}",
         "",
     ]).encode()
     (directory / "synthetic.log").write_bytes(payload)
@@ -264,7 +300,8 @@ def run(path: Path, *, matrix: bool = False,
         lighting: bool = False,
         sprite_particles: bool = False,
         studio: bool = False,
-        brush: bool = False) -> subprocess.CompletedProcess[str]:
+        brush: bool = False,
+        visibility: bool = False) -> subprocess.CompletedProcess[str]:
     command = [
         "python3", str(VALIDATOR), str(path),
         "--bundle-sha256", BUNDLE_SHA, "--bundle-bytes", "42",
@@ -283,6 +320,8 @@ def run(path: Path, *, matrix: bool = False,
                         "--studio-bytes", "93952"])
     if brush:
         command.append("--require-brush")
+    if visibility:
+        command.append("--require-visibility")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -309,6 +348,9 @@ def main() -> int:
         path_brush = make_evidence(root, brush=True)
         valid_brush = run(path_brush, brush=True)
         assert valid_brush.returncode == 0, valid_brush.stderr
+        path_visibility = make_evidence(root, visibility=True)
+        valid_visibility = run(path_visibility, visibility=True)
+        assert valid_visibility.returncode == 0, valid_visibility.stderr
         log = root / "synthetic.log"
         changed = log.read_text().replace(
             "GOLDSRC_VIEWPORT_GATE_COMPLETE schema=1",

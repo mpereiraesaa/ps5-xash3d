@@ -44,26 +44,42 @@ def tiny_bsp(*, multistyle: bool = False) -> bytes:
         (64.0, 64.0, 0.0), (0.0, 64.0, 0.0),
     ))
     texinfo = struct.pack("<8fii", 1, 0, 0, 0, 0, 1, 0, 0, 0, 0)
+    planes = struct.pack("<4fi", 1.0, 0.0, 0.0, 32.0, 0)
+    visibility = b"\x01"
+    nodes = struct.pack("<i2h6h2H", 0, -2, -1,
+                        0, 0, 0, 64, 64, 64, 0, 1)
     face = struct.pack("<Hhihh4Bi", 0, 0, 0, 4, 0, 0,
                        32 if multistyle else 255, 255, 255, 0)
     lighting_plane = b"".join(bytes((value, value + 1, value + 2))
                                for value in range(0, 75, 3))
     lighting = lighting_plane + (lighting_plane[::-1] if multistyle else b"")
+    leaves = b"".join((
+        struct.pack("<ii6h2H4B", -2, -1,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        struct.pack("<ii6h2H4B", -1, 0,
+                    0, 0, 0, 64, 64, 64, 0, 1, 0, 0, 0, 0),
+    ))
+    marksurfaces = struct.pack("<H", 0)
     edges = b"".join(struct.pack("<2H", *edge) for edge in (
         (0, 1), (1, 2), (2, 3), (3, 0),
     ))
     surfedges = b"".join(struct.pack("<i", value) for value in range(4))
     models = b"".join(BAKER.MODEL.pack(
         0.0, 0.0, 0.0, 64.0, 64.0, 0.0,
-        0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 1)
+        0.0, 0.0, 0.0, 0, 0, 0, 0, 1, 0, 1)
         for _ in range(2))
     contents = {
         BAKER.LUMP_ENTITIES: entities,
+        BAKER.LUMP_PLANES: planes,
         BAKER.LUMP_TEXTURES: bytes(texture),
         BAKER.LUMP_VERTICES: vertices,
+        BAKER.LUMP_VISIBILITY: visibility,
+        BAKER.LUMP_NODES: nodes,
         BAKER.LUMP_TEXINFO: texinfo,
         BAKER.LUMP_FACES: face,
         BAKER.LUMP_LIGHTING: lighting,
+        BAKER.LUMP_LEAVES: leaves,
+        BAKER.LUMP_MARKSURFACES: marksurfaces,
         BAKER.LUMP_EDGES: edges,
         BAKER.LUMP_SURFEDGES: surfedges,
         BAKER.LUMP_MODELS: models,
@@ -111,12 +127,12 @@ def main() -> int:
     second = BAKER.bake(source)
     assert first == second
     assert hashlib.sha256(first).hexdigest() == (
-        "0a9bae5cdb380971397becb1aeeae7d0e0b3eae2a142375ddbb061c1293026e4"
+        "02bc5133a6fdcf74cff3d33878664f247304e22e40ed0194b54a85d7faf5ea5e"
     )
 
     header = BAKER.BUNDLE_HEADER.unpack_from(first)
     assert header[0] == BAKER.BUNDLE_MAGIC and header[1] == 3
-    assert header[3] == len(first) and header[11] == 11
+    assert header[3] == len(first) and header[11] == 18
     assert header[5:8] == (32.0, 36.0, -16.0)
     assert abs(header[8]) < 1e-6 and abs(header[9]) < 1e-6
     assert abs(header[10] + 1.0) < 1e-6
@@ -133,6 +149,13 @@ def main() -> int:
     assert directory[b"TEXP"][2:] == (32512, 1)
     assert directory[b"BMOD"][2:] == (2, BAKER.BRUSH_MODEL.size)
     assert directory[b"BENT"][2:] == (1, BAKER.BRUSH_ENTITY.size)
+    assert directory[b"VHDR"][2:] == (1, BAKER.VISIBILITY_HEADER.size)
+    assert directory[b"VPLN"][2:] == (1, BAKER.VISIBILITY_PLANE.size)
+    assert directory[b"VNOD"][2:] == (1, BAKER.VISIBILITY_NODE.size)
+    assert directory[b"VLEF"][2:] == (2, BAKER.VISIBILITY_LEAF.size)
+    assert directory[b"VDRW"][2:] == (1, 4)
+    assert directory[b"VPVS"][2:] == (2, 1)
+    assert directory[b"DBND"][2:] == (1, BAKER.DRAW_BOUNDS.size)
     assert directory[b"LMPX"][0] % 256 == 0
     assert directory[b"TEXP"][0] % 256 == 0
     vertex_offset = directory[b"VERT"][0]

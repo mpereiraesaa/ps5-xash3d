@@ -274,3 +274,36 @@ gap-free 286-record BYE. Exact artifacts:
 Exact-title closure left no BigApp and all four services healthy. This closes
 implementation gates 1–7, not Phase 4. PVS/frustum culling and the complete
 combined soak remain open. `PPSA99998` remains absent.
+
+The PVS/frustum gate is now closed. The version-3 BSP bundle optionally carries
+the world render tree (`VPLN`/`VNOD`/`VLEF`), decompressed per-leaf PVS rows,
+sorted leaf-to-draw references and one AABB per draw. Inline brush-model trees
+are excluded from the world visibility numbering and remain handled by the
+independent brush-entity path. At runtime the camera traverses the real BSP
+tree, unions visible-leaf references, extracts six planes from the view-
+projection matrix and writes a checked byte mask into the current transient
+slot before the ordinary opaque, alpha-test and sky passes.
+
+Run `20260907T013429215Z_PPSA99996_ps5-xash3d_0x87fbad4e6ed0` completed
+10,000/10,000 frames on FW 12.02. The real `c1a0e` world contains 1,323
+reachable nodes, 683 leaves, 86-byte PVS rows and 2,610 leaf/draw references.
+At the locked spawn camera, control selected 1,952 world draws, PVS selected
+646, frustum selected 414 and their intersection selected 362. Exactly eight
+post-retirement readbacks covered all four modes and both slots. Removing up
+to 1,590 non-contributing draws changed the bright-pixel population by at most
+22 pixels against a declared tolerance of 64 while keeping every readback
+nonzero. The run ended with 284 gap-free records, intact guards, exact fence
+and VideoOut ownership, six reclaimed allocations and zero renderer errors.
+
+Exact artifacts:
+
+- native ELF: `fe5bd0f54a700c828a0de215404191276d190d99c735b8ecff1f1912f69980e0`;
+- signed fSELF: `423a8a353c2779825f2fe34ff15e0c4eb49b4d3a3b324f59db13d2a5f6090259`;
+- private enriched bundle: `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa`
+  (9,971,952 bytes);
+- transcript/manifest: `3252fea371c41a8de03e287fa358dbd638ee406f81bb4f8d5549c80163e94d29` /
+  `6ff1227399b3367c4308d205791545266389a969fa8c3e66269164641757a8ce`.
+
+Exact-title closure left no BigApp and all four services healthy. This closes
+implementation gate 8. The complete integrated Phase 4 ownership soak remains
+open; `PPSA99998` remains absent.

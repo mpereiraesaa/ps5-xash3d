@@ -48,6 +48,7 @@ goldsrc_lighting_gate=${GOLDSRC_LIGHTING_GATE:-0}
 goldsrc_sprite_particle_gate=${GOLDSRC_SPRITE_PARTICLE_GATE:-0}
 goldsrc_studio_gate=${GOLDSRC_STUDIO_GATE:-0}
 goldsrc_brush_gate=${GOLDSRC_BRUSH_GATE:-0}
+goldsrc_visibility_gate=${GOLDSRC_VISIBILITY_GATE:-0}
 studio_bundle=${STUDIO_BUNDLE:-}
 dev_conf=${PS5LOG_DEV_CONF:-$root/dev.conf}
 bsp_flags=()
@@ -132,10 +133,17 @@ if [[ $goldsrc_brush_gate == 1 && $goldsrc_phase4 != 1 ]]; then
     echo "GOLDSRC_BRUSH_GATE requires GOLDSRC_PHASE4=1" >&2
     exit 2
 fi
+[[ $goldsrc_visibility_gate == 0 || $goldsrc_visibility_gate == 1 ]] || {
+    echo "GOLDSRC_VISIBILITY_GATE must be 0 or 1" >&2; exit 2;
+}
+if [[ $goldsrc_visibility_gate == 1 && $goldsrc_phase4 != 1 ]]; then
+    echo "GOLDSRC_VISIBILITY_GATE requires GOLDSRC_PHASE4=1" >&2
+    exit 2
+fi
 if ((goldsrc_viewport_gate + goldsrc_state_matrix_gate +
      goldsrc_2d_gate + goldsrc_lighting_gate +
      goldsrc_sprite_particle_gate + goldsrc_studio_gate +
-     goldsrc_brush_gate > 1)); then
+     goldsrc_brush_gate + goldsrc_visibility_gate > 1)); then
     echo "Phase 4 hardware subgates are mutually exclusive" >&2
     exit 2
 fi
@@ -258,6 +266,9 @@ if [[ -n $bsp_bundle ]]; then
     if [[ $goldsrc_brush_gate == 1 ]]; then
         bsp_flags+=(-DPS5_GOLDSRC_BRUSH_GATE=1)
     fi
+    if [[ $goldsrc_visibility_gate == 1 ]]; then
+        bsp_flags+=(-DPS5_GOLDSRC_VISIBILITY_GATE=1)
+    fi
 fi
 
 sdk="$foundation/.deps/native/ps5-payload-sdk"
@@ -316,6 +327,7 @@ sources=(
     src/goldsrc_lightmap_lighting.c src/goldsrc_sprite_particles.c
     src/goldsrc_studio_bundle.c src/goldsrc_studio_model.c
     src/goldsrc_brush_entities.c
+    src/goldsrc_visibility.c
     src/ps5_present.c src/ps5_shader_header.c src/ps5_submission.c
     src/ps5_surface.c src/ps5_videoout.c src/ps5_cache_contract.c
     src/ps5_gfx1013_descriptor.c src/ps5_resource_pool.c

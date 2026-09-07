@@ -5,6 +5,7 @@
 #include "bsp_texture_descriptor.h"
 #include "goldsrc_lightmap_lighting.h"
 #include "goldsrc_brush_entities.h"
+#include "goldsrc_visibility.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,6 +94,54 @@ static int verify_lighting_modes(const BspBundleView *view,
     return distinct ? 0 : -1;
 }
 
+static int verify_visibility_modes(const BspBundleView *view)
+{
+    GoldSrcVisibilityPlan plan;
+    if (goldsrc_visibility_plan_build(&plan, view) != 0)
+        return -1;
+    const size_t slot_bytes = 4096u;
+    void *const transient = aligned_alloc(4096u, slot_bytes * 2u);
+    if (!transient)
+        return -1;
+    Ps5TransientRing ring;
+    if (ps5_transient_ring_init(
+            &ring, transient, slot_bytes * 2u, 2u, 4096u) != 0) {
+        free(transient);
+        return -1;
+    }
+    GoldSrcVisibilityFrame frames[GOLDSRC_VISIBILITY_MODE_COUNT];
+    for (uint32_t mode = 0u; mode < GOLDSRC_VISIBILITY_MODE_COUNT; ++mode) {
+        if (ps5_transient_ring_begin(&ring, 0u, 0u, 0) != 0 ||
+            goldsrc_visibility_frame_build(
+                &frames[mode], &plan, view, &ring, 0u,
+                view->camera_position, view->camera_forward, 16.0f / 9.0f,
+                (uint64_t)mode * GOLDSRC_VISIBILITY_HOLD_FRAMES) != 0 ||
+            ps5_transient_ring_abort_unsubmitted(&ring, 0u) != 0) {
+            free(transient);
+            return -1;
+        }
+    }
+    const uint32_t control = frames[GOLDSRC_VISIBILITY_MODE_CONTROL].selected_draws;
+    const uint32_t pvs = frames[GOLDSRC_VISIBILITY_MODE_PVS].selected_draws;
+    const uint32_t frustum = frames[GOLDSRC_VISIBILITY_MODE_FRUSTUM].selected_draws;
+    const uint32_t combined = frames[GOLDSRC_VISIBILITY_MODE_COMBINED].selected_draws;
+    if (pvs >= control || frustum >= control || combined > pvs ||
+        combined > frustum || combined == 0u) {
+        free(transient);
+        return -1;
+    }
+    printf(" visibility_planes=%u visibility_nodes=%u visibility_leaves=%u "
+           "pvs_row_bytes=%u visibility_draw_refs=%u world_faces=%u "
+           "camera_leaf=%u visible_leaves=%u visibility_draws=%u,%u,%u,%u "
+           "pvs_culled=%u frustum_culled=%u",
+           plan.planes, plan.nodes, plan.leaves, plan.pvs_row_bytes,
+           plan.draw_refs, plan.world_face_count, frames[0].camera_leaf,
+           frames[0].visible_leaves, control, pvs, frustum, combined,
+           frames[0].pvs_culled, frames[0].frustum_culled);
+    free(transient);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -127,6 +176,11 @@ int main(int argc, char **argv)
     }
     printf("bundle valid: bytes=%zu vertices=%u indices=%u draws=%u",
            view.bytes, view.vertex_count, view.index_count, view.draw_count);
+    if (view.visibility && verify_visibility_modes(&view) != 0) {
+        fprintf(stderr, "visibility verification failed\n");
+        free(data);
+        return 1;
+    }
     if (view.brush_models && view.brush_entities) {
         GoldSrcBrushPlan brush;
         if (goldsrc_brush_plan_build(&brush, &view) != 0) {

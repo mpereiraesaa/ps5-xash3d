@@ -97,7 +97,8 @@ def load(path: Path) -> tuple[list[str], bytes]:
                 "reason=goldsrc-phase4-lighting-soak-complete",
                 "reason=goldsrc-phase4-sprite-particle-soak-complete",
                 "reason=goldsrc-phase4-studio-soak-complete",
-                "reason=goldsrc-phase4-brush-soak-complete")):
+                "reason=goldsrc-phase4-brush-soak-complete",
+                "reason=goldsrc-phase4-visibility-soak-complete")):
         fail("BYE reason mismatch")
     records: list[tuple[int, str, str]] = []
     for line in lines[1:-1]:
@@ -126,6 +127,7 @@ def validate(path: Path, *, bundle_sha256: str,
              require_sprite_particles: bool,
              require_studio: bool,
              require_brush: bool,
+             require_visibility: bool,
              studio_sha256: str | None,
              studio_bytes: int | None) -> dict[str, object]:
     messages, data = load(path.resolve())
@@ -159,6 +161,10 @@ def validate(path: Path, *, bundle_sha256: str,
             boot.get("slice") != "goldsrc-brush" or
             boot.get("input_gate") != "not-required"):
         fail("brush boot contract mismatch")
+    if require_visibility and (
+            boot.get("slice") != "goldsrc-visibility" or
+            boot.get("input_gate") != "not-required"):
+        fail("visibility boot contract mismatch")
     ready = one(messages, "GOLDSRC_PIPELINES_READY")
     if number(ready, "semantic_permutations") != 99 or \
             number(ready, "shader_variants") != 9 or \
@@ -659,6 +665,82 @@ def validate(path: Path, *, bundle_sha256: str,
                         brush_hashes[1, slot], brush_hashes[2, slot],
                         brush_hashes[3, slot]}:
                 fail("brush feature/control framebuffer collision")
+    if require_visibility:
+        visibility_ready = one(messages, "GOLDSRC_VISIBILITY_READY")
+        if visibility_ready.get("schema") != "1" or \
+                number(visibility_ready, "planes") != 11_746 or \
+                number(visibility_ready, "nodes") != 1_323 or \
+                number(visibility_ready, "leaves") != 683 or \
+                number(visibility_ready, "pvs_row_bytes") != 86 or \
+                number(visibility_ready, "draw_refs") != 2_610 or \
+                number(visibility_ready, "world_first_face") != 0 or \
+                number(visibility_ready, "world_face_count") != 1_952 or \
+                number(visibility_ready, "draw_bounds") != 3_210 or \
+                visibility_ready.get("modes") != \
+                    "control+pvs+frustum+combined" or \
+                number(visibility_ready, "hold_frames") != 600 or \
+                visibility_ready.get("camera") != "locked-bsp-tree" or \
+                visibility_ready.get("ownership") != "fence+videoout":
+            fail("visibility ready contract mismatch")
+        names = ("control", "pvs", "frustum", "combined")
+        selected = (1_952, 646, 414, 362)
+        visibility_frames = many(messages, "GOLDSRC_VISIBILITY_FRAME")
+        for mode, name in enumerate(names):
+            rows = [row for row in visibility_frames
+                    if number(row, "mode") == mode]
+            if not rows or {number(row, "slot") for row in rows} != {0, 1}:
+                fail(f"visibility frame coverage mismatch for mode {mode}")
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "camera_leaf") != 251 or \
+                        number(row, "visible_leaves") != 263 or \
+                        number(row, "world_draws") != 1_952 or \
+                        number(row, "selected_draws") != selected[mode] or \
+                        number(row, "opaque") + number(row, "alpha") + \
+                            number(row, "sky") != selected[mode] or \
+                        number(row, "pvs_culled") != 1_306 or \
+                        number(row, "frustum_culled") != 1_538 or \
+                        hex_number(row, "mask_hash") == 0 or \
+                        not 3_210 <= number(row, "transient_bytes") <= 4_096:
+                    fail("visibility frame contract mismatch")
+        visibility_draws = many(messages, "GOLDSRC_VISIBILITY_DRAW")
+        for mode, name in enumerate(names):
+            rows = [row for row in visibility_draws
+                    if number(row, "mode") == mode]
+            if not rows:
+                fail(f"missing visibility draw mode {mode}")
+            for row in rows:
+                if row.get("schema") != "1" or row.get("name") != name or \
+                        number(row, "draws") != selected[mode] or \
+                        number(row, "opaque") + number(row, "alpha") + \
+                            number(row, "sky") != selected[mode] or \
+                        row.get("pvs") != \
+                            ("on" if mode in (1, 3) else "off") or \
+                        row.get("frustum") != \
+                            ("on" if mode in (2, 3) else "off") or \
+                        row.get("ownership") != "fence+videoout":
+                    fail("visibility draw contract mismatch")
+        visibility_readbacks = many(
+            messages, "GOLDSRC_VISIBILITY_READBACK")
+        if len(visibility_readbacks) != 8:
+            fail("visibility readback count mismatch")
+        visibility_hashes: dict[tuple[int, int], str] = {}
+        for row in visibility_readbacks:
+            mode = number(row, "mode")
+            slot = number(row, "slot")
+            if mode >= 4 or slot >= 2 or (mode, slot) in visibility_hashes or \
+                    row.get("schema") != "1" or \
+                    row.get("name") != names[mode] or \
+                    hex_number(row, "hash") == 0 or \
+                    number(row, "bright_pixels") <= 0 or \
+                    number(row, "draws") != selected[mode] or \
+                    row.get("fence") != "zero" or \
+                    row.get("videoout_token") != "exact":
+                fail("visibility GPU readback mismatch")
+            visibility_hashes[mode, slot] = row["hash"]
+        for slot in range(2):
+            if len({visibility_hashes[mode, slot] for mode in range(4)}) < 2:
+                fail("visibility readbacks did not exercise filtered output")
     for prefix in ("RESOURCE_FRAME_READY", "RESOURCE_FRAME_SEALED",
                    "RESOURCE_FRAME_SUBMITTED", "RESOURCE_FRAME_RETIRED",
                    "BSP_VIDEOOUT_TOKEN"):
@@ -691,6 +773,10 @@ def validate(path: Path, *, bundle_sha256: str,
         if dynamic.get("slots_equal") != "true" or \
                 dynamic.get("final_mode") != "base":
             fail("lighting final atlas convergence mismatch")
+    elif require_visibility:
+        if dynamic.get("slots_equal") != "true" or \
+                number(dynamic, "final_pattern") != 0:
+            fail("visibility final atlas convergence mismatch")
     elif dynamic.get("buffers_distinct") != "true":
         fail("dynamic lightmap framebuffer mismatch")
     complete = one(messages, "GOLDSRC_PIPELINE_GATE_COMPLETE")
@@ -834,6 +920,29 @@ def validate(path: Path, *, bundle_sha256: str,
                 complete_brush.get("guards") != "intact" or \
                 number(complete_brush, "errors") != 0:
             fail("brush completion contract mismatch")
+    if require_visibility:
+        complete_visibility = one(messages, "GOLDSRC_VISIBILITY_COMPLETE")
+        if complete_visibility.get("schema") != "1" or \
+                number(complete_visibility, "frames") != 10_000 or \
+                number(complete_visibility, "modes") != 4 or \
+                number(complete_visibility, "readbacks") != 8 or \
+                complete_visibility.get("both_slots") != "true" or \
+                complete_visibility.get("framebuffer_stable") != "true" or \
+                number(complete_visibility, "bright_delta_max") > \
+                    number(complete_visibility, "bright_tolerance") or \
+                number(complete_visibility, "bright_tolerance") != 64 or \
+                complete_visibility.get("draws") != "1952,646,414,362" or \
+                complete_visibility.get("reductions") != "true" or \
+                complete_visibility.get("pvs") != "real-leaf-rows" or \
+                complete_visibility.get("frustum") != "draw-aabb" or \
+                complete_visibility.get("combined") != "intersection" or \
+                complete_visibility.get("world_model_only") != "true" or \
+                complete_visibility.get("camera") != "locked-bsp-tree" or \
+                complete_visibility.get("input_dependency") != "none" or \
+                complete_visibility.get("tokens") != "exact" or \
+                complete_visibility.get("guards") != "intact" or \
+                number(complete_visibility, "errors") != 0:
+            fail("visibility completion contract mismatch")
     pool = one(messages, "RESOURCE_POOL_RETIRED")
     if number(pool, "reclaimed") != 6 or \
             pool.get("completion") != "fence+videoout":
@@ -849,6 +958,7 @@ def validate(path: Path, *, bundle_sha256: str,
         "sprite_particles": require_sprite_particles,
         "studio": require_studio,
         "brush": require_brush,
+        "visibility": require_visibility,
         "semantic_permutations": 99,
         "shader_variants": 9,
     }
@@ -866,6 +976,7 @@ def main() -> int:
     parser.add_argument("--require-sprite-particles", action="store_true")
     parser.add_argument("--require-studio", action="store_true")
     parser.add_argument("--require-brush", action="store_true")
+    parser.add_argument("--require-visibility", action="store_true")
     parser.add_argument("--studio-sha256")
     parser.add_argument("--studio-bytes", type=int)
     args = parser.parse_args()
@@ -881,6 +992,7 @@ def main() -> int:
                               args.require_sprite_particles,
                           require_studio=args.require_studio,
                           require_brush=args.require_brush,
+                          require_visibility=args.require_visibility,
                           studio_sha256=args.studio_sha256,
                           studio_bytes=args.studio_bytes)
     except EvidenceError as exc:

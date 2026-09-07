@@ -162,6 +162,19 @@ on both slots, distinct feature/control and combined/isolated images, real BSP
 submodels, exact fence plus VideoOut retirement, six reclaimed resources,
 intact guards, zero errors and the dedicated gap-free completion BYE.
 
+The visibility gate adds `GOLDSRC_VISIBILITY_READY`, transition/bookend
+`GOLDSRC_VISIBILITY_FRAME` and `GOLDSRC_VISIBILITY_DRAW`, exactly eight
+`GOLDSRC_VISIBILITY_READBACK` rows and `GOLDSRC_VISIBILITY_COMPLETE`. The ready
+row binds the baked world-tree, PVS-row, leaf-reference and draw-bound counts.
+Frame rows expose camera leaf, visible leaves, control/selected class counts,
+independent PVS/frustum rejection counts and the transient mask hash. Draw rows
+bind those counts to the actual filtered opaque, alpha-test and sky passes.
+Acceptance requires both slots for control, PVS, frustum and intersection;
+strict draw reductions; a nonzero framebuffer whose bright-pixel difference
+from control stays within the declared 64-pixel tolerance; exact fence plus
+VideoOut retirement; six reclaimed resources; intact guards; zero errors; and
+the dedicated gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

@@ -26,6 +26,15 @@ _Static_assert(sizeof(BspBundleLightmapFace) == 32u,
 _Static_assert(sizeof(BspBundleTexture) == 48u, "bundle texture ABI");
 _Static_assert(sizeof(BspBundleBrushModel) == 64u, "brush model ABI");
 _Static_assert(sizeof(BspBundleBrushEntity) == 96u, "brush entity ABI");
+_Static_assert(sizeof(BspBundleVisibilityHeader) == 32u,
+               "visibility header ABI");
+_Static_assert(sizeof(BspBundleVisibilityPlane) == 16u,
+               "visibility plane ABI");
+_Static_assert(sizeof(BspBundleVisibilityNode) == 16u,
+               "visibility node ABI");
+_Static_assert(sizeof(BspBundleVisibilityLeaf) == 40u,
+               "visibility leaf ABI");
+_Static_assert(sizeof(BspBundleDrawBounds) == 24u, "draw bounds ABI");
 
 static uint32_t align_u32(uint32_t value, uint32_t alignment)
 {
@@ -197,6 +206,13 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
     const ChunkView *texture_pixels_chunk = 0;
     const ChunkView *brush_model_chunk = 0;
     const ChunkView *brush_entity_chunk = 0;
+    const ChunkView *visibility_header_chunk = 0;
+    const ChunkView *visibility_plane_chunk = 0;
+    const ChunkView *visibility_node_chunk = 0;
+    const ChunkView *visibility_leaf_chunk = 0;
+    const ChunkView *visibility_draw_chunk = 0;
+    const ChunkView *visibility_pvs_chunk = 0;
+    const ChunkView *draw_bounds_chunk = 0;
     for (uint32_t index = 0; index < chunk_count; ++index) {
         if (tag_equal(chunks[index].tag, "VERT")) vertex_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "INDX")) index_chunk = &chunks[index];
@@ -209,6 +225,13 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         if (tag_equal(chunks[index].tag, "TEXP")) texture_pixels_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "BMOD")) brush_model_chunk = &chunks[index];
         if (tag_equal(chunks[index].tag, "BENT")) brush_entity_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VHDR")) visibility_header_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VPLN")) visibility_plane_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VNOD")) visibility_node_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VLEF")) visibility_leaf_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VDRW")) visibility_draw_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "VPVS")) visibility_pvs_chunk = &chunks[index];
+        if (tag_equal(chunks[index].tag, "DBND")) draw_bounds_chunk = &chunks[index];
     }
     if (!vertex_chunk || !index_chunk || !draw_chunk ||
         vertex_chunk->stride != sizeof(BspBundleVertex) ||
@@ -282,6 +305,13 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
     if (!!texture_metadata_chunk != !!texture_pixels_chunk)
         return BSP_BUNDLE_GEOMETRY_INVALID;
     if (!!brush_model_chunk != !!brush_entity_chunk)
+        return BSP_BUNDLE_GEOMETRY_INVALID;
+    const unsigned visibility_chunks =
+        !!visibility_header_chunk + !!visibility_plane_chunk +
+        !!visibility_node_chunk + !!visibility_leaf_chunk +
+        !!visibility_draw_chunk + !!visibility_pvs_chunk +
+        !!draw_bounds_chunk;
+    if (visibility_chunks != 0u && visibility_chunks != 7u)
         return BSP_BUNDLE_GEOMETRY_INVALID;
     const BspBundleTexture *textures = 0;
     if (texture_metadata_chunk) {
@@ -368,6 +398,126 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         }
     }
 
+    const BspBundleVisibilityHeader *visibility_header = 0;
+    const BspBundleVisibilityPlane *visibility_planes = 0;
+    const BspBundleVisibilityNode *visibility_nodes = 0;
+    const BspBundleVisibilityLeaf *visibility_leaves = 0;
+    const uint32_t *visibility_draws = 0;
+    const BspBundleDrawBounds *draw_bounds = 0;
+    if (visibility_header_chunk) {
+        if (visibility_header_chunk->count != 1u ||
+            visibility_header_chunk->stride !=
+                sizeof(BspBundleVisibilityHeader) ||
+            visibility_plane_chunk->stride !=
+                sizeof(BspBundleVisibilityPlane) ||
+            visibility_node_chunk->stride !=
+                sizeof(BspBundleVisibilityNode) ||
+            visibility_leaf_chunk->stride !=
+                sizeof(BspBundleVisibilityLeaf) ||
+            visibility_draw_chunk->stride != sizeof(uint32_t) ||
+            visibility_pvs_chunk->stride != 1u ||
+            draw_bounds_chunk->stride != sizeof(BspBundleDrawBounds) ||
+            draw_bounds_chunk->count != draw_chunk->count)
+            return BSP_BUNDLE_GEOMETRY_INVALID;
+        visibility_header = (const BspBundleVisibilityHeader *)(
+            data + visibility_header_chunk->offset);
+        visibility_planes = (const BspBundleVisibilityPlane *)(
+            data + visibility_plane_chunk->offset);
+        visibility_nodes = (const BspBundleVisibilityNode *)(
+            data + visibility_node_chunk->offset);
+        visibility_leaves = (const BspBundleVisibilityLeaf *)(
+            data + visibility_leaf_chunk->offset);
+        visibility_draws = (const uint32_t *)(
+            data + visibility_draw_chunk->offset);
+        draw_bounds = (const BspBundleDrawBounds *)(
+            data + draw_bounds_chunk->offset);
+        const uint64_t pvs_bytes =
+            (uint64_t)visibility_header->leaf_count *
+            visibility_header->pvs_row_bytes;
+        if (visibility_header->plane_count != visibility_plane_chunk->count ||
+            visibility_header->node_count != visibility_node_chunk->count ||
+            visibility_header->leaf_count != visibility_leaf_chunk->count ||
+            visibility_header->draw_ref_count !=
+                visibility_draw_chunk->count ||
+            visibility_header->leaf_count < 2u ||
+            visibility_header->pvs_row_bytes !=
+                ((visibility_header->leaf_count - 1u + 7u) >> 3u) ||
+            pvs_bytes != visibility_pvs_chunk->bytes ||
+            visibility_header->root_node >= visibility_header->node_count ||
+            visibility_header->world_face_count == 0u ||
+            visibility_header->world_first_face >
+                UINT32_MAX - visibility_header->world_face_count ||
+            (brush_models &&
+             (visibility_header->world_first_face !=
+                  brush_models[0].first_face ||
+              visibility_header->world_face_count !=
+                  brush_models[0].face_count)))
+            return BSP_BUNDLE_GEOMETRY_INVALID;
+        for (uint32_t index = 0u; index < visibility_header->plane_count;
+             ++index) {
+            const BspBundleVisibilityPlane *const plane =
+                &visibility_planes[index];
+            float magnitude = 0.0f;
+            for (uint32_t axis = 0u; axis < 3u; ++axis) {
+                if (!__builtin_isfinite(plane->normal[axis]))
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+                magnitude += plane->normal[axis] * plane->normal[axis];
+            }
+            if (!__builtin_isfinite(plane->distance) || magnitude < 0.25f ||
+                magnitude > 4.0f)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+        }
+        for (uint32_t index = 0u; index < visibility_header->node_count;
+             ++index) {
+            const BspBundleVisibilityNode *const node =
+                &visibility_nodes[index];
+            if (node->plane >= visibility_header->plane_count ||
+                node->reserved != 0u)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+            for (uint32_t side = 0u; side < 2u; ++side) {
+                const int32_t child = node->children[side];
+                if ((child >= 0 &&
+                     (uint32_t)child >= visibility_header->node_count) ||
+                    (child == INT32_MIN) ||
+                    (child < 0 &&
+                     (uint32_t)(-child - 1) >=
+                         visibility_header->leaf_count))
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+            }
+        }
+        for (uint32_t index = 0u; index < visibility_header->leaf_count;
+             ++index) {
+            const BspBundleVisibilityLeaf *const leaf =
+                &visibility_leaves[index];
+            if ((uint64_t)leaf->pvs_offset !=
+                    (uint64_t)index * visibility_header->pvs_row_bytes ||
+                leaf->first_draw_ref > visibility_header->draw_ref_count ||
+                leaf->draw_ref_count > visibility_header->draw_ref_count -
+                    leaf->first_draw_ref)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+            for (uint32_t axis = 0u; axis < 3u; ++axis)
+                if (!__builtin_isfinite(leaf->mins[axis]) ||
+                    !__builtin_isfinite(leaf->maxs[axis]) ||
+                    leaf->mins[axis] > leaf->maxs[axis])
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+            for (uint32_t ref = 0u; ref < leaf->draw_ref_count; ++ref) {
+                const uint32_t draw =
+                    visibility_draws[leaf->first_draw_ref + ref];
+                if (draw >= draw_chunk->count ||
+                    (ref > 0u && draw <= visibility_draws[
+                        leaf->first_draw_ref + ref - 1u]))
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+            }
+        }
+        for (uint32_t index = 0u; index < draw_bounds_chunk->count; ++index)
+            for (uint32_t axis = 0u; axis < 3u; ++axis)
+                if (!__builtin_isfinite(draw_bounds[index].mins[axis]) ||
+                    !__builtin_isfinite(draw_bounds[index].maxs[axis]) ||
+                    draw_bounds[index].mins[axis] >
+                        draw_bounds[index].maxs[axis])
+                    return BSP_BUNDLE_GEOMETRY_INVALID;
+    }
+
     const uint16_t *const indices =
         (const uint16_t *)(data + index_chunk->offset);
     const BspBundleDraw *const draws =
@@ -392,6 +542,16 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
              (draw[-1].base_texture == draw->base_texture &&
               draw[-1].face_id >= draw->face_id))))
             return BSP_BUNDLE_GEOMETRY_INVALID;
+    }
+    if (visibility_header) {
+        const uint32_t first = visibility_header->world_first_face;
+        const uint32_t count = visibility_header->world_face_count;
+        for (uint32_t ref = 0u; ref < visibility_header->draw_ref_count;
+             ++ref) {
+            const uint32_t face = draws[visibility_draws[ref]].face_id;
+            if (face < first || face - first >= count)
+                return BSP_BUNDLE_GEOMETRY_INVALID;
+        }
     }
     if (lightmap_faces) {
         for (uint32_t metadata_index = 0u;
@@ -444,6 +604,15 @@ int bsp_bundle_open(const void *opaque, size_t bytes, BspBundleView *view)
         view->brush_model_count = brush_model_chunk->count;
         view->brush_entities = brush_entities;
         view->brush_entity_count = brush_entity_chunk->count;
+    }
+    if (visibility_header_chunk) {
+        view->visibility = visibility_header;
+        view->visibility_planes = visibility_planes;
+        view->visibility_nodes = visibility_nodes;
+        view->visibility_leaves = visibility_leaves;
+        view->visibility_draw_refs = visibility_draws;
+        view->visibility_pvs = data + visibility_pvs_chunk->offset;
+        view->draw_bounds = draw_bounds;
     }
     for (uint32_t vertex = 0; vertex < vertex_chunk->count; ++vertex) {
         const BspBundleVertex *const item = &view->vertices[vertex];
