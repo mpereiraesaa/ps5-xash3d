@@ -529,5 +529,11 @@ double Platform_DoubleTime( void )
 
 void Platform_Sleep( int msec )
 {
-	usleep( msec * 1000 );
+	struct timespec request, remaining;
+	if( msec <= 0 )
+		return;
+	request.tv_sec = msec / 1000;
+	request.tv_nsec = (long)( msec % 1000 ) * 1000000l;
+	while( nanosleep( &request, &remaining ) != 0 && errno == EINTR )
+		request = remaining;
 }

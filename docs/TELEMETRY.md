@@ -255,6 +255,26 @@ unmap/release each occurred exactly once with result zero. Acceptance requires
 `memory_pass=1`, the normal engine completion BYE and the matching immutable
 manifest; a successful mapping call or process exit alone is insufficient.
 
+## Phase 5 thread/time evidence
+
+The gate announces `thread_time_gate=1` in `XASH_BOOT`.
+`XASH_THREAD_TIME_BEGIN` fixes the worker, iteration, clock and sleep sample
+counts. `XASH_THREAD_RESULT` records every create/join/detach return code,
+worker completions, distinct identities, mutex lifecycle/errors and the exact
+locked counter. Acceptance requires create/join/detach `2/1/1`, two distinct
+completed workers, counter `32768`, exact ownership and `pass=1`.
+
+`XASH_CLOCK_RESULT` identifies `CLOCK_MONOTONIC` and reports reads, positive
+advances, minimum step, span, errors and regressions. It must contain 8,192
+reads, at least one advance and no error or regression.
+
+Eight `XASH_SLEEP_RESULT` rows cover `nanosleep` and `usleep` at 1, 2, 5 and
+10 ms. Each row carries 16 samples plus minimum, average, p95, maximum, errors
+and early-wake count; all rows must pass. `XASH_THREAD_TIME_COMPLETE` closes
+the aggregate ownership and timing result. The engine must then load its normal
+workload, emit `thread_time_pass=1` in `XASH_EXIT`, and close with a gap-free
+`BYE reason=xash-engine-boot-complete`.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

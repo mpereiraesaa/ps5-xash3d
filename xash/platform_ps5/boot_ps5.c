@@ -48,6 +48,7 @@ extern void __real_free( void *ptr );
 int PS5_ListingRefusedCount( void );
 int PS5_LoadDirIndex( const char *image_root, const char *index_path );
 void PS5_UnloadDirIndex( void );
+int PS5_ThreadTimeGateRun( void );
 int sceUserServiceInitialize( const void *params );
 int sceUserServiceGetForegroundUser( int32_t *user_id );
 int sceUserServiceTerminate( void );
@@ -266,6 +267,7 @@ int main( int argc, char **argv )
 #if PS5_XASH_MEMORY_GATE
 	int memory_gate_result;
 #endif
+	int thread_time_pass = 1;
 	int memory_pass = 1;
 	int memory_shutdown_result;
 	struct stat st;
@@ -328,6 +330,10 @@ int main( int argc, char **argv )
 		memory_pass = 0;
 	}
 #endif
+#if PS5_XASH_THREAD_TIME_GATE
+	if( PS5_ThreadTimeGateRun( ) != 0 )
+		thread_time_pass = 0;
+#endif
 	(void)ps5log_printf( PS5LOG_INFO, "XASH_DIRINDEX root=%s entries=%d",
 		PS5_XASH_RODIR, PS5_LoadDirIndex( PS5_XASH_RODIR, PS5_XASH_RODIR "/.dirindex" ));
 	probe_libc_heap( );
@@ -349,13 +355,13 @@ int main( int argc, char **argv )
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
-		"audio_gate=%d memory_gate=%d "
+		"audio_gate=%d memory_gate=%d thread_time_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
 		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE, PS5_XASH_AUDIO_GATE,
-		PS5_XASH_MEMORY_GATE,
+		PS5_XASH_MEMORY_GATE, PS5_XASH_THREAD_TIME_GATE,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
@@ -447,15 +453,17 @@ int main( int argc, char **argv )
 		(void)ps5log_printf( PS5LOG_MARK,
 			"XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu "
 			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
-			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d",
+			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d "
+			"thread_time_gate=%d thread_time_pass=%d",
 			result, PS5_ListingRefusedCount( ), arena.live_bytes,
 			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
 			(unsigned long long)arena.failures,
 			(unsigned long long)root.foreign_calls,
 			(unsigned long long)root.foreign_bytes, PS5_XASH_PAD_GATE,
-			PS5_XASH_MEMORY_GATE, memory_pass );
+			PS5_XASH_MEMORY_GATE, memory_pass, PS5_XASH_THREAD_TIME_GATE,
+			thread_time_pass );
 	}
-	ps5log_close( memory_pass ? "xash-engine-boot-complete" :
-		"xash-memory-gate-failed" );
-	_exit( memory_pass ? 0 : 2 );
+	ps5log_close( memory_pass && thread_time_pass ? "xash-engine-boot-complete" :
+		thread_time_pass ? "xash-memory-gate-failed" : "xash-thread-time-gate-failed" );
+	_exit( memory_pass && thread_time_pass ? 0 : 2 );
 }

@@ -6,7 +6,7 @@ STUDIO_SEQUENCE ?= fire
 .PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
 	engine-boot-native-release engine-pad-native-release \
 	engine-audio-native-release engine-audio-client-link \
-	engine-memory-native-release \
+	engine-memory-native-release engine-thread-time-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -71,6 +71,7 @@ $(eval $(call test_rule,test_ps5_bump_allocator,tests/test_ps5_bump_allocator.c 
 $(eval $(call test_rule,test_ps5_resource_pool,tests/test_ps5_resource_pool.c src/ps5_resource_pool.c,))
 $(eval $(call test_rule,test_ps5_memory_arena,tests/test_ps5_memory_arena.c xash/platform_ps5/memory_arena_ps5.c,-Ixash/platform_ps5 -lpthread))
 $(eval $(call test_rule,test_mem_ps5,tests/test_mem_ps5.c xash/platform_ps5/mem_ps5.c xash/platform_ps5/memory_arena_ps5.c,-Iinclude -Ixash/platform_ps5 -DPS5_ENGINE_HEAP_BYTES=1048576))
+$(eval $(call test_rule,test_thread_time_ps5,tests/test_thread_time_ps5.c xash/platform_ps5/thread_time_ps5.c,-Ixash/platform_ps5 -lpthread))
 $(eval $(call test_rule,test_ps5_transient_ring,tests/test_ps5_transient_ring.c src/ps5_transient_ring.c,))
 $(eval $(call test_rule,test_ps5_gfx1013_descriptor,tests/test_ps5_gfx1013_descriptor.c src/ps5_gfx1013_descriptor.c,))
 $(eval $(call test_rule,test_ps5_cache_contract,tests/test_ps5_cache_contract.c src/ps5_cache_contract.c src/ps5_gpu_span.c,))
@@ -109,7 +110,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
 	test_bsp_flat_draw test_bsp_flat_scene test_bsp_noclip test_bsp_runtime_plan \
 	test_bsp_texture_descriptor test_bsp_textured_draw test_ps5_bump_allocator \
-	test_ps5_resource_pool test_ps5_memory_arena test_mem_ps5 test_ps5_transient_ring \
+	test_ps5_resource_pool test_ps5_memory_arena test_mem_ps5 test_thread_time_ps5 test_ps5_transient_ring \
 	test_ps5_gfx1013_descriptor test_ps5_cache_contract \
 	test_ps5_transient_table test_bsp_resource_frame test_bsp_resource_draw \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
@@ -285,6 +286,11 @@ engine-audio-client-link:
 # resource handles, then loads c1a0 and proves a balanced root teardown.
 engine-memory-native-release:
 	XASH_MEMORY_GATE=1 bash xash/build_engine.sh
+
+# Dedicated Phase 5 thread/time gate: exercises the pthread surface actually
+# used by the engine, validates CLOCK_MONOTONIC and measures sleep granularity.
+engine-thread-time-native-release:
+	XASH_THREAD_TIME_GATE=1 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
