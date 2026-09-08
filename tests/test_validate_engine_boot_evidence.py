@@ -25,6 +25,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   memory_gate: bool = False, memory_failures: int = 0,
                   thread_time_gate: bool = False,
                   libc_shim_gate: bool = False,
+                  prx_gate: bool = False,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -37,7 +38,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                  f"gamedir=valve map=c1a0 gate_seconds=90 pad_gate={int(pad_gate)} "
                  f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} "
                  f"thread_time_gate={int(thread_time_gate)} "
-                 f"libc_shim_gate={int(libc_shim_gate)} rodir_present=1"),
+                 f"libc_shim_gate={int(libc_shim_gate)} prx_gate={int(prx_gate)} "
+                 "rodir_present=1"),
     ]
     if mode == "client":
         structured.append(("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
@@ -171,10 +173,27 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                      "result=0 fallback=argv0 info=zeroed pass=1"),
             ("MARK", "XASH_LIBC_SHIM_END pass=1"),
         ]
+    if prx_gate:
+        structured += [
+            ("MARK", "XASH_PRX_BEGIN schema=1 backend=COM_LoadLibrary "
+                     "resolver=PRXDESC1 module=xash_prx_probe.prx"),
+            ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/xash_prx_probe.prx "
+                     "module=xash_prx_probe.prx handle=0xd0 segments=4 exports=6 result=0"),
+            ("MARK", "XASH_PRX_RESOLVE add=1 sleep_count=1 module_start=1 "
+                     "version=1 started=1 missing=0 pass=1"),
+            ("MARK", "XASH_PRX_CALL add=42 count=2 version=0x10000 auto_started=0 "
+                     "manual_start_rc=0 started=1 kernel_import=sceKernelUsleep "
+                     "name_roundtrip=1 pass=1"),
+            ("MARK", "XASH_PRX_UNLOAD module=xash_prx_probe.prx result=0 "
+                     "reason=ok ownership=released"),
+            ("MARK", "XASH_PRX_COMPLETE pass=1 load=1 resolve=1 call=1 unload=1 "
+                     "active=0 ownership=exact"),
+        ]
     structured.append(("MARK", f"XASH_EXIT result={exit_result} "
                                f"memory_gate={int(memory_gate)} memory_pass=1 "
                                f"thread_time_gate={int(thread_time_gate)} thread_time_pass=1 "
-                               f"libc_shim_gate={int(libc_shim_gate)} libc_shim_pass=1"))
+                               f"libc_shim_gate={int(libc_shim_gate)} libc_shim_pass=1 "
+                               f"prx_gate={int(prx_gate)} prx_pass=1"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -223,7 +242,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   audio_gate: bool = False,
                   memory_gate: bool = False,
                   thread_time_gate: bool = False,
-                  libc_shim_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  libc_shim_gate: bool = False,
+                  prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -237,6 +257,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--thread-time-gate")
     if libc_shim_gate:
         command.append("--libc-shim-gate")
+    if prx_gate:
+        command.append("--prx-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -325,6 +347,26 @@ def main() -> int:
             make_evidence(directory), libc_shim_gate=True)
         assert missing_libc_shim.returncode != 0 \
             and "not enabled" in missing_libc_shim.stderr
+
+        prx = run_validator(make_evidence(directory, prx_gate=True), prx_gate=True)
+        assert prx.returncode == 0, prx.stderr
+        prx_summary = json.loads(prx.stdout)
+        assert prx_summary["prx_gate"] and prx_summary["prx_pass"]
+        missing_prx = run_validator(make_evidence(directory), prx_gate=True)
+        assert missing_prx.returncode != 0 and "not enabled" in missing_prx.stderr
+
+        bad_prx = make_evidence(directory, prx_gate=True)
+        bad_prx_log = directory / json.loads(bad_prx.read_text())["log_path"]
+        bad_prx_text = bad_prx_log.read_text().replace(
+            "XASH_PRX_COMPLETE pass=1", "XASH_PRX_COMPLETE pass=0", 1)
+        bad_prx_log.write_text(bad_prx_text)
+        bad_prx_data = bad_prx_log.read_bytes()
+        bad_prx_manifest = json.loads(bad_prx.read_text())
+        bad_prx_manifest["bytes"] = len(bad_prx_data)
+        bad_prx_manifest["sha256"] = hashlib.sha256(bad_prx_data).hexdigest()
+        bad_prx.write_text(json.dumps(bad_prx_manifest))
+        rejected_prx = run_validator(bad_prx, prx_gate=True)
+        assert rejected_prx.returncode != 0 and "completion contract" in rejected_prx.stderr
 
         underrun = run_validator(
             make_evidence(directory, audio_gate=True, audio_underruns=1), audio_gate=True)

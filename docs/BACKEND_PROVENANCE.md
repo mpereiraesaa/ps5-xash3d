@@ -31,6 +31,7 @@ covered by synthetic host tests.
 | `xash/platform_ps5/thread_time_ps5.c` and `thread_time_gate_ps5.c` | Exercise joined and detached pthread ownership, mutex serialization, monotonic-clock behavior, and 1–10 ms `nanosleep`/`usleep` granularity. | The core is project-owned and host-tested. FW 12.02 run `20260907T220548886Z_PPSA99996_xash3d-engine_0xcb2ce47a2f65` proved two distinct workers, 32,768 locked increments, 8,192 monotonic reads with no regression, eight sleep buckets with no early wake/error, and exact join/detach/mutex teardown before the ordinary `c1a0` workload. |
 | `ps5_present`, `ps5_submission`, `bsp_command_plan` and `ps5_gpu_flip_timing` | Append an optional raw GPU end-of-pipe timestamp before the existing SetFlip/fence transaction, isolate two timestamp destinations and correlate them with CPU fence and exact VideoOut observations. | The selector-3 packet and ordering are independently authored from the private cross-title command-stream proof; no captured command buffer is published. Host tests pin packet words, overlap refusal, sentinel handling, strict sequence/clock progress and latency arithmetic. FW 12.02 run `20260907T225446311Z_PPSA99996_ps5-xash3d_0xcdd8ce3a668a` passed 60,000 writes, 59,999 strict changes and zero timing/order/gap errors through exact fence and VideoOut ownership. |
 | `xash/platform_ps5/libc_shims_ps5.c` | Owns the FreeBSD-style assertion sink, stable engine-facing identity and deterministic whereami fallback without depending on three ambiguous system exports. | Host tests pin exact formatting, truncation, uid propagation and zeroed `Dl_info`. The release audit rejects dynamic `__assert`, `getpwuid` or `dladdr` imports and requires local definitions. FW 12.02 run `20260907T235551519Z_PPSA99996_xash3d-engine_0xd12e2a9238fb` passed all three probes before loading `c1a0` and closing cleanly. Crash reporting itself continues to resolve modules with `sceKernelGetModuleList`/`sceKernelGetModuleInfo`, not `dladdr`. |
+| `xash/platform_ps5/prx_loader_ps5.c`, `prx_loader_ps5.h` and `lib_ps5.c` | Provide a hybrid Xash `COM_*` backend: proven modules may remain static while named application PRXs load through kernel module calls and publish a validated `PRXDESC1` table. | The loader flow and descriptor ABI originate in BlackBearReloaded's GPL-3.0-or-later `ps5-native-app-boilerplate` `exp/prx-module` work, pinned through public fork commit `1e9b564a4dd1d567e63ee0d292ed9a026ce06008`; this repository hardens range/name/duplicate checks and fail-closed rollback ownership. Host fault injection covers parsing and every lifecycle failure. FW 12.02 run `20260908T054317837Z_PPSA99996_xash3d-engine_0xe423c3826406` passed load, six exports, kernel-import execution and exact unload through Xash's public API. |
 | `native/ps5log` | Streams bounded structured `ps5log/1` records using `/app0/dev.conf` and a native `sceNet` adapter. | Vendored source matches the project-owned logging client byte-for-byte, its full host suite passes, and both native objects compile with only the expected libc/`sceNet` imports unresolved. |
 | `ps5_shader_header` | Builds the self-relative FW 12.02 input arena consumed by `sceAgcCreateShader` from generated public metadata. | Exact header/user-data/special/CX/SH offsets, GS/PS resource words and invalid inputs are host-tested; native compilation succeeds. |
 | `native/shader_assets.S` | Embeds only the two stages produced from `shaders/gears_lit.pipe`. | Prospero assembly produces 384-byte GS and 160-byte PS spans at 256-byte alignment using repository-local build paths. |
@@ -82,9 +83,15 @@ outside this repository. Exact hashes and validator results are listed in
 
 ## Native foundation pin
 
-Native packaging uses the public boilerplate fork at commit
+Standalone renderer packaging uses the public boilerplate fork at commit
 `37dd53602bdead63936f718004555ba10154be48`. This is the hardware-used tree:
 upstream `722f2227a8bb6fa2229120546995b6562552c752` plus the public RELRO
 load-segment congruence correction. A build script must verify this exact
 revision or fetch it into a project-local ignored dependency directory; it does
 not silently consume whichever checkout happens to exist in a parent lab.
+
+The Xash engine builder pins the later public `exp/prx-module` foundation at
+`1e9b564a4dd1d567e63ee0d292ed9a026ce06008`. Besides the same native shell,
+that revision supplies the public PRX converter used for Phase 6. The builder
+stamps the host tool with the commit so a cached pre-module binary cannot be
+reused silently.

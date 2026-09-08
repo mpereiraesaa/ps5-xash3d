@@ -155,5 +155,14 @@
 - [x] Close project-owned `__assert`, fixed identity and deterministic
   `dladdr` fallback shims with host tests, a no-import ELF audit and clean FW
   12.02 engine evidence.
+- [x] Replace the static-only `COM_*` backend with a hybrid application-owned
+  PRX loader; pass load, validated descriptor resolution, executable/data
+  calls and exact unload on FW 12.02 without regressing the static engine.
+- [ ] Convert `filesystem_stdio` to the application-owned PRX ABI and prove
+  complete retail-tree lookup/read/case behavior through the dynamic module.
+- [ ] Convert the server, menu and client modules incrementally, preserving an
+  independently bootable rollback point after each module boundary.
+- [ ] Bind `ref_agc` as the final engine module and replace the diagnostic
+  renderer path with the Phase 4 backend.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

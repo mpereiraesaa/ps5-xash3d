@@ -1,0 +1,12 @@
+{
+	global:
+		xash_prx_probe_add;
+		xash_prx_probe_sleep_count;
+		xash_prx_probe_version;
+		xash_prx_probe_started;
+		xash_prx_probe_exports;
+		module_start;
+		module_stop;
+	local:
+		*;
+};

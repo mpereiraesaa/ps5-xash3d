@@ -36,6 +36,7 @@ the exit the shell accepts without an error dialog.
 #include "audio_ps5.h"
 #include "mem_ps5.h"
 #include "libc_shims_ps5.h"
+#include "lib_ps5.h"
 
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
@@ -50,6 +51,7 @@ int PS5_ListingRefusedCount( void );
 int PS5_LoadDirIndex( const char *image_root, const char *index_path );
 void PS5_UnloadDirIndex( void );
 int PS5_ThreadTimeGateRun( void );
+int PS5_PrxGateRun( void );
 int sceUserServiceInitialize( const void *params );
 int sceUserServiceGetForegroundUser( int32_t *user_id );
 int sceUserServiceTerminate( void );
@@ -295,6 +297,7 @@ int main( int argc, char **argv )
 #endif
 	int thread_time_pass = 1;
 	int libc_shim_pass = 1;
+	int prx_pass = 1;
 	int memory_pass = 1;
 	int memory_shutdown_result;
 	struct stat st;
@@ -344,6 +347,15 @@ int main( int argc, char **argv )
 		libc_shim_pass = 0;
 #endif
 
+#if PS5_XASH_PRX_GATE
+	if( PS5_PrxGateRun( ) != 0 )
+	{
+		(void)PS5_PrxLibraryShutdown( );
+		ps5log_close( "xash-prx-loader-gate-failed" );
+		_exit( 2 );
+	}
+#endif
+
 #if PS5_XASH_AUDIO_GATE
 	audio_result = PS5_AudioGateRun( ps5_audio_gate_user( ));
 	if( audio_result != 0 )
@@ -387,14 +399,14 @@ int main( int argc, char **argv )
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
-		"audio_gate=%d memory_gate=%d thread_time_gate=%d libc_shim_gate=%d "
+		"audio_gate=%d memory_gate=%d thread_time_gate=%d libc_shim_gate=%d prx_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
 		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE, PS5_XASH_AUDIO_GATE,
 		PS5_XASH_MEMORY_GATE, PS5_XASH_THREAD_TIME_GATE,
-		PS5_XASH_LIBC_SHIM_GATE,
+		PS5_XASH_LIBC_SHIM_GATE, PS5_XASH_PRX_GATE,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
@@ -426,6 +438,8 @@ int main( int argc, char **argv )
 	fflush( stderr );
 	PS5_ConsoleFlush( );
 	PS5_UnloadDirIndex( );
+	if( PS5_PrxLibraryShutdown( ) != 0 )
+		prx_pass = 0;
 
 #if PS5_XASH_PAD_GATE
 	pad_result = PS5_PadInputShutdown( );
@@ -487,17 +501,20 @@ int main( int argc, char **argv )
 			"XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu "
 			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
 			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d "
-			"thread_time_gate=%d thread_time_pass=%d libc_shim_gate=%d libc_shim_pass=%d",
+			"thread_time_gate=%d thread_time_pass=%d libc_shim_gate=%d libc_shim_pass=%d "
+			"prx_gate=%d prx_pass=%d",
 			result, PS5_ListingRefusedCount( ), arena.live_bytes,
 			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
 			(unsigned long long)arena.failures,
 			(unsigned long long)root.foreign_calls,
 			(unsigned long long)root.foreign_bytes, PS5_XASH_PAD_GATE,
 			PS5_XASH_MEMORY_GATE, memory_pass, PS5_XASH_THREAD_TIME_GATE,
-			thread_time_pass, PS5_XASH_LIBC_SHIM_GATE, libc_shim_pass );
+			thread_time_pass, PS5_XASH_LIBC_SHIM_GATE, libc_shim_pass,
+			PS5_XASH_PRX_GATE, prx_pass );
 	}
-	ps5log_close( memory_pass && thread_time_pass && libc_shim_pass ?
+	ps5log_close( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ?
 		"xash-engine-boot-complete" : !memory_pass ? "xash-memory-gate-failed" :
-		!thread_time_pass ? "xash-thread-time-gate-failed" : "xash-libc-shim-gate-failed" );
-	_exit( memory_pass && thread_time_pass && libc_shim_pass ? 0 : 2 );
+		!thread_time_pass ? "xash-thread-time-gate-failed" :
+		!libc_shim_pass ? "xash-libc-shim-gate-failed" : "xash-prx-shutdown-failed" );
+	_exit( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ? 0 : 2 );
 }

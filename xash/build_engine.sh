@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Build the Xash3D dedicated engine boot title for PS5 (Phase 5 gate 1).
+# Build the Xash3D engine title for PS5 (Phase 5 host and Phase 6 gates).
 #
 # Produces dist/engine-boot/<title>/ with a signed eboot.bin that boots the
-# Xash3D FWGS engine in dedicated mode, statically linked with the
-# filesystem_stdio module and the hlsdk-portable server, and reports through
-# ps5log/1. No shaders, no renderer: this gate proves filesystem, memory,
-# threads, time, sockets and the three libc shims from a real title.
+# Xash3D FWGS engine with a hybrid library backend. The proven filesystem and
+# server remain static until their individual Phase 6 conversions; application
+# PRXs load through the same COM_* API. No shaders, no AGC renderer yet.
 #
 # Environment:
 #   PS5_NATIVE_FOUNDATION  boilerplate checkout (default .deps/, pinned)
@@ -40,10 +39,12 @@
 #                          clock and measured nanosleep/usleep timing (default 0)
 #   XASH_LIBC_SHIM_GATE    exercise project-owned assert formatting, fixed
 #                          identity and the dladdr fallback (default 0)
+#   XASH_PRX_GATE          load/call/unload a minimal application-owned PRX
+#                          through the engine COM_* API (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-pin=37dd53602bdead63936f718004555ba10154be48
+pin=1e9b564a4dd1d567e63ee0d292ed9a026ce06008
 url=https://github.com/mpereiraesaa/ps5-native-app-boilerplate.git
 foundation=${PS5_NATIVE_FOUNDATION:-$root/.deps/ps5-native-app-boilerplate}
 xash=$root/third_party/xash3d-fwgs
@@ -62,6 +63,7 @@ audio=${XASH_AUDIO:-0}
 memory_gate=${XASH_MEMORY_GATE:-0}
 thread_time_gate=${XASH_THREAD_TIME_GATE:-0}
 libc_shim_gate=${XASH_LIBC_SHIM_GATE:-0}
+prx_gate=${XASH_PRX_GATE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -73,6 +75,7 @@ ref_name=${XASH_REF:-soft}
 [[ $memory_gate == 0 || $memory_gate == 1 ]] || { echo "XASH_MEMORY_GATE must be 0 or 1" >&2; exit 2; }
 [[ $thread_time_gate == 0 || $thread_time_gate == 1 ]] || { echo "XASH_THREAD_TIME_GATE must be 0 or 1" >&2; exit 2; }
 [[ $libc_shim_gate == 0 || $libc_shim_gate == 1 ]] || { echo "XASH_LIBC_SHIM_GATE must be 0 or 1" >&2; exit 2; }
+[[ $prx_gate == 0 || $prx_gate == 1 ]] || { echo "XASH_PRX_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -133,7 +136,8 @@ make -C "$foundation" deps libc >/dev/null
 sdk="$foundation/.deps/native/ps5-payload-sdk"
 native="$foundation/tooling/native"
 tool="$foundation/build/host/ps5-native-tool"
-if [[ ! -x $tool ]]; then
+tool_stamp="$foundation/build/host/ps5-native-tool.commit"
+if [[ ! -x $tool || ! -f $tool_stamp || $(<"$tool_stamp") != "$pin" ]]; then
     zlib_root="$foundation/.deps/native/zlib/root"
     zlib_archive=$(find "$zlib_root" -type f -name libz.a -print -quit)
     cxx=$(command -v clang++-18 || command -v clang++ || true)
@@ -147,6 +151,7 @@ if [[ ! -x $tool ]]; then
         "$native/native_app_builder.cpp" "$native/self_container.cpp" \
         "$native/elf_object.cpp" "$native/sce_module_writer.cpp" \
         "$zlib_archive" -o "$tool"
+    printf '%s\n' "$pin" > "$tool_stamp"
 fi
 [[ -x $tool && -d $sdk && -f $foundation/runtime/libc.prx ]] || {
     echo "native foundation did not produce its SDK, tool and runtime" >&2
@@ -188,11 +193,12 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_MEMORY_GATE $memory_gate
 #define PS5_XASH_THREAD_TIME_GATE $thread_time_gate
 #define PS5_XASH_LIBC_SHIM_GATE $libc_shim_gate
+#define PS5_XASH_PRX_GATE $prx_gate
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
 # generated_library_tables.h lists the module names (mode-dependent) and is
-# compiled into lib_static.c; per-module export tables are generated later into
+# compiled into the static half of lib_ps5.c; per-module export tables are generated later into
 # $gen/helpers once each relocatable is known.
 table_specs=(filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" server="$root/xash/exports/server.txt")
 if [[ $mode == client ]]; then
@@ -312,7 +318,7 @@ engine_sources=$(
     find "$xash/public" -maxdepth 1 -name '*.c'
     find "$xash/engine/platform/posix" -name '*.c' \
         ! -name 'sys_posix.c' ! -name 'crash_*.c' ! -name 'lib_posix.c'
-    echo "$xash/engine/platform/misc/lib_static.c"
+    echo "$root/xash/platform_ps5/lib_ps5.c"
     echo "$xash/3rdparty/library_suffix/src/library_suffix.c"
     echo "$root/xash/platform_ps5/sys_ps5.c"
     echo "$root/xash/platform_ps5/libc_shims_ps5.c"
@@ -320,6 +326,7 @@ engine_sources=$(
     echo "$root/xash/platform_ps5/mem_ps5.c"
 	echo "$root/xash/platform_ps5/memory_arena_ps5.c"
 	echo "$root/xash/platform_ps5/thread_time_ps5.c"
+	echo "$root/xash/platform_ps5/prx_loader_ps5.c"
 	echo "$root/xash/platform_ps5/in_ps5.c"
     if [[ $audio_gate == 1 || $audio == 1 ]]; then
         echo "$root/xash/platform_ps5/audio_ps5.c"
@@ -333,6 +340,9 @@ engine_sources=$(
     fi
     if [[ $thread_time_gate == 1 ]]; then
         echo "$root/xash/platform_ps5/thread_time_gate_ps5.c"
+    fi
+    if [[ $prx_gate == 1 ]]; then
+        echo "$root/xash/platform_ps5/prx_gate_ps5.c"
     fi
     if [[ $mode == client ]]; then
         find "$xash/engine/client" -name '*.c'
@@ -553,6 +563,26 @@ fi
 module_objects=()
 for m in "${module_names[@]}"; do module_objects+=("$build/$m.o"); done
 
+if [[ $prx_gate == 1 ]]; then
+    echo "== Phase 6 PRX loader probe module"
+    mkdir -p "$build/prx"
+    "${cc[@]}" -std=c11 -O2 -Wall -Wextra -Werror -fPIC \
+        -ffunction-sections -fdata-sections -I"$root/xash/platform_ps5" \
+        -c "$root/xash/platform_ps5/prx_probe_module.c" \
+        -o "$build/prx/xash_prx_probe.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$root/xash/platform_ps5/prx_probe_exports.map" \
+        -soname xash_prx_probe.prx -o "$build/prx/xash_prx_probe.shared.elf" \
+        "$build/prx/xash_prx_probe.o" --as-needed "$sdk"/target/lib/*.so
+    "$tool" link --module --in "$build/prx/xash_prx_probe.shared.elf" \
+        --out "$build/prx/xash_prx_probe.elf" --stub-dir "$sdk/target/lib" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name xash_prx_probe.prx
+    "$tool" self --sign --in "$build/prx/xash_prx_probe.elf" \
+        --out "$dist/sce_module/xash_prx_probe.prx"
+    "$tool" self --inspect --file "$dist/sce_module/xash_prx_probe.prx"
+fi
+
 echo "== link"
 "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti \
     -ffunction-sections -fdata-sections -c "$native/app_crt.cpp" \
@@ -681,6 +711,25 @@ if [[ $libc_shim_gate == 1 ]]; then
         fi
     done
 fi
+if [[ $prx_gate == 1 ]]; then
+    for symbol in sceKernelLoadStartModule sceKernelGetModuleInfo \
+        sceKernelStopUnloadModule; do
+        if ! grep -qw "$symbol" "$build/dynamic-symbols.txt"; then
+            echo "XASH_PRX_GATE=1 did not retain dynamic import $symbol" >&2
+            exit 1
+        fi
+    done
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_PRX_BEGIN XASH_PRX_LOAD XASH_PRX_RESOLVE \
+        XASH_PRX_CALL XASH_PRX_UNLOAD XASH_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_PRX_GATE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    [[ -s $dist/sce_module/xash_prx_probe.prx ]] || {
+        echo "XASH_PRX_GATE=1 did not package xash_prx_probe.prx" >&2; exit 1; }
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -726,4 +775,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate"

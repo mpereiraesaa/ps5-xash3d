@@ -408,6 +408,52 @@ def validate_libc_shim_gate(messages: list[str]) -> dict[str, str]:
     return end
 
 
+def validate_prx_gate(messages: list[str]) -> dict[str, str]:
+    """Validate load, descriptor resolution, calls and exact PRX teardown."""
+    begin = one(messages, "XASH_PRX_BEGIN")
+    load = one(messages, "XASH_PRX_LOAD")
+    resolve = one(messages, "XASH_PRX_RESOLVE")
+    call = one(messages, "XASH_PRX_CALL")
+    unload = one(messages, "XASH_PRX_UNLOAD")
+    complete = one(messages, "XASH_PRX_COMPLETE")
+
+    if begin != {
+        "schema": "1", "backend": "COM_LoadLibrary",
+        "resolver": "PRXDESC1", "module": "xash_prx_probe.prx",
+    }:
+        fail("PRX loader workload contract mismatch")
+    if load.get("path") != "/app0/sce_module/xash_prx_probe.prx" \
+            or load.get("module") != "xash_prx_probe.prx" \
+            or load.get("result") != "0" \
+            or not 1 <= int(load.get("segments", "0"), 10) <= 4 \
+            or load.get("exports") != "6" \
+            or not re.fullmatch(r"0x[1-9a-f][0-9a-f]*", load.get("handle", "")):
+        fail("PRX load marker is incomplete")
+    required_resolve = ("add", "sleep_count", "module_start", "version", "started", "pass")
+    if any(resolve.get(field) != "1" for field in required_resolve) \
+            or resolve.get("missing") != "0":
+        fail("PRX descriptor resolution contract failed")
+    if call.get("add") != "42" or call.get("count") != "2" \
+            or call.get("version") != "0x10000" \
+            or call.get("kernel_import") != "sceKernelUsleep" \
+            or call.get("name_roundtrip") != "1" or call.get("pass") != "1" \
+            or call.get("started") != "1":
+        fail("PRX call contract failed")
+    if call.get("auto_started") not in ("0", "1"):
+        fail("PRX automatic-start observation is invalid")
+    if call.get("auto_started") == "0" and call.get("manual_start_rc") != "0":
+        fail("PRX explicit initialization did not succeed")
+    if unload.get("result") != "0" or unload.get("ownership") != "released":
+        fail("PRX unload did not release ownership")
+    required_complete = {
+        "pass": "1", "load": "1", "resolve": "1", "call": "1",
+        "unload": "1", "active": "0", "ownership": "exact",
+    }
+    if any(complete.get(key) != value for key, value in required_complete.items()):
+        fail("PRX completion contract failed")
+    return complete
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -420,6 +466,7 @@ def validate(
     memory_gate: bool = False,
     thread_time_gate: bool = False,
     libc_shim_gate: bool = False,
+    prx_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -510,6 +557,8 @@ def validate(
         fail("thread/time gate was not enabled in the artifact")
     if libc_shim_gate and boot.get("libc_shim_gate") != "1":
         fail("libc shim gate was not enabled in the artifact")
+    if prx_gate and boot.get("prx_gate") != "1":
+        fail("PRX loader gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -523,6 +572,9 @@ def validate(
     if libc_shim_gate and (exit_fields.get("libc_shim_gate") != "1" or
                            exit_fields.get("libc_shim_pass") != "1"):
         fail("libc shim result was not successful")
+    if prx_gate and (exit_fields.get("prx_gate") != "1" or
+                     exit_fields.get("prx_pass") != "1"):
+        fail("PRX loader result was not successful")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -565,6 +617,10 @@ def validate(
     libc_shim_complete: dict[str, str] | None = None
     if libc_shim_gate:
         libc_shim_complete = validate_libc_shim_gate(messages)
+
+    prx_complete: dict[str, str] | None = None
+    if prx_gate:
+        prx_complete = validate_prx_gate(messages)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -658,6 +714,8 @@ def validate(
         if thread_time_complete else 0,
         "libc_shim_gate": libc_shim_gate,
         "libc_shim_pass": libc_shim_complete is not None,
+        "prx_gate": prx_gate,
+        "prx_pass": prx_complete is not None,
     }
 
 
@@ -673,6 +731,7 @@ def main() -> int:
     parser.add_argument("--memory-gate", action="store_true")
     parser.add_argument("--thread-time-gate", action="store_true")
     parser.add_argument("--libc-shim-gate", action="store_true")
+    parser.add_argument("--prx-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -689,6 +748,7 @@ def main() -> int:
             memory_gate=args.memory_gate,
             thread_time_gate=args.thread_time_gate,
             libc_shim_gate=args.libc_shim_gate,
+            prx_gate=args.prx_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

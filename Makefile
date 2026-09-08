@@ -7,6 +7,7 @@ STUDIO_SEQUENCE ?= fire
 	engine-boot-native-release engine-pad-native-release \
 	engine-audio-native-release engine-audio-client-link \
 	engine-memory-native-release engine-thread-time-native-release \
+	engine-prx-loader-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -75,6 +76,7 @@ $(eval $(call test_rule,test_ps5_memory_arena,tests/test_ps5_memory_arena.c xash
 $(eval $(call test_rule,test_mem_ps5,tests/test_mem_ps5.c xash/platform_ps5/mem_ps5.c xash/platform_ps5/memory_arena_ps5.c,-Iinclude -Ixash/platform_ps5 -DPS5_ENGINE_HEAP_BYTES=1048576))
 $(eval $(call test_rule,test_thread_time_ps5,tests/test_thread_time_ps5.c xash/platform_ps5/thread_time_ps5.c,-Ixash/platform_ps5 -lpthread))
 $(eval $(call test_rule,test_libc_shims_ps5,tests/test_libc_shims_ps5.c xash/platform_ps5/libc_shims_ps5.c,-D_GNU_SOURCE -Ixash/platform_ps5 -Inative/ps5log))
+$(eval $(call test_rule,test_prx_loader_ps5,tests/test_prx_loader_ps5.c xash/platform_ps5/prx_loader_ps5.c,-Ixash/platform_ps5))
 $(eval $(call test_rule,test_ps5_transient_ring,tests/test_ps5_transient_ring.c src/ps5_transient_ring.c,))
 $(eval $(call test_rule,test_ps5_gfx1013_descriptor,tests/test_ps5_gfx1013_descriptor.c src/ps5_gfx1013_descriptor.c,))
 $(eval $(call test_rule,test_ps5_cache_contract,tests/test_ps5_cache_contract.c src/ps5_cache_contract.c src/ps5_gpu_span.c,))
@@ -114,7 +116,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
 	test_bsp_flat_draw test_bsp_flat_scene test_bsp_noclip test_bsp_runtime_plan \
 	test_bsp_texture_descriptor test_bsp_textured_draw test_ps5_bump_allocator \
-	test_ps5_resource_pool test_ps5_memory_arena test_mem_ps5 test_thread_time_ps5 test_libc_shims_ps5 test_ps5_transient_ring \
+	test_ps5_resource_pool test_ps5_memory_arena test_mem_ps5 test_thread_time_ps5 test_libc_shims_ps5 test_prx_loader_ps5 test_ps5_transient_ring \
 	test_ps5_gfx1013_descriptor test_ps5_cache_contract \
 	test_ps5_transient_table test_bsp_resource_frame test_bsp_resource_draw \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
@@ -301,6 +303,11 @@ engine-thread-time-native-release:
 # fixed engine identity and deterministic dladdr fallback before engine boot.
 engine-libc-shims-native-release:
 	XASH_LIBC_SHIM_GATE=1 bash xash/build_engine.sh
+
+# Phase 6 gate 1: load, resolve, call and unload an application-owned PRX
+# through the engine's COM_* library API. Existing engine modules stay static.
+engine-prx-loader-native-release:
+	XASH_PRX_GATE=1 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
