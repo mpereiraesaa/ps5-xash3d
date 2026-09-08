@@ -29,10 +29,77 @@ typedef struct ps5_dynamic_library_s
 {
 	struct ps5_dynamic_library_s *next;
 	ps5_prx_module_t module;
+	int lifecycle_started;
+	int module_start_result;
+	int module_stop_result;
 } ps5_dynamic_library_t;
 
 static ps5_dynamic_library_t *ps5_dynamic_libraries;
 static int ps5_last_result;
+
+static int PS5_IsFilesystemPrx( const ps5_dynamic_library_t *library )
+{
+	return library && !strcmp( library->module.name, "filesystem_stdio.prx" );
+}
+
+static void PS5_LogFilesystemPrxState( ps5_dynamic_library_t *library,
+	const char *marker )
+{
+	int ( *index_count )( void );
+	int ( *allocator_result )( void );
+	int ( *listing_refused )( void );
+	if( !PS5_IsFilesystemPrx( library )) return;
+	index_count = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_FilesystemPrxIndexCount" );
+	allocator_result = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_FilesystemPrxAllocatorContractResult" );
+	listing_refused = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_FilesystemPrxListingRefusedCount" );
+	(void)ps5log_printf( index_count && allocator_result && listing_refused ?
+		PS5LOG_MARK : PS5LOG_ERR,
+		"%s module=filesystem_stdio.prx index_entries=%d "
+		"allocator_contract=libc-shared allocator_result=%d "
+		"listing_refused=%d resolver=PRXDESC1",
+		marker, index_count ? index_count( ) : -1,
+		allocator_result ? allocator_result( ) : -1,
+		listing_refused ? listing_refused( ) : -1 );
+}
+
+static int PS5_DynamicStart( ps5_dynamic_library_t *library )
+{
+	int ( *start )( size_t, const void * );
+	int ( *stop )( size_t, const void * );
+	start = (int ( * )( size_t, const void * ))PS5_PrxGetProc(
+		&library->module, "module_start" );
+	stop = (int ( * )( size_t, const void * ))PS5_PrxGetProc(
+		&library->module, "module_stop" );
+	if( !start || !stop )
+	{
+		library->module_start_result = PS5_PRX_ERROR_NO_DESCRIPTOR;
+		return library->module_start_result;
+	}
+	/* FW 12.02 returns a loaded module from sceKernelLoadStartModule without
+	 * calling this application-owned entry. COM_* therefore owns lifecycle. */
+	library->lifecycle_started = 1;
+	library->module_start_result = start( 0, NULL );
+	return library->module_start_result;
+}
+
+static int PS5_DynamicStop( ps5_dynamic_library_t *library )
+{
+	int ( *stop )( size_t, const void * );
+	if( !library->lifecycle_started ) return 0;
+	stop = (int ( * )( size_t, const void * ))PS5_PrxGetProc(
+		&library->module, "module_stop" );
+	if( !stop )
+	{
+		library->module_stop_result = PS5_PRX_ERROR_NO_DESCRIPTOR;
+		return library->module_stop_result;
+	}
+	library->module_stop_result = stop( 0, NULL );
+	if( library->module_stop_result == 0 ) library->lifecycle_started = 0;
+	return library->module_stop_result;
+}
 
 static void *PS5_StaticFind( table_t *table, const char *name )
 {
@@ -152,12 +219,40 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table,
 		else free( library );
 		return NULL;
 	}
+	result = PS5_DynamicStart( library );
+	if( result != 0 )
+	{
+		const int stop_result = PS5_DynamicStop( library );
+		const int unload_result = stop_result == 0 ?
+			PS5_PrxUnload( &library->module, PS5_PrxNativeOps( )) :
+			PS5_PRX_ERROR_UNLOAD;
+		const int retained = library->module.handle > 0;
+		ps5_last_result = PS5_PRX_ERROR_START;
+		snprintf( error, sizeof( error ),
+			"Failed to initialize %s: module_start returned %d", path, result );
+		COM_PushLibraryError( error );
+		(void)ps5log_printf( PS5LOG_ERR,
+			"XASH_PRX_INIT module=%s start_result=%d stop_result=%d "
+			"unload_result=%d ownership=%s",
+			library->module.name, result, stop_result, unload_result,
+			retained ? "retained" : "released" );
+		if( retained )
+		{
+			library->next = ps5_dynamic_libraries;
+			ps5_dynamic_libraries = library;
+		}
+		else free( library );
+		return NULL;
+	}
 	library->next = ps5_dynamic_libraries;
 	ps5_dynamic_libraries = library;
 	(void)ps5log_printf( PS5LOG_MARK,
-		"XASH_PRX_LOAD path=%s module=%s handle=0x%x segments=%u exports=%u result=0",
+		"XASH_PRX_LOAD path=%s module=%s handle=0x%x segments=%u exports=%u "
+		"init_result=%d result=0",
 		path, library->module.name, (unsigned)library->module.handle,
-		library->module.segment_count, library->module.descriptor->header.count );
+		library->module.segment_count, library->module.descriptor->header.count,
+		library->module_start_result );
+	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_READY" );
 	return library;
 }
 
@@ -167,16 +262,34 @@ void COM_FreeLibrary( void *hInstance )
 	ps5_dynamic_library_t *library = PS5_FindDynamic( hInstance, &link );
 	int result;
 	if( !library ) return;
+	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_STATE" );
+	if( PS5_DynamicStop( library ) != 0 )
+	{
+		ps5_last_result = PS5_PRX_ERROR_UNLOAD;
+		(void)ps5log_printf( PS5LOG_ERR,
+			"XASH_PRX_UNLOAD module=%s result=%d reason=module_stop_failed "
+			"stop_result=%d ownership=retained",
+			library->module.name, PS5_PRX_ERROR_UNLOAD,
+			library->module_stop_result );
+		return;
+	}
 	result = PS5_PrxUnload( &library->module, PS5_PrxNativeOps( ));
 	ps5_last_result = result;
 	(void)ps5log_printf( result == PS5_PRX_OK ? PS5LOG_MARK : PS5LOG_ERR,
-		"XASH_PRX_UNLOAD module=%s result=%d reason=%s ownership=%s",
+		"XASH_PRX_UNLOAD module=%s result=%d reason=%s stop_result=%d ownership=%s",
 		library->module.name, result, PS5_PrxResultString( result ),
+		library->module_stop_result,
 		result == PS5_PRX_OK ? "released" : "retained" );
 	if( result == PS5_PRX_OK )
 	{
+		const int filesystem = PS5_IsFilesystemPrx( library );
 		*link = library->next;
 		free( library );
+		if( filesystem )
+			(void)ps5log_printf( PS5LOG_MARK,
+				"XASH_FS_PRX_COMPLETE module=filesystem_stdio.prx stop_result=0 "
+				"active_modules=%u ownership=exact",
+				PS5_PrxLibraryActiveCount( ));
 	}
 }
 
@@ -224,7 +337,19 @@ unsigned PS5_PrxLibraryShutdown( void )
 	while( *link )
 	{
 		ps5_dynamic_library_t *library = *link;
-		const int result = PS5_PrxUnload( &library->module, PS5_PrxNativeOps( ));
+		int result;
+		if( PS5_DynamicStop( library ) != 0 )
+		{
+			ps5_last_result = PS5_PRX_ERROR_UNLOAD;
+			(void)ps5log_printf( PS5LOG_ERR,
+				"XASH_PRX_SHUTDOWN module=%s result=%d reason=module_stop_failed "
+				"stop_result=%d ownership=retained",
+				library->module.name[0] ? library->module.name : "unvalidated",
+				PS5_PRX_ERROR_UNLOAD, library->module_stop_result );
+			link = &library->next;
+			continue;
+		}
+		result = PS5_PrxUnload( &library->module, PS5_PrxNativeOps( ));
 		ps5_last_result = result;
 		(void)ps5log_printf( result == PS5_PRX_OK ? PS5LOG_MARK : PS5LOG_ERR,
 			"XASH_PRX_SHUTDOWN module=%s result=%d reason=%s ownership=%s",

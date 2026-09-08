@@ -26,6 +26,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   thread_time_gate: bool = False,
                   libc_shim_gate: bool = False,
                   prx_gate: bool = False,
+                  filesystem_prx_gate: bool = False,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -39,6 +40,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                  f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} "
                  f"thread_time_gate={int(thread_time_gate)} "
                  f"libc_shim_gate={int(libc_shim_gate)} prx_gate={int(prx_gate)} "
+                 f"filesystem_prx={int(filesystem_prx_gate)} "
                  "rodir_present=1"),
     ]
     if mode == "client":
@@ -189,11 +191,27 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
             ("MARK", "XASH_PRX_COMPLETE pass=1 load=1 resolve=1 call=1 unload=1 "
                      "active=0 ownership=exact"),
         ]
+    if filesystem_prx_gate:
+        structured += [
+            ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/filesystem_stdio.prx "
+                     "module=filesystem_stdio.prx handle=0xd1 segments=4 exports=8 result=0"),
+            ("MARK", "XASH_FS_PRX_READY module=filesystem_stdio.prx index_entries=4823 "
+                     "allocator_contract=libc-shared allocator_result=0 "
+                     "listing_refused=0 resolver=PRXDESC1"),
+            ("MARK", "XASH_FS_PRX_STATE module=filesystem_stdio.prx index_entries=4823 "
+                     "allocator_contract=libc-shared allocator_result=0 "
+                     "listing_refused=0 resolver=PRXDESC1"),
+            ("MARK", "XASH_PRX_UNLOAD module=filesystem_stdio.prx result=0 reason=ok "
+                     "stop_result=0 ownership=released"),
+            ("MARK", "XASH_FS_PRX_COMPLETE module=filesystem_stdio.prx stop_result=0 "
+                     "active_modules=0 ownership=exact"),
+        ]
     structured.append(("MARK", f"XASH_EXIT result={exit_result} "
                                f"memory_gate={int(memory_gate)} memory_pass=1 "
                                f"thread_time_gate={int(thread_time_gate)} thread_time_pass=1 "
                                f"libc_shim_gate={int(libc_shim_gate)} libc_shim_pass=1 "
-                               f"prx_gate={int(prx_gate)} prx_pass=1"))
+                               f"prx_gate={int(prx_gate)} prx_pass=1 "
+                               f"filesystem_prx={int(filesystem_prx_gate)}"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -203,6 +221,12 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
     ]
     if mode == "client":
         console += ["Loading renderer: soft -> ref_soft", "Renderer ref_soft initialized"]
+    if filesystem_prx_gate:
+        console.append("XASH_FS_PRX_PROBE schema=1 index_entries=4823 "
+                       "listing_pattern=gfx/* listing_matches=41 "
+                       "case_path=GfX/PaLeTtE.LmP palette_bytes=768 "
+                       "palette_hash=1111222233334444 large_path=maps/c1a0.bsp "
+                       "large_bytes=2546336 large_hash=5555666677778888 pass=1")
     lines = ["HELLO ps5log/1 title=PPSA99996 app=xash3d-engine boot=0x1234 tag=test"]
     seq = 0
     for index, (level, message) in enumerate(structured):
@@ -243,7 +267,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   memory_gate: bool = False,
                   thread_time_gate: bool = False,
                   libc_shim_gate: bool = False,
-                  prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  prx_gate: bool = False,
+                  filesystem_prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -259,6 +284,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--libc-shim-gate")
     if prx_gate:
         command.append("--prx-gate")
+    if filesystem_prx_gate:
+        command.append("--filesystem-prx-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -354,6 +381,35 @@ def main() -> int:
         assert prx_summary["prx_gate"] and prx_summary["prx_pass"]
         missing_prx = run_validator(make_evidence(directory), prx_gate=True)
         assert missing_prx.returncode != 0 and "not enabled" in missing_prx.stderr
+
+        filesystem_prx = run_validator(
+            make_evidence(directory, filesystem_prx_gate=True),
+            filesystem_prx_gate=True)
+        assert filesystem_prx.returncode == 0, filesystem_prx.stderr
+        filesystem_summary = json.loads(filesystem_prx.stdout)
+        assert filesystem_summary["filesystem_prx_gate"]
+        assert filesystem_summary["filesystem_prx_large_bytes"] == 2546336
+        missing_filesystem_prx = run_validator(
+            make_evidence(directory), filesystem_prx_gate=True)
+        assert missing_filesystem_prx.returncode != 0 \
+            and "not enabled" in missing_filesystem_prx.stderr
+
+        bad_filesystem_prx = make_evidence(directory, filesystem_prx_gate=True)
+        bad_filesystem_log = directory / json.loads(
+            bad_filesystem_prx.read_text())["log_path"]
+        bad_filesystem_text = bad_filesystem_log.read_text().replace(
+            "allocator_contract=libc-shared", "allocator_contract=private-arena", 1)
+        bad_filesystem_log.write_text(bad_filesystem_text)
+        bad_filesystem_data = bad_filesystem_log.read_bytes()
+        bad_filesystem_manifest = json.loads(bad_filesystem_prx.read_text())
+        bad_filesystem_manifest["bytes"] = len(bad_filesystem_data)
+        bad_filesystem_manifest["sha256"] = hashlib.sha256(
+            bad_filesystem_data).hexdigest()
+        bad_filesystem_prx.write_text(json.dumps(bad_filesystem_manifest))
+        rejected_filesystem_prx = run_validator(
+            bad_filesystem_prx, filesystem_prx_gate=True)
+        assert rejected_filesystem_prx.returncode != 0 \
+            and "ready contract" in rejected_filesystem_prx.stderr
 
         bad_prx = make_evidence(directory, prx_gate=True)
         bad_prx_log = directory / json.loads(bad_prx.read_text())["log_path"]

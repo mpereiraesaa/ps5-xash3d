@@ -985,6 +985,37 @@ production ELF / fSELF SHA-256 are
 `15264acb49412810228151df0019efb85ae61448b25c75cc9dc5f3ce3917c3c8` /
 `422bf298926dea76937e3f834f85fe584eb48ccc47157761a8c1893979600b69`.
 
+## Phase 6 dynamic filesystem PRX gate
+
+- Accepted run:
+  `20260908T071044664Z_PPSA99996_xash3d-engine_0xe8e95e4c0974`
+- Host ELF / signed fSELF SHA-256:
+  `0bdba330bbbe58f940f166fc9b2980fe21457ba8b1d7474b35b6ecda26a1d25d` /
+  `2e1f31f70403661c4f0e9a7e5f0d408816e5800c5f9c2169d790c831b3260861`
+- Filesystem PRX ELF / signed fSELF SHA-256:
+  `4a6f0d34200bad5892f0af3d2d194b31f930834d9178d11f7336391084b3588d` /
+  `888e0e73e6a228a9277600a009facb26933929752688b36633aa2f5c3f54740c`
+- Transcript / manifest SHA-256:
+  `808cc9a79c3892829f38f8865b9405d055a31c7aff37aa3571db14fdcdc09efb` /
+  `26752b034280ed22d99bc3112d2407e939729b85cc72df90e45f2962f338bf45`
+- Dynamic boundary: four validated mappings, eight `PRXDESC1` exports,
+  explicit start result zero and shared-libc `LoadFileMalloc` contract.
+- Filesystem workload: 4,823 indexed entries, 22 `gfx/*` results, mixed-case
+  `GfX/PaLeTtE.LmP` at 768 bytes and `maps/c1a0.bsp` at 2,546,336 bytes, with
+  non-zero stable hashes and zero refused listings.
+- Engine regression: static server loaded Half-Life, spawned `c1a0`, ran 15
+  seconds and closed normally.
+- Teardown: module state valid before shutdown, explicit stop result zero,
+  unload result zero, no active modules, engine arena balanced and exact
+  ownership; 30 records, 41 raw lines, no gaps or oversized lines.
+
+The validator accepted the immutable manifest with `--filesystem-prx-gate`.
+Rejected diagnostic run
+`20260908T065949157Z_PPSA99996_xash3d-engine_0xe850bfc43c41` isolated an
+invalid private-arena implementation of the cross-module `LoadFileMalloc`
+contract; it passed the reads but aborted when host `COM_FreeFile` reached
+libc. Full design and fault analysis are in `FILESYSTEM_PRX_PHASE6.md`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

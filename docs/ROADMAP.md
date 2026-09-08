@@ -158,7 +158,7 @@
 - [x] Replace the static-only `COM_*` backend with a hybrid application-owned
   PRX loader; pass load, validated descriptor resolution, executable/data
   calls and exact unload on FW 12.02 without regressing the static engine.
-- [ ] Convert `filesystem_stdio` to the application-owned PRX ABI and prove
+- [x] Convert `filesystem_stdio` to the application-owned PRX ABI and prove
   complete retail-tree lookup/read/case behavior through the dynamic module.
 - [ ] Convert the server, menu and client modules incrementally, preserving an
   independently bootable rollback point after each module boundary.
