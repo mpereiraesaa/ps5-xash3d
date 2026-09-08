@@ -41,10 +41,14 @@ The host fails closed unless all of these conditions hold at unload:
 - server, menu, client, renderer and filesystem release in that order, leaving
   zero active modules.
 
-The generated descriptor has 16 exports: `GetRefAPI` plus 15 lifecycle/status
-entries. The ELF has 91 dynamic imports and zero imports denied by the project
-audit. The reusable Phase 4 source, shaders and owned platform stubs are linked
-into the PRX; no proprietary game or SDK material is committed.
+The accepted Phase 6 descriptor had 16 exports: `GetRefAPI` plus 15
+lifecycle/status entries. Phase 7 first extended it to 26 exports for live
+capture and now to 31 exports for take/ack consumer ownership. The validator
+preserves the immutable 16-export evidence, accepts the historical 26-export
+capture form under its narrower contract and applies producer/consumer
+cross-accounting to the 31-export form. The reusable Phase 4 source, shaders
+and owned platform stubs are linked into the PRX; no proprietary game or SDK
+material is committed.
 
 ## Reproducible build
 

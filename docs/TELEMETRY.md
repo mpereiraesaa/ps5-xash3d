@@ -395,6 +395,37 @@ the engine stream closes normally. `tools/validate_ref_agc_prx_evidence.py`
 checks both immutable manifests, their transcript hashes, start-time
 correlation, private asset identities and the complete ownership chain.
 
+## Phase 7 live frame capture and camera consumption
+
+The 26-export `ref_agc.prx` capture checkpoint appends live producer evidence to
+`XASH_REF_AGC_PRX_STATE`: `live_frames`, `live_view_frames`,
+`live_view_hash`, `live_view_changes`, `live_map_serial`, `world_surfaces`,
+`entity_peak`, `draw2d_peak`, `dropped_entities` and `dropped_2d`. The first
+six positive counters distinguish a populated engine snapshot from mere
+callback activity. Both dropped counters must be zero. `live_frames` must equal
+`end_calls`, and `live_view_frames` may not exceed it.
+
+The current 31-export consumer adds `REF_AGC_LIVE_FRAME_INPUT`,
+`REF_AGC_LIVE_CONSUMED` and `REF_AGC_LIVE_COMPLETE`. Its final engine state
+reports `consumed_frames`, `consumed_serial`, `consumed_view_frames`,
+`consumed_camera_hash` and `consumed_camera_changes`. Acceptance requires the
+producer and consumer frame/view totals to match, final serial to equal the
+frame total, both camera hashes to be nonzero, a populated map and world, and
+zero drops.
+
+An acknowledgement is valid only after that serial's GPU fence is zero and its
+exact VideoOut flip token has arrived. This live bridge therefore limits the
+outstanding producer transaction to one native frame even though the reusable
+standalone renderer supports two frames in flight. `REF_AGC_LIVE_COMPLETE`
+must join the matched counts with two nonzero GPU hashes, nonzero bright
+pixels, all six resources reclaimed, intact guards, zero errors and
+`ownership=fence+videoout+ack`; teardown then closes with the gap-free BYE
+reason `ref-agc-live-complete`.
+
+These fields prove that the live camera affected every accepted native frame.
+Entity and 2D counts remain capture evidence until their actual engine resource
+and draw translations are bound to GPU-visible hashes.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

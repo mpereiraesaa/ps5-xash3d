@@ -173,5 +173,27 @@
   renderer path with the Phase 4 backend; prove RefAPI v18 callbacks, 600
   native frames, nonzero GPU readbacks and exact five-module teardown on FW
   12.02.
+- [x] Capture bounded, pointer-free live engine frame snapshots in `ref_agc`:
+  world metadata, view pass, 2,048 visible-entity slots and 4,096 2D command
+  slots; prove real `c1a0` traffic and zero drops on FW 12.02.
+- [x] Consume the live view in the AGC backend, translate GoldSrc Z-up camera
+  coordinates to the baker's AGC convention, and acknowledge each producer
+  serial only after exact fence plus VideoOut retirement; pass 5,265 matched
+  frames with zero drops/errors and exact teardown on FW 12.02.
+- [x] Replace the null RefAPI texture callbacks with a bounded revisioned RGBA8
+  store; on FW 12.02 issue 333 stable handles and resolve all 164 non-null
+  `c1a0` world texture references with exact teardown. This proves CPU
+  ingestion, not direct-memory upload or AGC sampling.
+- [x] Mirror active engine texture revisions into a 64 MiB direct-memory arena,
+  build and hash 330 GFX10.3 RGBA8/bilinear descriptor pairs, enforce
+  fence+VideoOut-before-reuse and reclaim the parent allocation exactly on FW
+  12.02. Shader sampling remains part of live draw translation.
+- [x] Replace the baked world draw list with the parsed engine world and live
+  texture descriptors; submit 3,695 `c1a0` surfaces from 17,245 vertices and
+  29,565 indices for 1,076 matched frames on FW 12.02, with nonzero readbacks,
+  eight exact reclaims and no OpenGL emulation layer.
+- [ ] Add live lightmap atlas sampling and native sky/turbulent semantics, then
+  replace entity fixtures and the procedural 2D list with engine-driven draws,
+  binding each class to its own GPU-visible evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

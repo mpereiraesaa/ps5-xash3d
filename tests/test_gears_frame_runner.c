@@ -105,6 +105,22 @@ int main(void)
     assert(result.state == GEARS_RUN_COMPLETE);
     assert(result.frames_completed == 10001 && fake.in_flight == 0);
 
+    /* Live producers ACK only after the exact submitted frame has completed
+     * both GPU and VideoOut ownership. This keeps one frame in flight and
+     * prevents a coalesced later flip token from overtaking the ACK. */
+    memset(&fake, 0, sizeof(fake)); fake.now = 1000000000;
+    input = make_input(&fake);
+    assert(gears_frame_loop_init(&loop, &input) == 0);
+    for (uint32_t i = 0; i < 100; ++i) {
+        assert(gears_frame_loop_step(&loop) == 0);
+        assert(gears_frame_loop_retire_oldest(&loop) == 0);
+        assert(loop.active_frames == 0 && fake.in_flight == 0);
+    }
+    assert(gears_frame_loop_drain(&loop) == 0);
+    assert(gears_frame_loop_result(&loop, &result) == 0);
+    assert(result.state == GEARS_RUN_COMPLETE && result.frames_completed == 100);
+    assert(result.max_frames_in_flight == 1 && fake.max_in_flight == 1);
+
     memset(&fake, 0, sizeof(fake)); fake.now = 1000000000; fake.fail_submit = 1;
     input = make_input(&fake);
     assert(gears_frame_loop_init(&loop, &input) == 0);

@@ -39,6 +39,21 @@ def main() -> None:
     ref_agc_module = (
         ROOT / "xash/platform_ps5/ref_agc_module.c"
     ).read_text(encoding="utf-8")
+    ref_agc_texture_store = (
+        ROOT / "src/ref_agc_texture_store.c"
+    ).read_text(encoding="utf-8")
+    ref_agc_gpu_texture_cache = (
+        ROOT / "src/ref_agc_gpu_texture_cache.c"
+    ).read_text(encoding="utf-8")
+    ref_agc_gpu_world_cache = (
+        ROOT / "src/ref_agc_gpu_world_cache.c"
+    ).read_text(encoding="utf-8")
+    ref_agc_gpu_world_draw = (
+        ROOT / "src/ref_agc_gpu_world_draw.c"
+    ).read_text(encoding="utf-8")
+    ref_agc_world_store = (
+        ROOT / "src/ref_agc_world_store.c"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -204,6 +219,15 @@ def main() -> None:
         "PS5_RefAgcPrxRuntimeResult", "PS5_RefAgcPrxTeardownResult",
         "PS5_RefAgcPrxEngineTableMask", "PS5_RefAgcPrxRuntimeFrames",
         "PS5_RefAgcPrxFrameHash", "PS5_RefAgcPrxBrightPixels",
+        "PS5_RefAgcPrxLiveFrames", "PS5_RefAgcPrxLiveViewFrames",
+        "PS5_RefAgcPrxLiveWorldSurfaces", "PS5_RefAgcPrxLiveEntityPeak",
+        "PS5_RefAgcPrxLive2DPeak", "PS5_RefAgcTakeLiveFrame",
+        "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
+        "PS5_RefAgcPrxConsumedFrames", "PS5_RefAgcPrxConsumedSerial",
+        "PS5_RefAgcPrxConsumedViewFrames", "PS5_RefAgcPrxConsumedCameraHash",
+        "PS5_RefAgcPrxTextureRevision", "PS5_RefAgcPrxTextureCreates",
+        "PS5_RefAgcPrxTexturePeakBytes", "PS5_RefAgcPrxTexturePeakActive",
+        "PS5_RefAgcPrxWorldTextureRefs", "PS5_RefAgcPrxWorldTexturesResolved",
         "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
         "pthread_create", "pthread_join",
     ):
@@ -212,12 +236,93 @@ def main() -> None:
     for item in (
         "XASH_REF_AGC_PRX_READY", "XASH_REF_AGC_PRX_STATE",
         "XASH_REF_AGC_PRX_COMPLETE", "PS5_LogRefAgcPrxState",
+        "consumed_frames( ) == live_frames( )",
+        "world_textures_resolved( ) == world_texture_refs( )",
+        "backend=phase7-live ownership=fence+videoout+ack",
     ):
         if item not in engine_library:
             raise SystemExit(f"ref_agc runtime contract missing: {item}")
     if "engine-ref-agc-prx-native-release" not in makefile or \
             "XASH_REF_AGC_PRX=1" not in makefile or "XASH_REF=agc" not in makefile:
         raise SystemExit("ref_agc release target missing")
+    for item in (
+        "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
+        "src/ref_agc_gpu_texture_cache.c",
+        "src/ref_agc_gpu_world_cache.c", "src/ref_agc_gpu_world_draw.c",
+        "src/ref_agc_texture_store.c",
+        "src/ref_agc_world_store.c",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"Phase 7 live renderer build contract missing: {item}")
+    for item in (
+        "slice=phase7-live-consumer", "mode=phase7-live-consumer",
+        "camera=live-refapi geometry=live-refapi textures=live-refapi",
+        "REF_AGC_LIVE_CONSUMED", "REF_AGC_LIVE_COMPLETE",
+        "live-frame-sequence-or-capacity-failure",
+        "gears_frame_loop_retire_oldest(&loop)",
+        "live-frame-retire-or-ownership-failure",
+        "REF_AGC_LIVE_TEXTURE_SYNC", "REF_AGC_GPU_TEXTURE_COMPLETE",
+        "live-texture-arena-retirement-failure",
+        "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u",
+        "REF_AGC_LIVE_WORLD_SYNC", "REF_AGC_GPU_WORLD_COMPLETE",
+        "REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u",
+        "live_reclaimed != 8u",
+        "#define PS5_BSP_FINAL_WINDOW(index) 0",
+        "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 7 live renderer runtime contract missing: {item}")
+    for item in (
+        "GL_LoadTextureFromBuffer = RefAgcLoadTextureFromBuffer",
+        "GL_CreateTexture = RefAgcCreateTexture",
+        "GL_FindTexture = RefAgcFindTexture",
+        "GL_LoadTexture = RefAgcLoadTexture",
+        "GL_FreeTexture = RefAgcFreeTexture",
+        "RefGetParm = RefAgcGetParm",
+        "PS5_RefAgcVisitTextures",
+        "Mod_ProcessRenderData = RefAgcProcessRenderData",
+        "PS5_RefAgcVisitWorld",
+    ):
+        if item not in ref_agc_module:
+            raise SystemExit(f"Phase 7 texture callback contract missing: {item}")
+    for item in (
+        "REF_AGC_TEXTURE_MAX", "ref_agc_texture_store_upsert",
+        "ref_agc_texture_store_visit_changed", "content_hash",
+        "peak_resident_bytes",
+    ):
+        if item not in ref_agc_texture_store:
+            raise SystemExit(f"Phase 7 texture store contract missing: {item}")
+    for item in (
+        "ref_agc_world_store_publish", "ref_agc_world_store_clear",
+        "ref_agc_world_store_visit_changed", "uint32_t *indices",
+        "content_hash", "peak_resident_bytes",
+    ):
+        if item not in ref_agc_world_store:
+            raise SystemExit(f"Phase 7 world store contract missing: {item}")
+    for item in (
+        "ref_agc_gpu_texture_cache_apply", "prior_use_retired",
+        "ps5_gfx1013_build_tsharp_rgba8", "PS5_GFX1013_FILTER_BILINEAR",
+        "source_bytes_copied", "descriptor_hash",
+    ):
+        if item not in ref_agc_gpu_texture_cache:
+            raise SystemExit(f"Phase 7 GPU texture cache contract missing: {item}")
+    for item in (
+        "ref_agc_gpu_world_cache_apply", "prior_use_retired",
+        "ps5_gfx1013_build_vsharp", "destination_indices[j] = (uint16_t)",
+        "texture_table_offset", "upload_hash",
+    ):
+        if item not in ref_agc_gpu_world_cache:
+            raise SystemExit(f"Phase 7 GPU world cache contract missing: {item}")
+    for item in (
+        "ref_agc_gpu_world_compose", "BSP_RESOURCE_GS_SH_OFFSET",
+        "BSP_RESOURCE_PS_SH_OFFSET", "draw_indexed",
+    ):
+        if item not in ref_agc_gpu_world_draw:
+            raise SystemExit(f"Phase 7 GPU world draw contract missing: {item}")
+    if source.index("ps5_surface_make_plan(0u, &resources.surface)") > \
+            source.index("renderer.live_aspect_ratio ="):
+        raise SystemExit(
+            "Phase 7 fallback aspect ratio must follow surface initialization")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

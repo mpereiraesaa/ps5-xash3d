@@ -841,16 +841,38 @@ if [[ $ref_agc_prx == 1 ]]; then
         --extra PS5_RefAgcPrxEndCalls \
         --extra PS5_RefAgcPrxNewMapCalls \
         --extra PS5_RefAgcPrxEngineTableMask \
+        --extra PS5_RefAgcPrxLiveFrames \
+        --extra PS5_RefAgcPrxLiveViewFrames \
+        --extra PS5_RefAgcPrxLiveViewHash \
+        --extra PS5_RefAgcPrxLiveViewChanges \
+        --extra PS5_RefAgcPrxLiveMapSerial \
+        --extra PS5_RefAgcPrxLiveWorldSurfaces \
+        --extra PS5_RefAgcPrxLiveEntityPeak \
+        --extra PS5_RefAgcPrxLive2DPeak \
+        --extra PS5_RefAgcPrxLiveDroppedEntities \
+        --extra PS5_RefAgcPrxLiveDropped2D \
+        --extra PS5_RefAgcPrxConsumedFrames \
+        --extra PS5_RefAgcPrxConsumedSerial \
+        --extra PS5_RefAgcPrxConsumedViewFrames \
+        --extra PS5_RefAgcPrxConsumedCameraHash \
+        --extra PS5_RefAgcPrxConsumedCameraChanges \
+        --extra PS5_RefAgcPrxTextureRevision \
+        --extra PS5_RefAgcPrxTextureCreates \
+        --extra PS5_RefAgcPrxTextureUpdates \
+        --extra PS5_RefAgcPrxTextureFrees \
+        --extra PS5_RefAgcPrxTexturePeakBytes \
+        --extra PS5_RefAgcPrxTextureHandles \
+        --extra PS5_RefAgcPrxTexturePeakActive \
+        --extra PS5_RefAgcPrxWorldTextureRefs \
+        --extra PS5_RefAgcPrxWorldTexturesResolved \
         --source "$gen/ref_agc_prx_descriptor.c" \
         --version-script "$gen/ref_agc_prx_exports.map"
     ref_agc_defines=(
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
+        -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
-        -DPS5_GOLDSRC_PHASE4=1 -DPS5_GOLDSRC_2D_GATE=1
-        -DPS5_GOLDSRC_LIGHTING_GATE=1 -DPS5_GOLDSRC_SPRITE_PARTICLE_GATE=1
-        -DPS5_GOLDSRC_STUDIO_GATE=1 -DPS5_GOLDSRC_BRUSH_GATE=1
-        -DPS5_GOLDSRC_VISIBILITY_GATE=1 -DPS5_GOLDSRC_PHASE4_FINAL_GATE=1
+        -DPS5_GOLDSRC_PHASE4=1
     )
     ref_agc_includes=(
         -I"$root/include" -I"$root/src" -I"$root/native"
@@ -861,6 +883,12 @@ if [[ $ref_agc_prx == 1 ]]; then
     ref_agc_sources=(
         "$root/native/main.c" "$root/native/ps5_agc_native.c"
         "$root/xash/platform_ps5/ref_agc_module.c"
+        "$root/src/ref_agc_live_frame.c"
+        "$root/src/ref_agc_gpu_texture_cache.c"
+        "$root/src/ref_agc_gpu_world_cache.c"
+        "$root/src/ref_agc_gpu_world_draw.c"
+        "$root/src/ref_agc_texture_store.c"
+        "$root/src/ref_agc_world_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"
         "$root/src/bsp_flat_draw.c" "$root/src/bsp_dynamic_lightmap.c"
         "$root/src/bsp_alpha_test.c" "$root/src/bsp_sky.c"
@@ -1328,6 +1356,19 @@ if [[ $ref_agc_prx == 1 ]]; then
         PS5_RefAgcPrxBrightPixels PS5_RefAgcPrxBeginCalls \
         PS5_RefAgcPrxSceneCalls PS5_RefAgcPrxEndCalls \
         PS5_RefAgcPrxNewMapCalls PS5_RefAgcPrxEngineTableMask \
+        PS5_RefAgcPrxLiveFrames PS5_RefAgcPrxLiveViewFrames \
+        PS5_RefAgcPrxLiveViewHash PS5_RefAgcPrxLiveViewChanges \
+        PS5_RefAgcPrxLiveMapSerial PS5_RefAgcPrxLiveWorldSurfaces \
+        PS5_RefAgcPrxLiveEntityPeak PS5_RefAgcPrxLive2DPeak \
+        PS5_RefAgcPrxLiveDroppedEntities PS5_RefAgcPrxLiveDropped2D \
+        PS5_RefAgcPrxConsumedFrames PS5_RefAgcPrxConsumedSerial \
+        PS5_RefAgcPrxConsumedViewFrames PS5_RefAgcPrxConsumedCameraHash \
+        PS5_RefAgcPrxConsumedCameraChanges \
+        PS5_RefAgcPrxTextureRevision PS5_RefAgcPrxTextureCreates \
+        PS5_RefAgcPrxTextureUpdates PS5_RefAgcPrxTextureFrees \
+        PS5_RefAgcPrxTexturePeakBytes PS5_RefAgcPrxTextureHandles \
+        PS5_RefAgcPrxTexturePeakActive PS5_RefAgcPrxWorldTextureRefs \
+        PS5_RefAgcPrxWorldTexturesResolved \
         ref_agc_prx_exports module_start module_stop; do
         if ! grep -Eq "[[:space:]]$symbol$" "$build/ref-agc-prx-shared-symbols.txt"; then
             echo "ref_agc.prx did not export $symbol" >&2

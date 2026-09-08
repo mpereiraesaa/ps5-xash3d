@@ -103,6 +103,12 @@ $(eval $(call test_rule,test_goldsrc_pipeline_cache,tests/test_goldsrc_pipeline_
 $(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scissor.c src/ps5_viewport_scissor.c,))
 $(eval $(call test_rule,test_ps5_shader_pipeline_slot,tests/test_ps5_shader_pipeline_slot.c src/ps5_shader_pipeline_slot.c src/ps5_shader_header.c src/ps5_pipeline.c,))
 $(eval $(call test_rule,test_ps5_goldsrc_pipeline_runtime,tests/test_ps5_goldsrc_pipeline_runtime.c src/ps5_goldsrc_pipeline_runtime.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c src/ps5_gpu_span.c,))
+$(eval $(call test_rule,test_ref_agc_live_frame,tests/test_ref_agc_live_frame.c src/ref_agc_live_frame.c,-Isrc -lpthread -lm))
+$(eval $(call test_rule,test_ref_agc_texture_store,tests/test_ref_agc_texture_store.c src/ref_agc_texture_store.c,-Isrc -lpthread))
+$(eval $(call test_rule,test_ref_agc_gpu_texture_cache,tests/test_ref_agc_gpu_texture_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
+$(eval $(call test_rule,test_ref_agc_world_store,tests/test_ref_agc_world_store.c src/ref_agc_world_store.c,-Isrc -lpthread))
+$(eval $(call test_rule,test_ref_agc_gpu_world_cache,tests/test_ref_agc_gpu_world_cache.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
+$(eval $(call test_rule,test_ref_agc_gpu_world_draw,tests/test_ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c src/ps5_gpu_span.c,-Isrc))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/goldsrc_lightmap_lighting.c src/goldsrc_brush_entities.c src/goldsrc_visibility.c src/bsp_flat_scene.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_gpu_span.c src/ps5_transient_ring.c,-Isrc -lm))
 
@@ -130,7 +136,10 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_goldsrc_brush_entities test_goldsrc_visibility \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
-	test_ps5_goldsrc_pipeline_runtime
+	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
+	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache \
+	test_ref_agc_world_store test_ref_agc_gpu_world_cache \
+	test_ref_agc_gpu_world_draw
 
 test: $(addprefix $(BUILD)/,$(TESTS))
 	@set -e; for test in $^; do $$test; done
