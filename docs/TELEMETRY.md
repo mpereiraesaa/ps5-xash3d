@@ -395,6 +395,20 @@ the engine stream closes normally. `tools/validate_ref_agc_prx_evidence.py`
 checks both immutable manifests, their transcript hashes, start-time
 correlation, private asset identities and the complete ownership chain.
 
+## Phase 7 live frame capture
+
+The 26-export `ref_agc.prx` appends live producer evidence to
+`XASH_REF_AGC_PRX_STATE`: `live_frames`, `live_view_frames`,
+`live_view_hash`, `live_view_changes`, `live_map_serial`, `world_surfaces`,
+`entity_peak`, `draw2d_peak`, `dropped_entities` and `dropped_2d`. The first
+six positive counters distinguish a populated engine snapshot from mere
+callback activity. Both dropped counters must be zero. `live_frames` must equal
+`end_calls`, and `live_view_frames` may not exceed it.
+
+The capture gate does not claim AGC consumption. That later gate must add
+consumer/presentation serials and prove that each accepted live snapshot
+affects the retired GPU frame.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

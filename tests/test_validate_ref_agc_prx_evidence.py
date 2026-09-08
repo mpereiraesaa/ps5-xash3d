@@ -46,12 +46,22 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
     return path
 
 
-def engine_messages(frame_hash: str = "d8c9aadab3c82cdb") -> list[str]:
+def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
+                    live: bool = True) -> list[str]:
     complete = [
         "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 active_modules=4 ownership=exact",
         "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 active_modules=3 ownership=exact pass=1",
         "XASH_CLIENT_PRX_COMPLETE module=client.prx stop_result=0 active_modules=2 ownership=exact pass=1",
     ]
+    exports = 26 if live else 16
+    ready_live = (" live_frames=0 live_view_frames=0 "
+                  "live_view_hash=0000000000000000 live_view_changes=0 "
+                  "live_map_serial=0 world_surfaces=0 entity_peak=0 "
+                  "draw2d_peak=0 dropped_entities=0 dropped_2d=0") if live else ""
+    state_live = (" live_frames=100 live_view_frames=99 "
+                  "live_view_hash=1234567890abcdef live_view_changes=0 "
+                  "live_map_serial=1 world_surfaces=3695 entity_peak=22 "
+                  "draw2d_peak=3 dropped_entities=0 dropped_2d=0") if live else ""
     return [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"XASH_BOOT schema=1 slice=engine-boot mode=client ref=agc fw=12.02 engine={ENGINE} "
@@ -60,15 +70,15 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb") -> list[str]:
         "thread_time_gate=0 libc_shim_gate=0 prx_gate=0 filesystem_prx=1 "
         "server_prx=1 menu_prx=1 client_prx=1 ref_agc_prx=1 rodir_present=1",
         "XASH_PRX_LOAD path=/app0/sce_module/ref_agc.prx module=ref_agc.prx handle=0xd3 "
-        "segments=4 exports=16 init_result=0 result=0",
+        f"segments=4 exports={exports} init_result=0 result=0",
         "XASH_REF_AGC_PRX_READY module=ref_agc.prx api=18 state=0 runtime_result=0 "
         "teardown_result=0 engine_mask=0 expected_mask=63 frames=0 "
         "frame_hash=0000000000000000 bright_pixels=0 begin_calls=0 scene_calls=0 "
-        "end_calls=0 newmap_calls=0 backend=phase4-native ownership=fence+videoout pass=1",
+        f"end_calls=0 newmap_calls=0{ready_live} backend=phase4-native ownership=fence+videoout pass=1",
         *complete,
         "XASH_REF_AGC_PRX_STATE module=ref_agc.prx api=18 state=5 runtime_result=0 "
         f"teardown_result=0 engine_mask=63 expected_mask=63 frames=600 frame_hash={frame_hash} "
-        "bright_pixels=820521 begin_calls=100 scene_calls=99 end_calls=100 newmap_calls=1 "
+        f"bright_pixels=820521 begin_calls=100 scene_calls=99 end_calls=100 newmap_calls=1{state_live} "
         "backend=phase4-native ownership=fence+videoout pass=1",
         "XASH_PRX_UNLOAD module=ref_agc.prx result=0 stop_result=0 ownership=released",
         "XASH_REF_AGC_PRX_COMPLETE module=ref_agc.prx stop_result=0 active_modules=1 "
@@ -126,11 +136,27 @@ def main() -> None:
         assert summary["pass"] and summary["frames"] == 600
         assert summary["start_skew_ms"] == 51
 
+        legacy_engine = write_run(
+            directory, "legacy-engine", "xash3d-engine",
+            engine_messages(live=False), raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        legacy = run(legacy_engine, renderer)
+        assert legacy.returncode == 0, legacy.stderr
+
         bad_engine = write_run(directory, "bad-engine", "xash3d-engine",
                                engine_messages("0000000000000000"), raw=raw,
                                started="2026-09-08T19:13:27.933+00:00")
         rejected = run(bad_engine, renderer)
         assert rejected.returncode != 0 and "runtime state" in rejected.stderr
+
+        dropped_messages = [message.replace(
+            "dropped_entities=0", "dropped_entities=1")
+            for message in engine_messages()]
+        dropped_engine = write_run(
+            directory, "dropped-engine", "xash3d-engine", dropped_messages,
+            raw=raw, started="2026-09-08T19:13:27.933+00:00")
+        rejected = run(dropped_engine, renderer)
+        assert rejected.returncode != 0 and "live frame capture" in rejected.stderr
 
         bad_renderer = write_run(directory, "bad-renderer", "ps5-xash3d",
                                  renderer_messages("1"),

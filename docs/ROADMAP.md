@@ -173,5 +173,11 @@
   renderer path with the Phase 4 backend; prove RefAPI v18 callbacks, 600
   native frames, nonzero GPU readbacks and exact five-module teardown on FW
   12.02.
+- [x] Capture bounded, pointer-free live engine frame snapshots in `ref_agc`:
+  world metadata, view pass, 2,048 visible-entity slots and 4,096 2D command
+  slots; prove real `c1a0` traffic and zero drops on FW 12.02.
+- [ ] Consume those snapshots in the AGC backend, replacing the baked camera,
+  entity fixtures and procedural 2D list with engine-driven resources and
+  draws without an OpenGL emulation layer.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

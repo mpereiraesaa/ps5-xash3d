@@ -48,6 +48,16 @@ static volatile uint64_t ref_agc_begin_calls;
 static volatile uint64_t ref_agc_scene_calls;
 static volatile uint64_t ref_agc_end_calls;
 static volatile uint64_t ref_agc_newmap_calls;
+static volatile uint64_t ref_agc_live_frames;
+static volatile uint64_t ref_agc_live_view_frames;
+static volatile uint64_t ref_agc_live_view_hash;
+static volatile uint64_t ref_agc_live_view_changes;
+static volatile uint64_t ref_agc_live_map_serial;
+static volatile uint64_t ref_agc_live_world_surfaces;
+static volatile uint64_t ref_agc_live_entity_peak;
+static volatile uint64_t ref_agc_live_2d_peak;
+static volatile uint64_t ref_agc_live_dropped_entities;
+static volatile uint64_t ref_agc_live_dropped_2d;
 static pthread_t ref_agc_thread;
 static int ref_agc_thread_created;
 static RefAgcLiveStore ref_agc_live;
@@ -56,6 +66,18 @@ static int ref_agc_live_initialized;
 static void RefAgcCopy3(float out[3], const float in[3])
 {
 	memcpy( out, in, 3u * sizeof(float) );
+}
+
+static uint64_t RefAgcHashBytes(const void *data, size_t bytes)
+{
+	const unsigned char *cursor = (const unsigned char *)data;
+	uint64_t hash = UINT64_C(14695981039346656037);
+	while( bytes-- )
+	{
+		hash ^= *cursor++;
+		hash *= UINT64_C(1099511628211);
+	}
+	return hash;
 }
 
 static void RefAgcCaptureWorld(void)
@@ -222,8 +244,33 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 
 static void RefAgcEndFrame(void)
 {
+	uint64_t view_hash;
 	++ref_agc_end_calls;
-	(void)ref_agc_live_publish( &ref_agc_live, ref_agc_end_calls );
+	if( ref_agc_live_publish( &ref_agc_live, ref_agc_end_calls ) != 0 )
+	{
+		ref_agc_runtime_result = -3;
+		ref_agc_runtime_state = REF_AGC_FAILED;
+		return;
+	}
+	ref_agc_live_frames = ref_agc_live.building.serial;
+	ref_agc_live_map_serial = ref_agc_live.building.map_serial;
+	ref_agc_live_world_surfaces = ref_agc_live.building.world.surfaces;
+	if( ref_agc_live.building.entity_count > ref_agc_live_entity_peak )
+		ref_agc_live_entity_peak = ref_agc_live.building.entity_count;
+	if( ref_agc_live.building.command_2d_count > ref_agc_live_2d_peak )
+		ref_agc_live_2d_peak = ref_agc_live.building.command_2d_count;
+	ref_agc_live_dropped_entities +=
+		ref_agc_live.building.dropped_entities;
+	ref_agc_live_dropped_2d +=
+		ref_agc_live.building.dropped_2d_commands;
+	if( !ref_agc_live.building.view.valid )
+		return;
+	++ref_agc_live_view_frames;
+	view_hash = RefAgcHashBytes( &ref_agc_live.building.view,
+		sizeof(ref_agc_live.building.view) );
+	if( ref_agc_live_view_hash != 0 && view_hash != ref_agc_live_view_hash )
+		++ref_agc_live_view_changes;
+	ref_agc_live_view_hash = view_hash;
 }
 
 static void RefAgcNewMap(void)
@@ -319,6 +366,16 @@ uint64_t PS5_RefAgcPrxBeginCalls(void) { return ref_agc_begin_calls; }
 uint64_t PS5_RefAgcPrxSceneCalls(void) { return ref_agc_scene_calls; }
 uint64_t PS5_RefAgcPrxEndCalls(void) { return ref_agc_end_calls; }
 uint64_t PS5_RefAgcPrxNewMapCalls(void) { return ref_agc_newmap_calls; }
+uint64_t PS5_RefAgcPrxLiveFrames(void) { return ref_agc_live_frames; }
+uint64_t PS5_RefAgcPrxLiveViewFrames(void) { return ref_agc_live_view_frames; }
+uint64_t PS5_RefAgcPrxLiveViewHash(void) { return ref_agc_live_view_hash; }
+uint64_t PS5_RefAgcPrxLiveViewChanges(void) { return ref_agc_live_view_changes; }
+uint64_t PS5_RefAgcPrxLiveMapSerial(void) { return ref_agc_live_map_serial; }
+uint64_t PS5_RefAgcPrxLiveWorldSurfaces(void) { return ref_agc_live_world_surfaces; }
+uint64_t PS5_RefAgcPrxLiveEntityPeak(void) { return ref_agc_live_entity_peak; }
+uint64_t PS5_RefAgcPrxLive2DPeak(void) { return ref_agc_live_2d_peak; }
+uint64_t PS5_RefAgcPrxLiveDroppedEntities(void) { return ref_agc_live_dropped_entities; }
+uint64_t PS5_RefAgcPrxLiveDropped2D(void) { return ref_agc_live_dropped_2d; }
 
 int PS5_RefAgcPrxEngineTableMask(void)
 {

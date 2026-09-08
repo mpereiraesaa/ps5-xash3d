@@ -841,6 +841,16 @@ if [[ $ref_agc_prx == 1 ]]; then
         --extra PS5_RefAgcPrxEndCalls \
         --extra PS5_RefAgcPrxNewMapCalls \
         --extra PS5_RefAgcPrxEngineTableMask \
+        --extra PS5_RefAgcPrxLiveFrames \
+        --extra PS5_RefAgcPrxLiveViewFrames \
+        --extra PS5_RefAgcPrxLiveViewHash \
+        --extra PS5_RefAgcPrxLiveViewChanges \
+        --extra PS5_RefAgcPrxLiveMapSerial \
+        --extra PS5_RefAgcPrxLiveWorldSurfaces \
+        --extra PS5_RefAgcPrxLiveEntityPeak \
+        --extra PS5_RefAgcPrxLive2DPeak \
+        --extra PS5_RefAgcPrxLiveDroppedEntities \
+        --extra PS5_RefAgcPrxLiveDropped2D \
         --source "$gen/ref_agc_prx_descriptor.c" \
         --version-script "$gen/ref_agc_prx_exports.map"
     ref_agc_defines=(
@@ -1329,6 +1339,11 @@ if [[ $ref_agc_prx == 1 ]]; then
         PS5_RefAgcPrxBrightPixels PS5_RefAgcPrxBeginCalls \
         PS5_RefAgcPrxSceneCalls PS5_RefAgcPrxEndCalls \
         PS5_RefAgcPrxNewMapCalls PS5_RefAgcPrxEngineTableMask \
+        PS5_RefAgcPrxLiveFrames PS5_RefAgcPrxLiveViewFrames \
+        PS5_RefAgcPrxLiveViewHash PS5_RefAgcPrxLiveViewChanges \
+        PS5_RefAgcPrxLiveMapSerial PS5_RefAgcPrxLiveWorldSurfaces \
+        PS5_RefAgcPrxLiveEntityPeak PS5_RefAgcPrxLive2DPeak \
+        PS5_RefAgcPrxLiveDroppedEntities PS5_RefAgcPrxLiveDropped2D \
         ref_agc_prx_exports module_start module_stop; do
         if ! grep -Eq "[[:space:]]$symbol$" "$build/ref-agc-prx-shared-symbols.txt"; then
             echo "ref_agc.prx did not export $symbol" >&2

@@ -808,9 +808,10 @@ def validate_ref_agc_prx_gate(
     unload = one_where(messages, "XASH_PRX_UNLOAD", "module", "ref_agc.prx")
     complete = one(messages, "XASH_REF_AGC_PRX_COMPLETE")
 
+    exports = int(load.get("exports", "0"), 10)
     if load.get("path") != "/app0/sce_module/ref_agc.prx" \
             or load.get("result") != "0" or load.get("init_result") != "0" \
-            or load.get("exports") != "16" \
+            or exports not in (16, 26) \
             or not 1 <= int(load.get("segments", "0"), 10) <= 4:
         fail("ref_agc PRX load contract failed")
     expected_common = {
@@ -836,6 +837,21 @@ def validate_ref_agc_prx_gate(
             fail(f"ref_agc PRX recorded no {field}")
     if state.get("begin_calls") != state.get("end_calls"):
         fail("ref_agc begin/end callback counts differ")
+    if exports == 26:
+        live_positive = (
+            "live_frames", "live_view_frames", "live_map_serial",
+            "world_surfaces", "entity_peak", "draw2d_peak",
+        )
+        for field in live_positive:
+            if int(state.get(field, "0"), 10) <= 0:
+                fail(f"ref_agc live capture recorded no {field}")
+        if state.get("live_frames") != state.get("end_calls") \
+                or int(state.get("live_view_frames", "0"), 10) > int(
+                    state.get("live_frames", "0"), 10) \
+                or state.get("live_view_hash") in (None, "0000000000000000") \
+                or state.get("dropped_entities") != "0" \
+                or state.get("dropped_2d") != "0":
+            fail("ref_agc live frame capture contract failed")
     if unload.get("result") != "0" or unload.get("stop_result") != "0" \
             or unload.get("ownership") != "released":
         fail("ref_agc PRX unload did not release ownership")

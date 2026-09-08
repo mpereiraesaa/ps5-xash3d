@@ -204,6 +204,9 @@ def main() -> None:
         "PS5_RefAgcPrxRuntimeResult", "PS5_RefAgcPrxTeardownResult",
         "PS5_RefAgcPrxEngineTableMask", "PS5_RefAgcPrxRuntimeFrames",
         "PS5_RefAgcPrxFrameHash", "PS5_RefAgcPrxBrightPixels",
+        "PS5_RefAgcPrxLiveFrames", "PS5_RefAgcPrxLiveViewFrames",
+        "PS5_RefAgcPrxLiveWorldSurfaces", "PS5_RefAgcPrxLiveEntityPeak",
+        "PS5_RefAgcPrxLive2DPeak", "PS5_RefAgcTakeLiveFrame",
         "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
         "pthread_create", "pthread_join",
     ):
