@@ -94,7 +94,6 @@ handle, or `Dll loaded` without map spawn and exact unload is insufficient.
 
 ## Next rollback point
 
-The next Phase 6 gate is `menu` as its own application PRX while retaining
-this accepted executable/filesystem/server combination as the independently
-bootable rollback point. `client` follows menu; `ref_agc` remains the final
-engine module boundary.
+The subsequent `menu.prx` gate passed and is documented in
+`MENU_PRX_PHASE6.md`. The accepted executable/filesystem/server combination
+described here remains its rollback point.

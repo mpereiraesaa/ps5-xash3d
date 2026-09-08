@@ -323,6 +323,13 @@ engine-filesystem-prx-native-release:
 engine-server-prx-native-release:
 	XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 bash xash/build_engine.sh
 
+# Phase 6 gate 4: client-mode boot with mainui in an application-owned PRX.
+# The proven filesystem/server PRXs remain packaged; client/ref_soft stay
+# static so this gate changes only the menu module boundary.
+engine-menu-prx-native-release:
+	XASH_MODE=client XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
+		XASH_MENU_PRX=1 bash xash/build_engine.sh
+
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
 

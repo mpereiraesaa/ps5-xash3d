@@ -58,7 +58,7 @@ independent FTP overwrites:
 ```sh
 python3 xash/tools/deploy_engine_bundle.py --host <console-ip> \
   --local-root dist/engine-boot/PPSA99996 \
-  --module filesystem_stdio.prx --module server.prx \
+  --module filesystem_stdio.prx --module server.prx --module menu.prx \
   --journal /absolute/private/deploy.jsonl --apply
 ```
 

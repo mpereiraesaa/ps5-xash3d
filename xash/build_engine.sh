@@ -45,6 +45,9 @@
 #                         engine module; server remains static (default 0)
 #   XASH_SERVER_PRX       package the HLSDK server as a dynamic module on top
 #                         of the proven filesystem PRX checkpoint (default 0)
+#   XASH_MENU_PRX         package mainui as a dynamic module in client mode on
+#                         top of the filesystem/server rollback point; boot to
+#                         the menu instead of queuing a map (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -70,6 +73,7 @@ libc_shim_gate=${XASH_LIBC_SHIM_GATE:-0}
 prx_gate=${XASH_PRX_GATE:-0}
 filesystem_prx=${XASH_FILESYSTEM_PRX:-0}
 server_prx=${XASH_SERVER_PRX:-0}
+menu_prx=${XASH_MENU_PRX:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -84,8 +88,13 @@ ref_name=${XASH_REF:-soft}
 [[ $prx_gate == 0 || $prx_gate == 1 ]] || { echo "XASH_PRX_GATE must be 0 or 1" >&2; exit 2; }
 [[ $filesystem_prx == 0 || $filesystem_prx == 1 ]] || { echo "XASH_FILESYSTEM_PRX must be 0 or 1" >&2; exit 2; }
 [[ $server_prx == 0 || $server_prx == 1 ]] || { echo "XASH_SERVER_PRX must be 0 or 1" >&2; exit 2; }
+[[ $menu_prx == 0 || $menu_prx == 1 ]] || { echo "XASH_MENU_PRX must be 0 or 1" >&2; exit 2; }
 if [[ $server_prx == 1 && $filesystem_prx != 1 ]]; then
     echo "XASH_SERVER_PRX=1 requires the proven XASH_FILESYSTEM_PRX=1 checkpoint" >&2
+    exit 2
+fi
+if [[ $menu_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 ) ]]; then
+    echo "XASH_MENU_PRX=1 requires XASH_MODE=client plus the proven filesystem/server PRX checkpoint" >&2
     exit 2
 fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
@@ -208,6 +217,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_PRX_GATE $prx_gate
 #define PS5_XASH_FILESYSTEM_PRX $filesystem_prx
 #define PS5_XASH_SERVER_PRX $server_prx
+#define PS5_XASH_MENU_PRX $menu_prx
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -222,7 +232,10 @@ if [[ $filesystem_prx == 0 ]]; then
     table_specs=(filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" "${table_specs[@]}")
 fi
 if [[ $mode == client ]]; then
-    table_specs+=(menu="$root/xash/exports/menu.txt" client="$root/xash/exports/client.txt"
+    if [[ $menu_prx == 0 ]]; then
+        table_specs+=(menu="$root/xash/exports/menu.txt")
+    fi
+    table_specs+=(client="$root/xash/exports/client.txt"
         ref_null="$root/xash/exports/ref.txt" ref_soft="$root/xash/exports/ref.txt")
 fi
 mkdir -p "$gen/helpers"
@@ -559,8 +572,12 @@ if [[ $mode == client ]]; then
         -I"$mainui/sdk_includes/public" -I"$mainui/sdk_includes/pm_shared")
     menu_sources=$(find "$mainui" -maxdepth 1 -name '*.cpp'; find "$mainui/miniutl" "$mainui/font" "$mainui/menus" \
         "$mainui/model" "$mainui/controls" -name '*.cpp')
+    menu_cxx_flags=("${cxx_flags[@]}")
+    if [[ $menu_prx == 1 ]]; then
+        menu_cxx_flags+=(-fPIC)
+    fi
     printf '%s\n' "$menu_sources" | sort -u |
-        compile_set "$build/menu.objects" "$build/obj/menu" -std=gnu++11 "${cxx_flags[@]}" \
+        compile_set "$build/menu.objects" "$build/obj/menu" -std=gnu++11 "${menu_cxx_flags[@]}" \
             -DMAINUI_USE_STB=1 -DMAINUI_USE_CUSTOM_FONT_RENDER=1 "-DSTDINT_H=<cstdint>" \
             -include keydefs.h "${menu_includes[@]}"
     mapfile -t menu_objects < "$build/menu.objects"
@@ -608,14 +625,20 @@ if [[ $mode == client ]]; then
     "$ld_reloc" -r -o "$build/ref_soft.stage1.o" "${ref_soft_objects[@]}"
     export_intersect ref_soft "$root/xash/exports/ref.txt" "$build/ref_soft.stage1.o" "$gen/ref_soft_exports.txt"
 
+    client_table_specs=(client="$gen/client_exports.txt" \
+        ref_null="$gen/ref_null_exports.txt" ref_soft="$gen/ref_soft_exports.txt")
+    client_static_modules=(client ref_null ref_soft)
+    if [[ $menu_prx == 0 ]]; then
+        client_table_specs=(menu="$gen/menu_exports.txt" "${client_table_specs[@]}")
+        client_static_modules=(menu "${client_static_modules[@]}")
+    fi
     python3 "$root/xash/tools/generate_static_library_tables.py" "$gen/helpers" \
-        menu="$gen/menu_exports.txt" client="$gen/client_exports.txt" \
-        ref_null="$gen/ref_null_exports.txt" ref_soft="$gen/ref_soft_exports.txt" >/dev/null
-    for m in menu client ref_null ref_soft; do
+        "${client_table_specs[@]}" >/dev/null
+    for m in "${client_static_modules[@]}"; do
         "${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/helpers/link_helper_$m.c" -o "$build/obj/link_helper_$m.o"
         build_module "$m" "$build/$m.stage1.o" "$build/obj/link_helper_$m.o"
     done
-    module_names=(menu client ref_null ref_soft)
+    module_names=("${client_static_modules[@]}")
     if [[ $server_prx == 0 ]]; then
         module_names=(server "${module_names[@]}")
     fi
@@ -692,6 +715,33 @@ if [[ $server_prx == 1 ]]; then
     "$tool" self --sign --in "$build/prx/server.elf" \
         --out "$dist/sce_module/server.prx"
     "$tool" self --inspect --file "$dist/sce_module/server.prx"
+fi
+
+if [[ $menu_prx == 1 ]]; then
+    echo "== Phase 6 mainui menu PRX"
+    mkdir -p "$build/prx/menu"
+    python3 "$root/xash/tools/generate_prx_descriptor.py" \
+        --module menu --exports "$gen/menu_exports.txt" \
+        --source "$gen/menu_prx_descriptor.c" \
+        --version-script "$gen/menu_prx_exports.map"
+    "${cc[@]}" -std=gnu11 "${cflags[@]}" -fPIC \
+        -I"$root/xash/platform_ps5" -c "$gen/menu_prx_descriptor.c" \
+        -o "$build/prx/menu/menu_prx_descriptor.o"
+    "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
+        -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+        -o "$build/prx/menu/app_cpp_runtime.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$gen/menu_prx_exports.map" \
+        -soname menu.prx -o "$build/prx/menu.shared.elf" \
+        "$build/menu.stage1.o" "$build/prx/menu/menu_prx_descriptor.o" \
+        "$build/prx/menu/app_cpp_runtime.o" --as-needed "$sdk"/target/lib/*.so
+    "$tool" link --module --in "$build/prx/menu.shared.elf" \
+        --out "$build/prx/menu.elf" --stub-dir "$sdk/target/lib" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name menu.prx
+    "$tool" self --sign --in "$build/prx/menu.elf" \
+        --out "$dist/sce_module/menu.prx"
+    "$tool" self --inspect --file "$dist/sce_module/menu.prx"
 fi
 
 if [[ $prx_gate == 1 ]]; then
@@ -961,6 +1011,53 @@ if [[ $server_prx == 1 ]]; then
         --stub-dir "$sdk/target/lib" \
         --output "$build/PS5_SERVER_PRX_DYNAMIC_IMPORT_AUDIT.md"
 fi
+if [[ $menu_prx == 1 ]]; then
+    [[ -s $dist/sce_module/menu.prx ]] || {
+        echo "XASH_MENU_PRX=1 did not package menu.prx" >&2; exit 1; }
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_MENU_PRX_READY XASH_MENU_PRX_API XASH_MENU_PRX_EXT_API \
+        XASH_MENU_PRX_INIT XASH_MENU_PRX_ACTIVE XASH_MENU_PRX_REDRAW \
+        XASH_MENU_PRX_SHUTDOWN XASH_MENU_PRX_STATE XASH_MENU_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_MENU_PRX=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/menu.shared.elf" \
+        > "$build/menu-prx-shared-symbols.txt"
+    "$readelf" --symbols "$build/prx/menu.shared.elf" \
+        > "$build/menu-prx-all-symbols.txt"
+    for symbol in __init_array_start __init_array_end \
+        __fini_array_start __fini_array_end; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/menu-prx-all-symbols.txt"; then
+            echo "menu.prx did not retain lifecycle boundary $symbol" >&2
+            exit 1
+        fi
+    done
+    if ! "$readelf" --dynamic "$build/prx/menu.shared.elf" |
+        grep -Eq 'INIT_ARRAYSZ.*[1-9][0-9]* \(bytes\)'; then
+        echo "menu.prx did not retain a non-empty C++ initializer array" >&2
+        exit 1
+    fi
+    for symbol in GetMenuAPI GetExtAPI PS5_MenuPrxState \
+        PS5_MenuPrxExportCount menu_prx_exports module_start module_stop; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/menu-prx-shared-symbols.txt"; then
+            echo "menu.prx did not export $symbol" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/menu.elf" \
+        > "$build/menu-prx-dynamic-symbols.txt"
+    if grep -Eq 'UND[[:space:]]+(GetMenuAPI|GetExtAPI|PS5_MenuPrx)' \
+        "$build/menu-prx-dynamic-symbols.txt"; then
+        echo "menu.prx leaked an application-owned dynamic import" >&2
+        exit 1
+    fi
+    python3 "$root/xash/tools/audit_dyn_imports.py" "$build/prx/menu.elf" \
+        --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+        --stub-dir "$sdk/target/lib" \
+        --output "$build/PS5_MENU_PRX_DYNAMIC_IMPORT_AUDIT.md"
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -1006,4 +1103,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx menu_prx=$menu_prx"

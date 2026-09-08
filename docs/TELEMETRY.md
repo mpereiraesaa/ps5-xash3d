@@ -334,6 +334,21 @@ completion records must then reduce the active count to zero. Acceptance
 requires `server_prx=1` in `XASH_EXIT`, zero structured errors, the bounded
 timeout and the normal gap-free completion BYE.
 
+## Phase 6 MainUI menu PRX evidence
+
+The menu gate announces `mode=client filesystem_prx=1 server_prx=1 menu_prx=1`.
+`XASH_MENU_PRX_READY` binds state 1 to the two MainUI exports. The base and
+extended ABI records require 16 and 12 callbacks, engine masks 63 and 15, and
+non-null globals. Init, activation, at least one visible redraw and a non-black
+`XASH_FRAME` prove execution rather than descriptor presence.
+
+The optional legacy `libvgui_support.prx` miss is an explicit bounded warning
+with complete rollback and `fallback=client-probe`; any `ERR` or `ERROR` record
+still rejects the run. Shutdown must unload server, menu and filesystem in
+that order with active-module counts 2, 1 and 0. `XASH_MENU_PRX_COMPLETE`
+requires one init/shutdown, positive redraw/activation counts, both ABI passes
+and exact ownership before the gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a
