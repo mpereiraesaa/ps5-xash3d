@@ -149,6 +149,21 @@ int gears_frame_loop_step(GearsFrameLoop *loop)
     return 0;
 }
 
+int gears_frame_loop_retire_oldest(GearsFrameLoop *loop)
+{
+    GearsFrameLoopPending *oldest = 0;
+    if (!loop || !loop->initialized ||
+        loop->result.state != GEARS_RUN_ACTIVE || loop->active_frames == 0u)
+        return -1;
+    for (unsigned i = 0; i < GEARS_FRAME_BUFFER_COUNT; ++i) {
+        GearsFrameLoopPending *candidate = &loop->pending[i];
+        if (candidate->active && (!oldest ||
+            candidate->frame.frame_index < oldest->frame.frame_index))
+            oldest = candidate;
+    }
+    return oldest ? retire(loop, oldest) : -1;
+}
+
 int gears_frame_loop_drain(GearsFrameLoop *loop)
 {
     if (!loop || !loop->initialized || loop->result.state != GEARS_RUN_ACTIVE)

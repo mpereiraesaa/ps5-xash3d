@@ -207,6 +207,9 @@ def main() -> None:
         "PS5_RefAgcPrxLiveFrames", "PS5_RefAgcPrxLiveViewFrames",
         "PS5_RefAgcPrxLiveWorldSurfaces", "PS5_RefAgcPrxLiveEntityPeak",
         "PS5_RefAgcPrxLive2DPeak", "PS5_RefAgcTakeLiveFrame",
+        "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
+        "PS5_RefAgcPrxConsumedFrames", "PS5_RefAgcPrxConsumedSerial",
+        "PS5_RefAgcPrxConsumedViewFrames", "PS5_RefAgcPrxConsumedCameraHash",
         "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
         "pthread_create", "pthread_join",
     ):
@@ -215,12 +218,35 @@ def main() -> None:
     for item in (
         "XASH_REF_AGC_PRX_READY", "XASH_REF_AGC_PRX_STATE",
         "XASH_REF_AGC_PRX_COMPLETE", "PS5_LogRefAgcPrxState",
+        "consumed_frames( ) == live_frames( )",
+        "backend=phase7-live ownership=fence+videoout+ack",
     ):
         if item not in engine_library:
             raise SystemExit(f"ref_agc runtime contract missing: {item}")
     if "engine-ref-agc-prx-native-release" not in makefile or \
             "XASH_REF_AGC_PRX=1" not in makefile or "XASH_REF=agc" not in makefile:
         raise SystemExit("ref_agc release target missing")
+    for item in (
+        "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"Phase 7 live renderer build contract missing: {item}")
+    for item in (
+        "slice=phase7-live-consumer", "mode=phase7-live-consumer",
+        "camera=live-refapi geometry=baked-c1a0",
+        "REF_AGC_LIVE_CONSUMED", "REF_AGC_LIVE_COMPLETE",
+        "live-frame-sequence-or-capacity-failure",
+        "gears_frame_loop_retire_oldest(&loop)",
+        "live-frame-retire-or-ownership-failure",
+        "#define PS5_BSP_FINAL_WINDOW(index) 0",
+        "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 7 live renderer runtime contract missing: {item}")
+    if source.index("ps5_surface_make_plan(0u, &resources.surface)") > \
+            source.index("renderer.live_aspect_ratio ="):
+        raise SystemExit(
+            "Phase 7 fallback aspect ratio must follow surface initialization")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

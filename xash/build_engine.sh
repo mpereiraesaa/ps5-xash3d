@@ -851,16 +851,22 @@ if [[ $ref_agc_prx == 1 ]]; then
         --extra PS5_RefAgcPrxLive2DPeak \
         --extra PS5_RefAgcPrxLiveDroppedEntities \
         --extra PS5_RefAgcPrxLiveDropped2D \
+        --extra PS5_RefAgcPrxConsumedFrames \
+        --extra PS5_RefAgcPrxConsumedSerial \
+        --extra PS5_RefAgcPrxConsumedViewFrames \
+        --extra PS5_RefAgcPrxConsumedCameraHash \
+        --extra PS5_RefAgcPrxConsumedCameraChanges \
         --source "$gen/ref_agc_prx_descriptor.c" \
         --version-script "$gen/ref_agc_prx_exports.map"
     ref_agc_defines=(
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
+        -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
         -DPS5_GOLDSRC_PHASE4=1 -DPS5_GOLDSRC_2D_GATE=1
         -DPS5_GOLDSRC_LIGHTING_GATE=1 -DPS5_GOLDSRC_SPRITE_PARTICLE_GATE=1
         -DPS5_GOLDSRC_STUDIO_GATE=1 -DPS5_GOLDSRC_BRUSH_GATE=1
-        -DPS5_GOLDSRC_VISIBILITY_GATE=1 -DPS5_GOLDSRC_PHASE4_FINAL_GATE=1
+        -DPS5_GOLDSRC_VISIBILITY_GATE=1
     )
     ref_agc_includes=(
         -I"$root/include" -I"$root/src" -I"$root/native"
@@ -1344,6 +1350,9 @@ if [[ $ref_agc_prx == 1 ]]; then
         PS5_RefAgcPrxLiveMapSerial PS5_RefAgcPrxLiveWorldSurfaces \
         PS5_RefAgcPrxLiveEntityPeak PS5_RefAgcPrxLive2DPeak \
         PS5_RefAgcPrxLiveDroppedEntities PS5_RefAgcPrxLiveDropped2D \
+        PS5_RefAgcPrxConsumedFrames PS5_RefAgcPrxConsumedSerial \
+        PS5_RefAgcPrxConsumedViewFrames PS5_RefAgcPrxConsumedCameraHash \
+        PS5_RefAgcPrxConsumedCameraChanges \
         ref_agc_prx_exports module_start module_stop; do
         if ! grep -Eq "[[:space:]]$symbol$" "$build/ref-agc-prx-shared-symbols.txt"; then
             echo "ref_agc.prx did not export $symbol" >&2

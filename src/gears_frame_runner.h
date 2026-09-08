@@ -71,6 +71,7 @@ typedef struct GearsFrameLoop {
 int gears_frame_loop_init(GearsFrameLoop *loop,
                           const GearsFrameRunnerInput *input);
 int gears_frame_loop_step(GearsFrameLoop *loop);
+int gears_frame_loop_retire_oldest(GearsFrameLoop *loop);
 int gears_frame_loop_drain(GearsFrameLoop *loop);
 int gears_frame_loop_result(GearsFrameLoop *loop,
                             GearsFrameRunnerResult *result);

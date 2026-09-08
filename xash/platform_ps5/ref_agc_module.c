@@ -58,6 +58,11 @@ static volatile uint64_t ref_agc_live_entity_peak;
 static volatile uint64_t ref_agc_live_2d_peak;
 static volatile uint64_t ref_agc_live_dropped_entities;
 static volatile uint64_t ref_agc_live_dropped_2d;
+static volatile uint64_t ref_agc_consumed_frames;
+static volatile uint64_t ref_agc_consumed_serial;
+static volatile uint64_t ref_agc_consumed_view_frames;
+static volatile uint64_t ref_agc_consumed_camera_hash;
+static volatile uint64_t ref_agc_consumed_camera_changes;
 static pthread_t ref_agc_thread;
 static int ref_agc_thread_created;
 static RefAgcLiveStore ref_agc_live;
@@ -124,6 +129,17 @@ void PS5_RefAgcRuntimeComplete(uint64_t frames, uint64_t frame_hash,
 	ref_agc_runtime_state = teardown_result == 0 ? REF_AGC_COMPLETE : REF_AGC_FAILED;
 }
 
+void PS5_RefAgcRuntimeLiveStats(uint64_t consumed_frames,
+	uint64_t consumed_serial, uint64_t consumed_view_frames,
+	uint64_t camera_hash, uint64_t camera_changes)
+{
+	ref_agc_consumed_frames = consumed_frames;
+	ref_agc_consumed_serial = consumed_serial;
+	ref_agc_consumed_view_frames = consumed_view_frames;
+	ref_agc_consumed_camera_hash = camera_hash;
+	ref_agc_consumed_camera_changes = camera_changes;
+}
+
 void PS5_RefAgcRuntimeFailed(int result)
 {
 	if( result == 0 )
@@ -138,6 +154,8 @@ void PS5_RefAgcRuntimeFailed(int result)
 	}
 	ref_agc_runtime_result = result;
 	ref_agc_runtime_state = REF_AGC_FAILED;
+	if( ref_agc_live_initialized )
+		(void)ref_agc_live_request_stop( &ref_agc_live, result );
 }
 
 static void *RefAgcRuntimeThread(void *unused)
@@ -195,6 +213,8 @@ static void RefAgcShutdown(void)
 {
 	if( ref_agc_thread_created )
 	{
+		if( ref_agc_live_initialized )
+			(void)ref_agc_live_request_stop( &ref_agc_live, 0 );
 		(void)pthread_join( ref_agc_thread, NULL );
 		ref_agc_thread_created = 0;
 		if( ref_agc_runtime_state == REF_AGC_COMPLETE )
@@ -244,6 +264,7 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 
 static void RefAgcEndFrame(void)
 {
+	int wait_result;
 	uint64_t view_hash;
 	++ref_agc_end_calls;
 	if( ref_agc_live_publish( &ref_agc_live, ref_agc_end_calls ) != 0 )
@@ -263,14 +284,22 @@ static void RefAgcEndFrame(void)
 		ref_agc_live.building.dropped_entities;
 	ref_agc_live_dropped_2d +=
 		ref_agc_live.building.dropped_2d_commands;
-	if( !ref_agc_live.building.view.valid )
-		return;
-	++ref_agc_live_view_frames;
-	view_hash = RefAgcHashBytes( &ref_agc_live.building.view,
-		sizeof(ref_agc_live.building.view) );
-	if( ref_agc_live_view_hash != 0 && view_hash != ref_agc_live_view_hash )
-		++ref_agc_live_view_changes;
-	ref_agc_live_view_hash = view_hash;
+	if( ref_agc_live.building.view.valid )
+	{
+		++ref_agc_live_view_frames;
+		view_hash = RefAgcHashBytes( &ref_agc_live.building.view,
+			sizeof(ref_agc_live.building.view) );
+		if( ref_agc_live_view_hash != 0 && view_hash != ref_agc_live_view_hash )
+			++ref_agc_live_view_changes;
+		ref_agc_live_view_hash = view_hash;
+	}
+	wait_result = ref_agc_live_wait_consumed( &ref_agc_live,
+		ref_agc_live.building.serial );
+	if( wait_result != 0 )
+	{
+		ref_agc_runtime_result = wait_result;
+		ref_agc_runtime_state = REF_AGC_FAILED;
+	}
 }
 
 static void RefAgcNewMap(void)
@@ -356,6 +385,16 @@ int PS5_RefAgcTakeLiveFrame(uint64_t after_serial, RefAgcLiveFrame *out)
 	return ref_agc_live_take_latest( &ref_agc_live, after_serial, out );
 }
 
+int PS5_RefAgcWaitLiveFrame(uint64_t after_serial, RefAgcLiveFrame *out)
+{
+	return ref_agc_live_wait_latest( &ref_agc_live, after_serial, out );
+}
+
+int PS5_RefAgcConsumeLiveFrame(uint64_t serial)
+{
+	return ref_agc_live_mark_consumed( &ref_agc_live, serial );
+}
+
 int PS5_RefAgcPrxRuntimeState(void) { return ref_agc_runtime_state; }
 int PS5_RefAgcPrxRuntimeResult(void) { return ref_agc_runtime_result; }
 int PS5_RefAgcPrxTeardownResult(void) { return ref_agc_teardown_result; }
@@ -376,6 +415,11 @@ uint64_t PS5_RefAgcPrxLiveEntityPeak(void) { return ref_agc_live_entity_peak; }
 uint64_t PS5_RefAgcPrxLive2DPeak(void) { return ref_agc_live_2d_peak; }
 uint64_t PS5_RefAgcPrxLiveDroppedEntities(void) { return ref_agc_live_dropped_entities; }
 uint64_t PS5_RefAgcPrxLiveDropped2D(void) { return ref_agc_live_dropped_2d; }
+uint64_t PS5_RefAgcPrxConsumedFrames(void) { return ref_agc_consumed_frames; }
+uint64_t PS5_RefAgcPrxConsumedSerial(void) { return ref_agc_consumed_serial; }
+uint64_t PS5_RefAgcPrxConsumedViewFrames(void) { return ref_agc_consumed_view_frames; }
+uint64_t PS5_RefAgcPrxConsumedCameraHash(void) { return ref_agc_consumed_camera_hash; }
+uint64_t PS5_RefAgcPrxConsumedCameraChanges(void) { return ref_agc_consumed_camera_changes; }
 
 int PS5_RefAgcPrxEngineTableMask(void)
 {

@@ -8,6 +8,7 @@ enum {
     REF_AGC_LIVE_MAX_ENTITIES = 2048,
     REF_AGC_LIVE_MAX_2D_COMMANDS = 4096,
     REF_AGC_LIVE_MODEL_NAME = 64,
+    REF_AGC_LIVE_RF_DRAW_WORLD = 1u << 0,
 };
 
 typedef enum RefAgcLive2DCommandType {
@@ -99,13 +100,18 @@ typedef struct RefAgcLiveFrame {
 
 typedef struct RefAgcLiveStore {
     pthread_mutex_t publish_lock;
+    pthread_cond_t frame_ready;
+    pthread_cond_t frame_consumed;
     RefAgcLiveWorld current_world;
     RefAgcLiveFrame building;
     RefAgcLiveFrame published;
     uint64_t next_frame_serial;
     uint64_t next_map_serial;
+    uint64_t consumed_serial;
     uint64_t scene_serial;
     uint64_t last_begin_scene_serial;
+    int stop_requested;
+    int stop_result;
     int initialized;
 } RefAgcLiveStore;
 
@@ -126,5 +132,15 @@ int ref_agc_live_add_2d(RefAgcLiveStore *store,
 int ref_agc_live_publish(RefAgcLiveStore *store, uint64_t end_calls);
 int ref_agc_live_take_latest(RefAgcLiveStore *store, uint64_t after_serial,
                              RefAgcLiveFrame *out);
+int ref_agc_live_wait_latest(RefAgcLiveStore *store, uint64_t after_serial,
+                             RefAgcLiveFrame *out);
+int ref_agc_live_mark_consumed(RefAgcLiveStore *store, uint64_t serial);
+int ref_agc_live_wait_consumed(RefAgcLiveStore *store, uint64_t serial);
+int ref_agc_live_request_stop(RefAgcLiveStore *store, int result);
+
+int ref_agc_live_view_camera(const RefAgcLiveView *view,
+                             float position[3], float forward[3],
+                             float *aspect_ratio);
+int ref_agc_live_world_view_ready(const RefAgcLiveFrame *frame);
 
 #endif

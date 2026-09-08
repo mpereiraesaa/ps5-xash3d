@@ -57,8 +57,15 @@ def load_renderer(manifest_path: Path) -> tuple[dict[str, object], list[str], by
         fail("renderer structured sequence mismatch")
     if any(level in ("ERR", "ERROR") for _, level, _ in records):
         fail("renderer transcript contains ERROR records")
-    expected_bye = f"BYE seq={records[-1][0]} reason=ref-agc-runtime-complete"
-    if lines[-1] != expected_bye:
+    phase7 = any(message.startswith("REF_AGC_LIVE_COMPLETE ")
+                 for _, _, message in records)
+    reason = "ref-agc-live-complete" if phase7 \
+        else "ref-agc-runtime-complete"
+    expected_bye = f"BYE seq={records[-1][0]} reason={reason}"
+    bye_fields = manifest.get("bye_fields")
+    if lines[-1] != expected_bye or not isinstance(bye_fields, dict) \
+            or bye_fields.get("seq") != str(records[-1][0]) \
+            or bye_fields.get("reason") != reason:
         fail("renderer BYE reason/sequence mismatch")
     return manifest, [message for _, _, message in records], data
 
@@ -73,6 +80,74 @@ def validate_renderer(
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
+    if boot.get("slice") == "phase7-live-consumer":
+        if not exact(boot, {
+            "schema": "1", "slice": "phase7-live-consumer",
+            "target": "gfx1013", "fw": "12.02",
+            "ownership": "fence+videoout+ack",
+            "bundle_sha256": bundle_sha256,
+            "studio_sha256": studio_sha256,
+            "lifetime": "engine-owned", "input_owner": "engine",
+        }) or int(boot.get("bundle_bytes", "0"), 10) != bundle_bytes \
+                or int(boot.get("studio_bytes", "0"), 10) != studio_bytes:
+            fail("Phase 7 renderer boot/assets mismatch")
+        loop = one(messages, "BSP_LOOP_BEGIN")
+        if not exact(loop, {
+            "mode": "phase7-live-consumer", "buffers": "2",
+            "color_dma": "false", "depth_dma": "true",
+            "indexed": "true", "frames": "engine-owned",
+            "camera": "live-refapi", "geometry": "baked-c1a0",
+            "lists": "world+entities+2d",
+            "retirement": "fence+videoout+ack",
+            "input_dependency": "engine",
+        }):
+            fail("Phase 7 live integration loop mismatch")
+        ready = one(messages, "REF_AGC_RUNTIME_READY")
+        if not exact(ready, {
+            "backend": "phase4-native", "api": "18",
+            "videoout": "owned", "direct_memory": "owned",
+            "agc": "initialized", "scene": "planned",
+        }):
+            fail("Phase 7 native runtime was not ready")
+        inputs = [parse_fields(message) for message in messages
+                  if message.startswith("REF_AGC_LIVE_FRAME_INPUT ")]
+        consumed = [parse_fields(message) for message in messages
+                    if message.startswith("REF_AGC_LIVE_CONSUMED ")]
+        if not inputs or not consumed:
+            fail("Phase 7 live frame/ACK evidence is missing")
+        for marker in consumed:
+            if marker.get("ack") != "exact" or marker.get("drops") != "zero" \
+                    or marker.get("serial") != marker.get("consumed"):
+                fail("Phase 7 live frame ACK contract mismatch")
+        complete = one(messages, "REF_AGC_LIVE_COMPLETE")
+        frames = int(complete.get("frames", "0"), 10)
+        views = int(complete.get("view_frames", "0"), 10)
+        bright = int(complete.get("bright_pixels", "0"), 10)
+        if frames <= 0 or views <= 0 or views > frames \
+                or complete.get("serial") != str(frames) \
+                or complete.get("camera_hash") in (None, "0000000000000000") \
+                or complete.get("buffer0") in (None, "0000000000000000") \
+                or complete.get("buffer1") in (None, "0000000000000000") \
+                or bright <= 0 or complete.get("resource_reclaimed") != "6" \
+                or complete.get("ownership") != "fence+videoout+ack" \
+                or complete.get("guards") != "intact" \
+                or complete.get("errors") != "0":
+            fail("Phase 7 live renderer completion mismatch")
+        teardown = one(messages, "REF_AGC_TEARDOWN")
+        if not exact(teardown, {
+            "videoout": "closed", "direct_memory": "released",
+            "agc": "unloaded", "result": "0", "ownership": "exact",
+        }):
+            fail("Phase 7 native teardown mismatch")
+        return {
+            "run_id": manifest.get("run_id"),
+            "log_sha256": hashlib.sha256(data).hexdigest(),
+            "phase": 7, "frames": frames, "view_frames": views,
+            "camera_hash": complete["camera_hash"],
+            "buffer0": complete["buffer0"],
+            "buffer1": complete["buffer1"],
+            "bright_pixels": bright,
+        }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
         "fw": "12.02", "ownership": "fence+videoout",
@@ -124,7 +199,7 @@ def validate_renderer(
     return {
         "run_id": manifest.get("run_id"),
         "log_sha256": hashlib.sha256(data).hexdigest(),
-        "frames": 600,
+        "phase": 6, "frames": 600,
         "buffer0": readback["buffer0"],
         "buffer1": readback["buffer1"],
         "bright_pixels": int(readback["bright_pixels0"], 10)
@@ -160,6 +235,23 @@ def main() -> int:
             bundle_sha256=args.bundle_sha256, bundle_bytes=args.bundle_bytes,
             studio_sha256=args.studio_sha256, studio_bytes=args.studio_bytes,
         )
+        engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
+        if engine_phase != renderer["phase"]:
+            fail("engine/renderer phase mismatch")
+        if renderer["phase"] == 7:
+            frames = renderer["frames"]
+            views = renderer["view_frames"]
+            camera_hash = renderer["camera_hash"]
+            if engine["ref_agc_frames"] != frames \
+                    or engine["ref_agc_live_frames"] != frames \
+                    or engine["ref_agc_consumed_frames"] != frames \
+                    or engine["ref_agc_consumed_serial"] != frames \
+                    or engine["ref_agc_live_view_frames"] != views \
+                    or engine["ref_agc_consumed_view_frames"] != views \
+                    or engine["ref_agc_consumed_camera_hash"] != camera_hash \
+                    or engine["ref_agc_bright_pixels"] != \
+                    renderer["bright_pixels"]:
+                fail("Phase 7 engine/renderer consumer accounting mismatch")
         skew = abs((started_at(args.engine_manifest.resolve())
                     - started_at(args.renderer_manifest.resolve())).total_seconds())
         if skew > 1.0:
@@ -169,6 +261,7 @@ def main() -> int:
             "renderer_run_id": renderer["run_id"],
             "start_skew_ms": round(skew * 1000),
             "frames": renderer["frames"],
+            "phase": renderer["phase"],
             "engine_frame_hash": engine["ref_agc_frame_hash"],
             "gpu_buffers": [renderer["buffer0"], renderer["buffer1"]],
             "gpu_bright_pixels": renderer["bright_pixels"],

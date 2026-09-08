@@ -176,8 +176,12 @@
 - [x] Capture bounded, pointer-free live engine frame snapshots in `ref_agc`:
   world metadata, view pass, 2,048 visible-entity slots and 4,096 2D command
   slots; prove real `c1a0` traffic and zero drops on FW 12.02.
-- [ ] Consume those snapshots in the AGC backend, replacing the baked camera,
-  entity fixtures and procedural 2D list with engine-driven resources and
-  draws without an OpenGL emulation layer.
+- [x] Consume the live view in the AGC backend, translate GoldSrc Z-up camera
+  coordinates to the baker's AGC convention, and acknowledge each producer
+  serial only after exact fence plus VideoOut retirement; pass 5,265 matched
+  frames with zero drops/errors and exact teardown on FW 12.02.
+- [ ] Replace baked world resources, entity fixtures and the procedural 2D list
+  with engine-driven resources and draws, binding each live class to
+  GPU-visible evidence without an OpenGL emulation layer.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

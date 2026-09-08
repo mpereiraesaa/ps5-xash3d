@@ -21,7 +21,9 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
     raw = raw or []
     boot = "0x1234" if app == "xash3d-engine" else "0x5678"
     reason = "xash-engine-boot-complete" if app == "xash3d-engine" \
-        else "ref-agc-runtime-complete"
+        else "ref-agc-live-complete" if any(
+            message.startswith("REF_AGC_LIVE_COMPLETE ")
+            for message in messages) else "ref-agc-runtime-complete"
     lines = [f"HELLO ps5log/1 title=PPSA99996 app={app} boot={boot} tag=test"]
     for seq, message in enumerate(messages, 1):
         lines.append(f"{seq}\t{seq * 10}\tMARK\t{message}")
@@ -47,13 +49,15 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
 
 
 def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
-                    live: bool = True) -> list[str]:
+                    live: bool = True, consumer: bool = False) -> list[str]:
     complete = [
         "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 active_modules=4 ownership=exact",
         "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 active_modules=3 ownership=exact pass=1",
         "XASH_CLIENT_PRX_COMPLETE module=client.prx stop_result=0 active_modules=2 ownership=exact pass=1",
     ]
-    exports = 26 if live else 16
+    exports = 31 if consumer else 26 if live else 16
+    backend = "phase7-live" if consumer else "phase4-native"
+    ownership = "fence+videoout+ack" if consumer else "fence+videoout"
     ready_live = (" live_frames=0 live_view_frames=0 "
                   "live_view_hash=0000000000000000 live_view_changes=0 "
                   "live_map_serial=0 world_surfaces=0 entity_peak=0 "
@@ -62,6 +66,12 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
                   "live_view_hash=1234567890abcdef live_view_changes=0 "
                   "live_map_serial=1 world_surfaces=3695 entity_peak=22 "
                   "draw2d_peak=3 dropped_entities=0 dropped_2d=0") if live else ""
+    ready_consumer = (" consumed_frames=0 consumed_serial=0 "
+                      "consumed_view_frames=0 consumed_camera_hash=0000000000000000 "
+                      "consumed_camera_changes=0") if consumer else ""
+    state_consumer = (" consumed_frames=100 consumed_serial=100 "
+                      "consumed_view_frames=99 consumed_camera_hash=abcdef1234567890 "
+                      "consumed_camera_changes=0") if consumer else ""
     return [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"XASH_BOOT schema=1 slice=engine-boot mode=client ref=agc fw=12.02 engine={ENGINE} "
@@ -74,12 +84,12 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
         "XASH_REF_AGC_PRX_READY module=ref_agc.prx api=18 state=0 runtime_result=0 "
         "teardown_result=0 engine_mask=0 expected_mask=63 frames=0 "
         "frame_hash=0000000000000000 bright_pixels=0 begin_calls=0 scene_calls=0 "
-        f"end_calls=0 newmap_calls=0{ready_live} backend=phase4-native ownership=fence+videoout pass=1",
+        f"end_calls=0 newmap_calls=0{ready_live}{ready_consumer} backend={backend} ownership={ownership} pass=1",
         *complete,
         "XASH_REF_AGC_PRX_STATE module=ref_agc.prx api=18 state=5 runtime_result=0 "
-        f"teardown_result=0 engine_mask=63 expected_mask=63 frames=600 frame_hash={frame_hash} "
+        f"teardown_result=0 engine_mask=63 expected_mask=63 frames={100 if consumer else 600} frame_hash={frame_hash} "
         f"bright_pixels=820521 begin_calls=100 scene_calls=99 end_calls=100 newmap_calls=1{state_live} "
-        "backend=phase4-native ownership=fence+videoout pass=1",
+        f"{state_consumer} backend={backend} ownership={ownership} pass=1",
         "XASH_PRX_UNLOAD module=ref_agc.prx result=0 stop_result=0 ownership=released",
         "XASH_REF_AGC_PRX_COMPLETE module=ref_agc.prx stop_result=0 active_modules=1 "
         "ownership=exact pass=1",
@@ -105,6 +115,33 @@ def renderer_messages(errors: str = "0") -> list[str]:
         "sprites=true particles=true cpu_skinning=true brush_entities=true water=true "
         "glass=true pvs=true frustum=true animation_changes=true",
         "RESOURCE_POOL_RETIRED token=1 reclaimed=6 completion=fence+videoout",
+        "REF_AGC_TEARDOWN videoout=closed direct_memory=released agc=unloaded "
+        "result=0 ownership=exact",
+    ]
+
+
+def phase7_renderer_messages(serial: int = 100) -> list[str]:
+    return [
+        f"BSP_TEXTURE_PATH_BOOT schema=1 slice=phase7-live-consumer target=gfx1013 "
+        f"fw=12.02 ownership=fence+videoout+ack bundle_sha256={BUNDLE} "
+        f"bundle_bytes=100 studio_sha256={STUDIO} studio_bytes=200 "
+        "lifetime=engine-owned input_owner=engine",
+        "BSP_LOOP_BEGIN mode=phase7-live-consumer buffers=2 color_dma=false "
+        "depth_dma=true indexed=true frames=engine-owned camera=live-refapi "
+        "geometry=baked-c1a0 lists=world+entities+2d "
+        "retirement=fence+videoout+ack input_dependency=engine",
+        "REF_AGC_RUNTIME_READY backend=phase4-native api=18 videoout=owned "
+        "direct_memory=owned agc=initialized scene=planned",
+        "REF_AGC_LIVE_FRAME_INPUT serial=1 map_serial=0 view_valid=0 "
+        "viewport=0,0,0,0 entities=0 draw2d=1 drops=zero",
+        "REF_AGC_LIVE_CONSUMED serial=1 consumed=1 view_frames=0 "
+        "camera_hash=0000000000000000 camera_changes=0 map_serial=0 "
+        "entities=0 draw2d=1 ack=exact drops=zero",
+        f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
+        "camera_hash=abcdef1234567890 camera_changes=0 "
+        "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
+        "bright_pixels=820521 resource_reclaimed=6 "
+        "ownership=fence+videoout+ack guards=intact errors=0",
         "REF_AGC_TEARDOWN videoout=closed direct_memory=released agc=unloaded "
         "result=0 ownership=exact",
     ]
@@ -142,6 +179,56 @@ def main() -> None:
             started="2026-09-08T19:13:27.933+00:00")
         legacy = run(legacy_engine, renderer)
         assert legacy.returncode == 0, legacy.stderr
+
+        consumer_engine = write_run(
+            directory, "consumer-engine", "xash3d-engine",
+            engine_messages(consumer=True), raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        consumer_mismatch = run(consumer_engine, renderer)
+        assert consumer_mismatch.returncode != 0 \
+            and "phase mismatch" in consumer_mismatch.stderr
+
+        phase7_renderer = write_run(
+            directory, "phase7-renderer", "ps5-xash3d",
+            phase7_renderer_messages(),
+            started="2026-09-08T19:13:27.984+00:00")
+        phase7_valid = run(consumer_engine, phase7_renderer)
+        assert phase7_valid.returncode == 0, phase7_valid.stderr
+        phase7_summary = json.loads(phase7_valid.stdout)
+        assert phase7_summary["phase"] == 7 \
+            and phase7_summary["frames"] == 100
+
+        capture_phase7_mismatch = run(engine, phase7_renderer)
+        assert capture_phase7_mismatch.returncode != 0 \
+            and "phase mismatch" in capture_phase7_mismatch.stderr
+
+        short_legacy_messages = [message.replace(
+            "frames=600", "frames=599")
+            for message in engine_messages()]
+        short_legacy_engine = write_run(
+            directory, "short-legacy-engine", "xash3d-engine",
+            short_legacy_messages, raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        rejected = run(short_legacy_engine, renderer)
+        assert rejected.returncode != 0 and "runtime state" in rejected.stderr
+
+        bad_phase7_renderer = write_run(
+            directory, "bad-phase7-renderer", "ps5-xash3d",
+            phase7_renderer_messages(serial=99),
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(consumer_engine, bad_phase7_renderer)
+        assert rejected.returncode != 0 \
+            and "completion mismatch" in rejected.stderr
+
+        bad_ack_messages = [message.replace(
+            "consumed_serial=100", "consumed_serial=99")
+            for message in engine_messages(consumer=True)]
+        bad_ack_engine = write_run(
+            directory, "bad-ack-engine", "xash3d-engine",
+            bad_ack_messages, raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        rejected = run(bad_ack_engine, renderer)
+        assert rejected.returncode != 0 and "consumer/ACK" in rejected.stderr
 
         bad_engine = write_run(directory, "bad-engine", "xash3d-engine",
                                engine_messages("0000000000000000"), raw=raw,

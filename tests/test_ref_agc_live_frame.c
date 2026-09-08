@@ -1,8 +1,29 @@
 #include "ref_agc_live_frame.h"
 
 #include <assert.h>
+#include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+
+typedef struct LiveConsumer {
+    RefAgcLiveStore *store;
+    uint64_t after_serial;
+    RefAgcLiveFrame frame;
+    int wait_result;
+    int consume_result;
+} LiveConsumer;
+
+static void *consume_one(void *opaque)
+{
+    LiveConsumer *consumer = opaque;
+    consumer->wait_result = ref_agc_live_wait_latest(
+        consumer->store, consumer->after_serial, &consumer->frame);
+    if (consumer->wait_result == 0)
+        consumer->consume_result = ref_agc_live_mark_consumed(
+            consumer->store, consumer->frame.serial);
+    return NULL;
+}
 
 int main(void)
 {
@@ -17,6 +38,7 @@ int main(void)
         .fov_y = 58.7f,
         .view_entity = 1,
         .flags = 1,
+        .valid = 1,
     };
     RefAgcLiveEntity entity = {
         .index = 7,
@@ -40,6 +62,9 @@ int main(void)
         .t2 = 1.0f,
         .color = {255, 255, 255, 255},
     };
+    float camera_position[3];
+    float camera_forward[3];
+    float camera_aspect = 0.0f;
 
     assert(ref_agc_live_store_init(&store) == 0);
     strcpy(world.model_name, "maps/c1a0.bsp");
@@ -74,6 +99,21 @@ int main(void)
     assert(frame.command_2d_count == 1 &&
            frame.commands_2d[0].texture == 33);
     assert(ref_agc_live_take_latest(&store, frame.serial, &frame) == 1);
+    assert(ref_agc_live_view_camera(&view, camera_position,
+                                    camera_forward, &camera_aspect) == 0);
+    assert(fabsf(camera_position[0] - 128.0f) < 0.0001f);
+    assert(fabsf(camera_position[1] - 32.0f) < 0.0001f);
+    assert(fabsf(camera_position[2] - 64.0f) < 0.0001f);
+    assert(fabsf(camera_forward[0]) < 0.0001f);
+    assert(fabsf(camera_forward[1] + 0.1736482f) < 0.0001f);
+    assert(fabsf(camera_forward[2] + 0.9848077f) < 0.0001f);
+    assert(fabsf(camera_aspect - (16.0f / 9.0f)) < 0.0001f);
+    assert(ref_agc_live_world_view_ready(&frame) == 1);
+    frame.view.flags = 0u;
+    assert(ref_agc_live_world_view_ready(&frame) == 0);
+    frame.view.flags = REF_AGC_LIVE_RF_DRAW_WORLD;
+    frame.map_serial = 0u;
+    assert(ref_agc_live_world_view_ready(&frame) == 0);
 
     ref_agc_live_begin_frame(&store, 0, 44);
     ref_agc_live_clear_scene(&store);
@@ -98,6 +138,37 @@ int main(void)
     assert(frame.serial == 3 && frame.map_serial == 2);
     assert(frame.world.serial == 2);
     assert(strcmp(frame.world.model_name, "maps/c1a1.bsp") == 0);
+
+    /* The engine publishes at most one frame ahead. A consumer waiting before
+     * publication must wake, copy that exact serial, and ACK it monotonically. */
+    LiveConsumer consumer = {
+        .store = &store,
+        .after_serial = frame.serial,
+        .wait_result = -99,
+        .consume_result = -99,
+    };
+    pthread_t consumer_thread;
+    assert(pthread_create(&consumer_thread, NULL, consume_one, &consumer) == 0);
+    ref_agc_live_begin_frame(&store, 0, 48);
+    ref_agc_live_set_view(&store, &view, 49);
+    assert(ref_agc_live_publish(&store, 50) == 0);
+    assert(ref_agc_live_wait_consumed(&store, 4) == 0);
+    assert(pthread_join(consumer_thread, NULL) == 0);
+    assert(consumer.wait_result == 0 && consumer.consume_result == 0);
+    assert(consumer.frame.serial == 4 && consumer.frame.end_calls == 50);
+    assert(ref_agc_live_mark_consumed(&store, 5) == -3);
+    assert(ref_agc_live_mark_consumed(&store, 3) == -3);
+
+    /* Stop is a wake-up, not a detached flag: both a blocked producer and a
+     * blocked consumer can leave deterministically during RefAPI shutdown. */
+    consumer.after_serial = 4;
+    consumer.wait_result = -99;
+    consumer.consume_result = -99;
+    assert(pthread_create(&consumer_thread, NULL, consume_one, &consumer) == 0);
+    assert(ref_agc_live_request_stop(&store, 0) == 0);
+    assert(pthread_join(consumer_thread, NULL) == 0);
+    assert(consumer.wait_result == 1 && consumer.consume_result == -99);
+    assert(ref_agc_live_publish(&store, 51) == 1);
 
     ref_agc_live_store_destroy(&store);
     puts("ref_agc live frame tests passed");

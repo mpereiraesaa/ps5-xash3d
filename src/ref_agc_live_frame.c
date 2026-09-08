@@ -1,5 +1,6 @@
 #include "ref_agc_live_frame.h"
 
+#include <math.h>
 #include <string.h>
 
 static void copy_name(char out[REF_AGC_LIVE_MODEL_NAME], const char *name)
@@ -22,6 +23,15 @@ int ref_agc_live_store_init(RefAgcLiveStore *store)
     memset(store, 0, sizeof(*store));
     if (pthread_mutex_init(&store->publish_lock, NULL) != 0)
         return -2;
+    if (pthread_cond_init(&store->frame_ready, NULL) != 0) {
+        (void)pthread_mutex_destroy(&store->publish_lock);
+        return -3;
+    }
+    if (pthread_cond_init(&store->frame_consumed, NULL) != 0) {
+        (void)pthread_cond_destroy(&store->frame_ready);
+        (void)pthread_mutex_destroy(&store->publish_lock);
+        return -4;
+    }
     store->initialized = 1;
     return 0;
 }
@@ -30,6 +40,8 @@ void ref_agc_live_store_destroy(RefAgcLiveStore *store)
 {
     if (!store || !store->initialized)
         return;
+    (void)pthread_cond_destroy(&store->frame_consumed);
+    (void)pthread_cond_destroy(&store->frame_ready);
     (void)pthread_mutex_destroy(&store->publish_lock);
     memset(store, 0, sizeof(*store));
 }
@@ -124,7 +136,12 @@ int ref_agc_live_publish(RefAgcLiveStore *store, uint64_t end_calls)
     store->building.end_calls = end_calls;
     if (pthread_mutex_lock(&store->publish_lock) != 0)
         return -2;
+    if (store->stop_requested) {
+        (void)pthread_mutex_unlock(&store->publish_lock);
+        return store->stop_result != 0 ? store->stop_result : 1;
+    }
     store->published = store->building;
+    (void)pthread_cond_broadcast(&store->frame_ready);
     (void)pthread_mutex_unlock(&store->publish_lock);
     return 0;
 }
@@ -143,4 +160,127 @@ int ref_agc_live_take_latest(RefAgcLiveStore *store, uint64_t after_serial,
         *out = store->published;
     (void)pthread_mutex_unlock(&store->publish_lock);
     return result;
+}
+
+int ref_agc_live_wait_latest(RefAgcLiveStore *store, uint64_t after_serial,
+                             RefAgcLiveFrame *out)
+{
+    int result = 0;
+    if (!store || !store->initialized || !out)
+        return -1;
+    if (pthread_mutex_lock(&store->publish_lock) != 0)
+        return -2;
+    while (store->published.serial <= after_serial &&
+           !store->stop_requested) {
+        if (pthread_cond_wait(&store->frame_ready,
+                              &store->publish_lock) != 0) {
+            result = -3;
+            break;
+        }
+    }
+    if (result == 0) {
+        if (store->published.serial > after_serial)
+            *out = store->published;
+        else
+            result = store->stop_result != 0 ? store->stop_result : 1;
+    }
+    (void)pthread_mutex_unlock(&store->publish_lock);
+    return result;
+}
+
+int ref_agc_live_mark_consumed(RefAgcLiveStore *store, uint64_t serial)
+{
+    int result = 0;
+    if (!store || !store->initialized || serial == 0u)
+        return -1;
+    if (pthread_mutex_lock(&store->publish_lock) != 0)
+        return -2;
+    if (serial > store->published.serial || serial < store->consumed_serial)
+        result = -3;
+    else {
+        store->consumed_serial = serial;
+        (void)pthread_cond_broadcast(&store->frame_consumed);
+    }
+    (void)pthread_mutex_unlock(&store->publish_lock);
+    return result;
+}
+
+int ref_agc_live_wait_consumed(RefAgcLiveStore *store, uint64_t serial)
+{
+    int result = 0;
+    if (!store || !store->initialized || serial == 0u)
+        return -1;
+    if (pthread_mutex_lock(&store->publish_lock) != 0)
+        return -2;
+    if (serial > store->published.serial)
+        result = -3;
+    while (result == 0 && store->consumed_serial < serial &&
+           !store->stop_requested) {
+        if (pthread_cond_wait(&store->frame_consumed,
+                              &store->publish_lock) != 0)
+            result = -4;
+    }
+    if (result == 0 && store->consumed_serial < serial)
+        result = store->stop_result != 0 ? store->stop_result : 1;
+    (void)pthread_mutex_unlock(&store->publish_lock);
+    return result;
+}
+
+int ref_agc_live_request_stop(RefAgcLiveStore *store, int result)
+{
+    if (!store || !store->initialized)
+        return -1;
+    if (pthread_mutex_lock(&store->publish_lock) != 0)
+        return -2;
+    store->stop_requested = 1;
+    if (result != 0 && store->stop_result == 0)
+        store->stop_result = result;
+    (void)pthread_cond_broadcast(&store->frame_ready);
+    (void)pthread_cond_broadcast(&store->frame_consumed);
+    (void)pthread_mutex_unlock(&store->publish_lock);
+    return 0;
+}
+
+int ref_agc_live_view_camera(const RefAgcLiveView *view,
+                             float position[3], float forward[3],
+                             float *aspect_ratio)
+{
+    const float degrees_to_radians =
+        3.14159265358979323846f / 180.0f;
+    float pitch;
+    float yaw;
+    float cp;
+    float sp;
+    float cy;
+    float sy;
+    if (!view || !position || !forward || !aspect_ratio || !view->valid ||
+        view->viewport[2] <= 0 || view->viewport[3] <= 0 ||
+        !isfinite(view->origin[0]) || !isfinite(view->origin[1]) ||
+        !isfinite(view->origin[2]) || !isfinite(view->angles[0]) ||
+        !isfinite(view->angles[1]) || !isfinite(view->angles[2]))
+        return -1;
+    pitch = view->angles[0] * degrees_to_radians;
+    yaw = view->angles[1] * degrees_to_radians;
+    cp = cosf(pitch);
+    sp = sinf(pitch);
+    cy = cosf(yaw);
+    sy = sinf(yaw);
+    /* Match bake_bsp.py's GoldSrc Z-up -> AGC Y-up conversion exactly:
+     * (x, y, z) -> (x, z, -y). */
+    position[0] = view->origin[0];
+    position[1] = view->origin[2];
+    position[2] = -view->origin[1];
+    forward[0] = cp * cy;
+    forward[1] = -sp;
+    forward[2] = -cp * sy;
+    *aspect_ratio = (float)view->viewport[2] / (float)view->viewport[3];
+    return isfinite(*aspect_ratio) && *aspect_ratio > 0.0f ? 0 : -1;
+}
+
+int ref_agc_live_world_view_ready(const RefAgcLiveFrame *frame)
+{
+    return frame && frame->map_serial != 0u &&
+        frame->world.surfaces != 0u && frame->view.valid &&
+        (frame->view.flags & REF_AGC_LIVE_RF_DRAW_WORLD) != 0u &&
+        frame->view.viewport[2] > 0 && frame->view.viewport[3] > 0;
 }

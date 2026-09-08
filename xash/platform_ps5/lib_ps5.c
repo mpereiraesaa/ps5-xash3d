@@ -475,6 +475,11 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 	uint64_t ( *live_2d_peak )( void );
 	uint64_t ( *live_dropped_entities )( void );
 	uint64_t ( *live_dropped_2d )( void );
+	uint64_t ( *consumed_frames )( void );
+	uint64_t ( *consumed_serial )( void );
+	uint64_t ( *consumed_view_frames )( void );
+	uint64_t ( *consumed_camera_hash )( void );
+	uint64_t ( *consumed_camera_changes )( void );
 	int complete, pass;
 	if( !PS5_IsRefAgcPrx( library )) return;
 #define REF_AGC_PROC(type, name) ((type)PS5_PrxGetProc( &library->module, name ))
@@ -499,22 +504,33 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 	live_2d_peak = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxLive2DPeak" );
 	live_dropped_entities = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxLiveDroppedEntities" );
 	live_dropped_2d = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxLiveDropped2D" );
+	consumed_frames = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedFrames" );
+	consumed_serial = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedSerial" );
+	consumed_view_frames = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedViewFrames" );
+	consumed_camera_hash = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedCameraHash" );
+	consumed_camera_changes = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedCameraChanges" );
 #undef REF_AGC_PROC
 	complete = marker && !strcmp( marker, "XASH_REF_AGC_PRX_STATE" );
 	pass = state && result && teardown && engine_mask && frames && frame_hash &&
 		bright && begin && scene && end && newmap && live_frames &&
 		live_view_frames && live_view_hash && live_view_changes &&
 		live_map_serial && live_world_surfaces && live_entity_peak &&
-		live_2d_peak && live_dropped_entities && live_dropped_2d;
+		live_2d_peak && live_dropped_entities && live_dropped_2d &&
+		consumed_frames && consumed_serial && consumed_view_frames &&
+		consumed_camera_hash && consumed_camera_changes;
 	if( complete )
 		pass = pass && state( ) == 5 && result( ) == 0 && teardown( ) == 0 &&
-			engine_mask( ) == 63 && frames( ) == 600u && frame_hash( ) != 0u &&
+			engine_mask( ) == 63 && frames( ) > 0u && frame_hash( ) != 0u &&
 			bright( ) != 0u && begin( ) > 0u && scene( ) > 0u && end( ) > 0u &&
-			newmap( ) > 0u && live_frames( ) > 0u && live_view_frames( ) > 0u &&
+			newmap( ) > 0u && live_frames( ) == end( ) && live_view_frames( ) > 0u &&
 			live_view_hash( ) != 0u && live_map_serial( ) > 0u &&
 			live_world_surfaces( ) > 0u && live_entity_peak( ) > 0u &&
 			live_2d_peak( ) > 0u && live_dropped_entities( ) == 0u &&
-			live_dropped_2d( ) == 0u;
+			live_dropped_2d( ) == 0u && consumed_frames( ) == frames( ) &&
+			consumed_frames( ) == live_frames( ) &&
+			consumed_serial( ) == consumed_frames( ) &&
+			consumed_view_frames( ) == live_view_frames( ) &&
+			consumed_camera_hash( ) != 0u;
 	(void)ps5log_printf( pass ? PS5LOG_MARK : PS5LOG_ERR,
 		"%s module=ref_agc.prx api=18 state=%d runtime_result=%d "
 		"teardown_result=%d engine_mask=%d expected_mask=63 frames=%llu "
@@ -523,8 +539,10 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 		"live_frames=%llu live_view_frames=%llu live_view_hash=%016llx "
 		"live_view_changes=%llu live_map_serial=%llu world_surfaces=%llu "
 		"entity_peak=%llu draw2d_peak=%llu dropped_entities=%llu "
-		"dropped_2d=%llu "
-		"backend=phase4-native ownership=fence+videoout pass=%d",
+		"dropped_2d=%llu consumed_frames=%llu consumed_serial=%llu "
+		"consumed_view_frames=%llu consumed_camera_hash=%016llx "
+		"consumed_camera_changes=%llu "
+		"backend=phase7-live ownership=fence+videoout+ack pass=%d",
 		marker, state ? state( ) : -1, result ? result( ) : -1,
 		teardown ? teardown( ) : -1, engine_mask ? engine_mask( ) : -1,
 		(unsigned long long)( frames ? frames( ) : 0u ),
@@ -543,7 +561,13 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 		(unsigned long long)( live_entity_peak ? live_entity_peak( ) : 0u ),
 		(unsigned long long)( live_2d_peak ? live_2d_peak( ) : 0u ),
 		(unsigned long long)( live_dropped_entities ? live_dropped_entities( ) : 0u ),
-		(unsigned long long)( live_dropped_2d ? live_dropped_2d( ) : 0u ), pass );
+		(unsigned long long)( live_dropped_2d ? live_dropped_2d( ) : 0u ),
+		(unsigned long long)( consumed_frames ? consumed_frames( ) : 0u ),
+		(unsigned long long)( consumed_serial ? consumed_serial( ) : 0u ),
+		(unsigned long long)( consumed_view_frames ? consumed_view_frames( ) : 0u ),
+		(unsigned long long)( consumed_camera_hash ? consumed_camera_hash( ) : 0u ),
+		(unsigned long long)( consumed_camera_changes ? consumed_camera_changes( ) : 0u ),
+		pass );
 }
 
 static int PS5_DynamicStart( ps5_dynamic_library_t *library )

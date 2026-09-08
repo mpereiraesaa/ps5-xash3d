@@ -801,7 +801,7 @@ def validate_client_prx_gate(
 def validate_ref_agc_prx_gate(
     messages: list[str], raw: list[str]
 ) -> dict[str, str]:
-    """Validate the final Phase 6 renderer PRX boundary and exact teardown."""
+    """Validate the Phase 6 boundary or the Phase 7 live consumer contract."""
     load = one_where(messages, "XASH_PRX_LOAD", "module", "ref_agc.prx")
     ready = one(messages, "XASH_REF_AGC_PRX_READY")
     state = one(messages, "XASH_REF_AGC_PRX_STATE")
@@ -811,24 +811,28 @@ def validate_ref_agc_prx_gate(
     exports = int(load.get("exports", "0"), 10)
     if load.get("path") != "/app0/sce_module/ref_agc.prx" \
             or load.get("result") != "0" or load.get("init_result") != "0" \
-            or exports not in (16, 26) \
+            or exports not in (16, 26, 31) \
             or not 1 <= int(load.get("segments", "0"), 10) <= 4:
         fail("ref_agc PRX load contract failed")
     expected_common = {
-        "module": "ref_agc.prx", "api": "18", "backend": "phase4-native",
-        "ownership": "fence+videoout", "pass": "1",
+        "module": "ref_agc.prx", "api": "18",
+        "backend": "phase7-live" if exports == 31 else "phase4-native",
+        "ownership": "fence+videoout+ack" if exports == 31 else "fence+videoout",
+        "pass": "1",
     }
     if any(ready.get(key) != value for key, value in expected_common.items()) \
             or ready.get("state") != "0" or ready.get("engine_mask") != "0" \
             or ready.get("expected_mask") != "63" or ready.get("frames") != "0":
         fail("ref_agc PRX ready contract failed")
+    frame_count = int(state.get("frames", "0"), 10)
     if any(state.get(key) != value for key, value in expected_common.items()) \
             or state.get("state") != "5" \
             or state.get("runtime_result") != "0" \
             or state.get("teardown_result") != "0" \
             or state.get("engine_mask") != "63" \
             or state.get("expected_mask") != "63" \
-            or state.get("frames") != "600" \
+            or (exports == 31 and frame_count <= 0) \
+            or (exports != 31 and frame_count != 600) \
             or state.get("frame_hash") in (None, "0000000000000000") \
             or int(state.get("bright_pixels", "0"), 10) <= 0:
         fail("ref_agc PRX runtime state did not pass")
@@ -837,7 +841,7 @@ def validate_ref_agc_prx_gate(
             fail(f"ref_agc PRX recorded no {field}")
     if state.get("begin_calls") != state.get("end_calls"):
         fail("ref_agc begin/end callback counts differ")
-    if exports == 26:
+    if exports in (26, 31):
         live_positive = (
             "live_frames", "live_view_frames", "live_map_serial",
             "world_surfaces", "entity_peak", "draw2d_peak",
@@ -852,6 +856,20 @@ def validate_ref_agc_prx_gate(
                 or state.get("dropped_entities") != "0" \
                 or state.get("dropped_2d") != "0":
             fail("ref_agc live frame capture contract failed")
+    if exports == 31:
+        consumed_positive = (
+            "consumed_frames", "consumed_serial", "consumed_view_frames",
+        )
+        for field in consumed_positive:
+            if int(state.get(field, "0"), 10) <= 0:
+                fail(f"ref_agc live consumer recorded no {field}")
+        if state.get("consumed_frames") != state.get("frames") \
+                or state.get("consumed_frames") != state.get("live_frames") \
+                or state.get("consumed_serial") != state.get("consumed_frames") \
+                or state.get("consumed_view_frames") != state.get("live_view_frames") \
+                or state.get("consumed_camera_hash") in (
+                    None, "0000000000000000"):
+            fail("ref_agc live consumer/ACK contract failed")
     if unload.get("result") != "0" or unload.get("stop_result") != "0" \
             or unload.get("ownership") != "released":
         fail("ref_agc PRX unload did not release ownership")
@@ -1232,6 +1250,22 @@ def validate(
         if ref_agc_state else None,
         "ref_agc_bright_pixels": int(ref_agc_state["bright_pixels"], 10)
         if ref_agc_state else 0,
+        "ref_agc_live_frames": int(ref_agc_state.get("live_frames", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_live_view_frames": int(
+            ref_agc_state.get("live_view_frames", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_consumed_frames": int(
+            ref_agc_state.get("consumed_frames", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_consumed_serial": int(
+            ref_agc_state.get("consumed_serial", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_consumed_view_frames": int(
+            ref_agc_state.get("consumed_view_frames", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_consumed_camera_hash": ref_agc_state.get(
+            "consumed_camera_hash") if ref_agc_state else None,
     }
 
 

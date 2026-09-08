@@ -42,11 +42,13 @@ The host fails closed unless all of these conditions hold at unload:
   zero active modules.
 
 The accepted Phase 6 descriptor had 16 exports: `GetRefAPI` plus 15
-lifecycle/status entries. Phase 7 extends the current descriptor to 26 exports
-with live-frame capture telemetry; the validator preserves the immutable
-16-export evidence while applying stronger checks to the 26-export form. The
-reusable Phase 4 source, shaders and owned platform stubs are linked into the
-PRX; no proprietary game or SDK material is committed.
+lifecycle/status entries. Phase 7 first extended it to 26 exports for live
+capture and now to 31 exports for take/ack consumer ownership. The validator
+preserves the immutable 16-export evidence, accepts the historical 26-export
+capture form under its narrower contract and applies producer/consumer
+cross-accounting to the 31-export form. The reusable Phase 4 source, shaders
+and owned platform stubs are linked into the PRX; no proprietary game or SDK
+material is committed.
 
 ## Reproducible build
 
