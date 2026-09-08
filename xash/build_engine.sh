@@ -872,10 +872,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
-        -DPS5_GOLDSRC_PHASE4=1 -DPS5_GOLDSRC_2D_GATE=1
-        -DPS5_GOLDSRC_LIGHTING_GATE=1 -DPS5_GOLDSRC_SPRITE_PARTICLE_GATE=1
-        -DPS5_GOLDSRC_STUDIO_GATE=1 -DPS5_GOLDSRC_BRUSH_GATE=1
-        -DPS5_GOLDSRC_VISIBILITY_GATE=1
+        -DPS5_GOLDSRC_PHASE4=1
     )
     ref_agc_includes=(
         -I"$root/include" -I"$root/src" -I"$root/native"
@@ -888,7 +885,10 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/xash/platform_ps5/ref_agc_module.c"
         "$root/src/ref_agc_live_frame.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
+        "$root/src/ref_agc_gpu_world_cache.c"
+        "$root/src/ref_agc_gpu_world_draw.c"
         "$root/src/ref_agc_texture_store.c"
+        "$root/src/ref_agc_world_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"
         "$root/src/bsp_flat_draw.c" "$root/src/bsp_dynamic_lightmap.c"
         "$root/src/bsp_alpha_test.c" "$root/src/bsp_sky.c"

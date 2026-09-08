@@ -86,13 +86,15 @@ def validate_renderer(
             "target": "gfx1013", "fw": "12.02",
             "ownership": "fence+videoout+ack",
             "bundle_sha256": bundle_sha256,
-            "studio_sha256": studio_sha256,
             "lifetime": "engine-owned", "input_owner": "engine",
-        }) or int(boot.get("bundle_bytes", "0"), 10) != bundle_bytes \
-                or int(boot.get("studio_bytes", "0"), 10) != studio_bytes:
+        }) or int(boot.get("bundle_bytes", "0"), 10) != bundle_bytes:
             fail("Phase 7 renderer boot/assets mismatch")
+        studio_present = "studio_sha256" in boot or "studio_bytes" in boot
+        if studio_present and (boot.get("studio_sha256") != studio_sha256 \
+                or int(boot.get("studio_bytes", "0"), 10) != studio_bytes):
+            fail("Phase 7 renderer legacy studio asset mismatch")
         loop = one(messages, "BSP_LOOP_BEGIN")
-        if not exact(loop, {
+        legacy_loop = exact(loop, {
             "mode": "phase7-live-consumer", "buffers": "2",
             "color_dma": "false", "depth_dma": "true",
             "indexed": "true", "frames": "engine-owned",
@@ -100,7 +102,17 @@ def validate_renderer(
             "lists": "world+entities+2d",
             "retirement": "fence+videoout+ack",
             "input_dependency": "engine",
-        }):
+        })
+        live_world_loop = exact(loop, {
+            "mode": "phase7-live-consumer", "buffers": "2",
+            "color_dma": "false", "depth_dma": "true",
+            "indexed": "true", "frames": "engine-owned",
+            "camera": "live-refapi", "geometry": "live-refapi",
+            "textures": "live-refapi", "lists": "world",
+            "retirement": "fence+videoout+ack",
+            "input_dependency": "engine",
+        })
+        if not legacy_loop and not live_world_loop:
             fail("Phase 7 live integration loop mismatch")
         ready = one(messages, "REF_AGC_RUNTIME_READY")
         if not exact(ready, {
@@ -128,7 +140,7 @@ def validate_renderer(
                 or complete.get("camera_hash") in (None, "0000000000000000") \
                 or complete.get("buffer0") in (None, "0000000000000000") \
                 or complete.get("buffer1") in (None, "0000000000000000") \
-                or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7") \
+                or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7", "8") \
                 or complete.get("ownership") != "fence+videoout+ack" \
                 or complete.get("guards") != "intact" \
                 or complete.get("errors") != "0":
@@ -158,6 +170,37 @@ def validate_renderer(
                     or int(texture["resident_bytes"], 10) > int(
                         texture["peak_bytes"], 10):
                 fail("Phase 7 GPU texture cache contract mismatch")
+        world_markers = [parse_fields(message) for message in messages
+                         if message.startswith("REF_AGC_GPU_WORLD_COMPLETE ")]
+        if len(world_markers) > 1:
+            fail("Phase 7 GPU world completion marker is duplicated")
+        world = world_markers[0] if world_markers else None
+        if (world is None) != (not live_world_loop):
+            fail("Phase 7 live world loop/evidence mismatch")
+        if world is not None:
+            positive = (
+                "revision", "publishes", "vertices", "indices", "draws",
+                "texture_tables", "resident_bytes", "peak_bytes", "flushes",
+            )
+            if any(int(world.get(field, "0"), 10) <= 0
+                   for field in positive) \
+                    or world.get("source_hash") in (
+                        None, "0000000000000000") \
+                    or world.get("upload_hash") in (
+                        None, "0000000000000000") \
+                    or world.get("arena_bytes") != "33554432" \
+                    or world.get("geometry") != "live-refapi" \
+                    or world.get("textures") != "live-refapi" \
+                    or world.get("memory") != "direct" \
+                    or world.get("source_indices") != "u32" \
+                    or world.get("gpu_indices") != "per-draw-u16" \
+                    or world.get("ownership") != \
+                    "fence+videoout-before-reuse" \
+                    or world.get("errors") != "0" \
+                    or world.get("texture_tables") != world.get("draws") \
+                    or int(world["resident_bytes"], 10) > int(
+                        world["peak_bytes"], 10):
+                fail("Phase 7 GPU world contract mismatch")
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -174,6 +217,7 @@ def validate_renderer(
             "bright_pixels": bright,
             "resource_reclaimed": int(complete["resource_reclaimed"], 10),
             "gpu_texture": texture,
+            "gpu_world": world,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -281,14 +325,24 @@ def main() -> int:
                 fail("Phase 7 engine/renderer consumer accounting mismatch")
             if engine["ref_agc_exports"] == 40:
                 texture = renderer["gpu_texture"]
-                if texture is None or renderer["resource_reclaimed"] != 7 \
+                world = renderer["gpu_world"]
+                expected_reclaims = 8 if world is not None else 7
+                if texture is None \
+                        or renderer["resource_reclaimed"] != expected_reclaims \
                         or int(texture["revision"], 10) > \
                         engine["ref_agc_texture_revision"] \
                         or int(texture["active"], 10) < \
                         engine["ref_agc_world_texture_refs"]:
                     fail("Phase 7 engine/GPU texture accounting mismatch")
+                if world is not None and (
+                        int(world["draws"], 10) !=
+                        engine["ref_agc_world_surfaces"] \
+                        or int(world["texture_tables"], 10) !=
+                        engine["ref_agc_world_surfaces"]):
+                    fail("Phase 7 engine/GPU world accounting mismatch")
             elif engine["ref_agc_exports"] == 31:
                 if renderer["gpu_texture"] is not None \
+                        or renderer["gpu_world"] is not None \
                         or renderer["resource_reclaimed"] != 6:
                     fail("Phase 7 camera-only renderer contract mismatch")
         skew = abs((started_at(args.engine_manifest.resolve())
@@ -316,6 +370,7 @@ def main() -> int:
             "gpu_buffers": [renderer["buffer0"], renderer["buffer1"]],
             "gpu_bright_pixels": renderer["bright_pixels"],
             "gpu_texture": renderer.get("gpu_texture"),
+            "gpu_world": renderer.get("gpu_world"),
             "ownership": "exact",
             "pass": True,
         }

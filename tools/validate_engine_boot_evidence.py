@@ -1270,6 +1270,9 @@ def validate(
         "ref_agc_live_view_frames": int(
             ref_agc_state.get("live_view_frames", "0"), 10)
         if ref_agc_state else 0,
+        "ref_agc_world_surfaces": int(
+            ref_agc_state.get("world_surfaces", "0"), 10)
+        if ref_agc_state else 0,
         "ref_agc_consumed_frames": int(
             ref_agc_state.get("consumed_frames", "0"), 10)
         if ref_agc_state else 0,

@@ -184,4 +184,69 @@ zero errors.
 
 This gate proves native direct-memory residency, descriptor construction,
 cache flush and exact lifetime. It does not prove shader sampling from these
-descriptors; that claim waits for live world geometry and draw translation.
+descriptors; that claim is closed by the following live-world gate.
+
+## Accepted FW 12.02 live-world gate
+
+The next checkpoint replaces the baked world draw list with geometry extracted
+from the parsed `model_t` passed to `Mod_ProcessRenderData`. The producer
+validates every surface, edge, surfedge, vertex and texture reference, supports
+both BSP v30 and BSP2 edges, applies the same `(x, y, z) -> (x, z, -y)` mapping
+as the camera, computes base and face-local lightmap coordinates, and publishes
+one pointer-free owned snapshot. A failed publish cannot replace the preceding
+revision.
+
+The native consumer copies that snapshot into a dedicated 32 MiB parent arena.
+Each surface receives an independent V# table, rebased `uint16_t` GPU indices
+from `uint32_t` source indices, and a 24-DWORD texture table built from the live
+texture cache. Per-surface rebasing avoids imposing a 65,535-vertex limit on the
+whole map. Arena mutation and descriptor refresh are refused until the prior
+fence and exact VideoOut token have retired. The Phase 7 PRX compiles the
+Phase 4 pipeline catalog but no longer compiles or executes its baked
+visibility, brush, studio, effect or procedural-2D gates.
+
+Correlated runs started 55 ms apart and passed the bounded 20-second gate:
+
+- Engine: `20260908T232706159Z_PPSA99996_xash3d-engine_0x11e30bf78529b`
+- Renderer: `20260908T232706214Z_PPSA99996_ps5-xash3d_0x11e30c30c3800`
+
+The live `c1a0` world produced 17,245 vertices, 29,565 indices and 3,695
+surface draws. All 164 non-null world texture references resolved. The GPU
+world arena retained 1,047,584 bytes, emitted one descriptor table per draw and
+recorded source hash `ba427a54bcdc4cb9` plus upload hash
+`934960d09d207e22`. The renderer completed 1,076 matched serials, including
+1,067 valid views, with aggregate engine-frame hash `5724000629ec5fa0`,
+framebuffer hashes `553ced9a3817b91b` and `0218ed9c11fbe6bb`, 4,066,868
+bright pixels, zero errors, intact guards and all eight parent allocations
+reclaimed. The engine then unloaded server, menu, client, renderer and
+filesystem to active counts 4, 3, 2, 1 and 0.
+
+Artifact and evidence hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Engine ELF | `8256012d69c65d8d3680c6cf8429e358ec009d557c6ec01a7cbb9dd02865de31` |
+| Engine fSELF | `dbe3cd647c381bf679980c1888f96d88889ab43fd14cb5150e6936a442e4e329` |
+| `ref_agc` ELF | `f7c45ec294d5537fca9c2666641079df8acccfdb40cbba1e665ef9ff1cc241f6` |
+| `ref_agc.prx` | `01349df23adf9c42a3dd4e726f3f50d80d8e18e7250245bdb038833a48d61d26` |
+| Engine transcript | `988b5695eb16ef0057ef14c713dfd2a212934bad559288bde3583ef912c089d6` |
+| Renderer transcript | `d12af8a8dd91995a474417e0282693c5ecd4e85c13eddb83b6aeaef4755d4cf5` |
+| Engine manifest | `ff46582662a2d36b19d98b0c66319e830d9bea7e3d0eca40119ef0ba1046b5a1` |
+| Renderer manifest | `572bc2565fb6d7d5a92e550e50a6d4ec62569855e78f73f6ed1c4daf163ef45c` |
+
+The fail-closed paired validator now requires `geometry=live-refapi`,
+`textures=live-refapi`, positive geometry/index/draw counts, one texture table
+per draw, nonzero source/upload hashes, direct-memory ownership and eight exact
+reclaims for this form. It retains compatibility with the immutable 16-, 26-,
+31- and earlier 40-export evidence forms. The accepted result is:
+
+```json
+{"engine_frame_hash":"5724000629ec5fa0","frames":1076,"gpu_bright_pixels":4066868,"gpu_buffers":["553ced9a3817b91b","0218ed9c11fbe6bb"],"ownership":"exact","pass":true,"phase":7,"ref_agc_world_texture_refs":164,"ref_agc_world_textures_resolved":164,"start_skew_ms":55}
+```
+
+This is deliberately a world draw-and-descriptor-binding gate. The nonzero
+readbacks do not, by themselves, isolate texture sampling from the clear pass;
+that stronger claim still needs visual or differential evidence. Live lightmap
+atlas sampling, native sky/turbulent semantics, translated entity draws and
+translated 2D/menu/HUD lists also remain Phase 7 work rather than being
+inferred from captured entity or 2D counts.

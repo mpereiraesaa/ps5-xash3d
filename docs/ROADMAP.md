@@ -188,8 +188,12 @@
   build and hash 330 GFX10.3 RGBA8/bilinear descriptor pairs, enforce
   fence+VideoOut-before-reuse and reclaim the parent allocation exactly on FW
   12.02. Shader sampling remains part of live draw translation.
-- [ ] Replace baked world resources, entity fixtures and the procedural 2D list
-  with engine-driven resources and draws, binding each live class to
-  GPU-visible evidence without an OpenGL emulation layer.
+- [x] Replace the baked world draw list with the parsed engine world and live
+  texture descriptors; submit 3,695 `c1a0` surfaces from 17,245 vertices and
+  29,565 indices for 1,076 matched frames on FW 12.02, with nonzero readbacks,
+  eight exact reclaims and no OpenGL emulation layer.
+- [ ] Add live lightmap atlas sampling and native sky/turbulent semantics, then
+  replace entity fixtures and the procedural 2D list with engine-driven draws,
+  binding each class to its own GPU-visible evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

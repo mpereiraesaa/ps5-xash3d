@@ -98,8 +98,14 @@ src/ref_agc_live_frame.c
 src/ref_agc_live_frame.h
 src/ref_agc_gpu_texture_cache.c
 src/ref_agc_gpu_texture_cache.h
+src/ref_agc_gpu_world_cache.c
+src/ref_agc_gpu_world_cache.h
+src/ref_agc_gpu_world_draw.c
+src/ref_agc_gpu_world_draw.h
 src/ref_agc_texture_store.c
 src/ref_agc_texture_store.h
+src/ref_agc_world_store.c
+src/ref_agc_world_store.h
 src/goldsrc_render_state.c
 src/goldsrc_render_state.h
 src/goldsrc_state_matrix.c
@@ -241,7 +247,10 @@ tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
 tests/test_ref_agc_gpu_texture_cache.c
+tests/test_ref_agc_gpu_world_cache.c
+tests/test_ref_agc_gpu_world_draw.c
 tests/test_ref_agc_texture_store.c
+tests/test_ref_agc_world_store.c
 tests/test_bake_bsp.py
 tests/test_bake_studio.py
 tests/test_shader_contract.py

@@ -12,12 +12,16 @@ callbacks below are always the project-owned AGC implementation.
 */
 
 #include <pthread.h>
+#include <limits.h>
+#include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "ref_agc_live_frame.h"
 #include "ref_agc_texture_store.h"
+#include "ref_agc_world_store.h"
 
 /* Reuse the upstream ABI-complete callback skeleton without modifying the
  * pinned submodule.  Its public entry point is renamed and wrapped below. */
@@ -79,6 +83,8 @@ static RefAgcLiveStore ref_agc_live;
 static int ref_agc_live_initialized;
 static RefAgcTextureStore ref_agc_textures;
 static int ref_agc_textures_initialized;
+static RefAgcWorldStore ref_agc_world;
+static int ref_agc_world_initialized;
 
 static void RefAgcCopy3(float out[3], const float in[3])
 {
@@ -95,6 +101,220 @@ static uint64_t RefAgcHashBytes(const void *data, size_t bytes)
 		hash *= UINT64_C(1099511628211);
 	}
 	return hash;
+}
+
+static int RefAgcBrushVertexIndex(const model_t *model, int surfedge,
+	uint32_t *out)
+{
+	int edge_number;
+	uint32_t vertex;
+	if( !model || !out || surfedge < 0 || surfedge >= model->numsurfedges ||
+		!model->surfedges || !model->vertexes )
+		return -1;
+	edge_number = model->surfedges[surfedge];
+	if( edge_number == INT_MIN || edge_number >= model->numedges ||
+		edge_number <= -model->numedges )
+		return -1;
+	if( model->flags & MODEL_QBSP2 )
+	{
+		const medge32_t *edge = &model->edges32[
+			edge_number < 0 ? -edge_number : edge_number];
+		vertex = edge->v[edge_number < 0 ? 1 : 0];
+	}
+	else
+	{
+		const medge16_t *edge = &model->edges16[
+			edge_number < 0 ? -edge_number : edge_number];
+		vertex = edge->v[edge_number < 0 ? 1 : 0];
+	}
+	if( vertex >= (uint32_t)model->numvertexes )
+		return -1;
+	*out = vertex;
+	return 0;
+}
+
+static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
+	RefAgcWorldVertex **out_vertices, uint32_t **out_indices,
+	RefAgcWorldDraw **out_draws)
+{
+	uint64_t vertex_count = 0, index_count = 0, draw_count = 0;
+	RefAgcWorldVertex *vertices;
+	RefAgcWorldDraw *draws;
+	uint32_t *indices;
+	uint32_t vertex_cursor = 0, index_cursor = 0, draw_cursor = 0;
+	if( !model || !out || !out_vertices || !out_indices || !out_draws ||
+		model->type != mod_brush || !(model->flags & MODEL_WORLD) ||
+		model->numsurfaces <= 0 || model->numvertexes <= 0 ||
+		model->numedges <= 0 || model->numsurfedges <= 0 ||
+		!model->surfaces || !model->vertexes || !model->surfedges ||
+		(!(model->flags & MODEL_QBSP2) && !model->edges16) ||
+		((model->flags & MODEL_QBSP2) && !model->edges32) )
+		return -1;
+	for( int surface_index = 0; surface_index < model->numsurfaces;
+		++surface_index )
+	{
+		const msurface_t *surface = &model->surfaces[surface_index];
+		const texture_t *texture = surface->texinfo ?
+			surface->texinfo->texture : NULL;
+		if( surface->numedges < 3 || surface->firstedge < 0 ||
+			surface->firstedge > model->numsurfedges ||
+			surface->numedges > model->numsurfedges - surface->firstedge ||
+			!texture || texture->width == 0u || texture->height == 0u ||
+			texture->gl_texturenum <= 0 )
+			return -2;
+		for( int edge = 0; edge < surface->numedges; ++edge )
+		{
+			uint32_t unused;
+			if( RefAgcBrushVertexIndex( model,
+				surface->firstedge + edge, &unused ) != 0 )
+				return -3;
+		}
+		vertex_count += (uint32_t)surface->numedges;
+		index_count += (uint64_t)(surface->numedges - 2) * 3u;
+		++draw_count;
+		if( vertex_count > UINT32_MAX || index_count > UINT32_MAX ||
+			draw_count > UINT32_MAX )
+			return -4;
+	}
+	if( vertex_count == 0u || index_count == 0u || draw_count == 0u ||
+		vertex_count > SIZE_MAX / sizeof(*vertices) ||
+		index_count > SIZE_MAX / sizeof(*indices) ||
+		draw_count > SIZE_MAX / sizeof(*draws) )
+		return -4;
+	vertices = malloc( (size_t)vertex_count * sizeof(*vertices) );
+	indices = malloc( (size_t)index_count * sizeof(*indices) );
+	draws = malloc( (size_t)draw_count * sizeof(*draws) );
+	if( !vertices || !indices || !draws )
+	{
+		free( vertices ); free( indices ); free( draws );
+		return -5;
+	}
+	for( int surface_index = 0; surface_index < model->numsurfaces;
+		++surface_index )
+	{
+		const msurface_t *surface = &model->surfaces[surface_index];
+		const mtexinfo_t *texinfo = surface->texinfo;
+		const texture_t *texture = texinfo->texture;
+		const uint32_t first_vertex = vertex_cursor;
+		const uint32_t first_index = index_cursor;
+		const float sample_size = (float)(ref_agc_engine.Mod_SampleSizeForFace ?
+			ref_agc_engine.Mod_SampleSizeForFace( surface ) : 16);
+		for( int edge = 0; edge < surface->numedges; ++edge )
+		{
+			uint32_t source_index;
+			const float *position;
+			RefAgcWorldVertex *vertex = &vertices[vertex_cursor++];
+			if( RefAgcBrushVertexIndex( model, surface->firstedge + edge,
+				&source_index ) != 0 )
+				goto extraction_failed;
+			position = model->vertexes[source_index].position;
+			vertex->position[0] = position[0];
+			vertex->position[1] = position[2];
+			vertex->position[2] = -position[1];
+			vertex->base_uv[0] = (position[0] * texinfo->vecs[0][0] +
+				position[1] * texinfo->vecs[0][1] +
+				position[2] * texinfo->vecs[0][2] + texinfo->vecs[0][3]) /
+				(float)texture->width;
+			vertex->base_uv[1] = (position[0] * texinfo->vecs[1][0] +
+				position[1] * texinfo->vecs[1][1] +
+				position[2] * texinfo->vecs[1][2] + texinfo->vecs[1][3]) /
+				(float)texture->height;
+			vertex->light_uv[0] = 0.0f;
+			vertex->light_uv[1] = 0.0f;
+			if( surface->info && sample_size > 0.0f )
+			{
+				const mextrasurf_t *info = surface->info;
+				const float width = (float)info->lightextents[0] + sample_size;
+				const float height = (float)info->lightextents[1] + sample_size;
+				if( width > 0.0f && height > 0.0f )
+				{
+					vertex->light_uv[0] = (position[0] * info->lmvecs[0][0] +
+						position[1] * info->lmvecs[0][1] +
+						position[2] * info->lmvecs[0][2] + info->lmvecs[0][3] -
+						(float)info->lightmapmins[0] + sample_size * 0.5f) / width;
+					vertex->light_uv[1] = (position[0] * info->lmvecs[1][0] +
+						position[1] * info->lmvecs[1][1] +
+						position[2] * info->lmvecs[1][2] + info->lmvecs[1][3] -
+						(float)info->lightmapmins[1] + sample_size * 0.5f) / height;
+				}
+			}
+			vertex->surface_id = (uint32_t)surface_index;
+			if( !isfinite( vertex->position[0] ) ||
+				!isfinite( vertex->position[1] ) ||
+				!isfinite( vertex->position[2] ) ||
+				!isfinite( vertex->base_uv[0] ) ||
+				!isfinite( vertex->base_uv[1] ) ||
+				!isfinite( vertex->light_uv[0] ) ||
+				!isfinite( vertex->light_uv[1] ) )
+				goto extraction_failed;
+		}
+		for( uint32_t triangle = 1u;
+			triangle + 1u < (uint32_t)surface->numedges; ++triangle )
+		{
+			indices[index_cursor++] = first_vertex;
+			indices[index_cursor++] = first_vertex + triangle;
+			indices[index_cursor++] = first_vertex + triangle + 1u;
+		}
+		memset( &draws[draw_cursor], 0, sizeof(draws[draw_cursor]) );
+		draws[draw_cursor].first_index = first_index;
+		draws[draw_cursor].index_count = index_cursor - first_index;
+		draws[draw_cursor].texture_handle =
+			(uint32_t)texture->gl_texturenum;
+		draws[draw_cursor].surface_id = (uint32_t)surface_index;
+		draws[draw_cursor].surface_flags = (uint32_t)surface->flags;
+		if( surface->flags & SURF_TRANSPARENT )
+			draws[draw_cursor].draw_flags |=
+				REF_AGC_WORLD_DRAW_ALPHA_TEST;
+		if( surface->flags & SURF_DRAWSKY )
+			draws[draw_cursor].draw_flags |= REF_AGC_WORLD_DRAW_SKY;
+		if( surface->flags & SURF_DRAWTURB )
+			draws[draw_cursor].draw_flags |= REF_AGC_WORLD_DRAW_TURB;
+		++draw_cursor;
+	}
+	memset( out, 0, sizeof(*out) );
+	out->model_name = model->name;
+	out->model_flags = (uint32_t)model->flags;
+	out->vertices = vertices;
+	out->vertex_count = vertex_cursor;
+	out->indices = indices;
+	out->index_count = index_cursor;
+	out->draws = draws;
+	out->draw_count = draw_cursor;
+	*out_vertices = vertices;
+	*out_indices = indices;
+	*out_draws = draws;
+	return 0;
+
+extraction_failed:
+	free( vertices ); free( indices ); free( draws );
+	return -6;
+}
+
+static qboolean RefAgcProcessRenderData(model_t *model, qboolean create,
+	const byte *buffer, size_t buffer_size)
+{
+	RefAgcWorldInput input;
+	RefAgcWorldVertex *vertices = NULL;
+	RefAgcWorldDraw *draws = NULL;
+	uint32_t *indices = NULL;
+	int result;
+	(void)buffer;
+	(void)buffer_size;
+	if( !model || model->type != mod_brush || !(model->flags & MODEL_WORLD) )
+		return true;
+	if( !ref_agc_world_initialized )
+		return false;
+	if( !create )
+	{
+		result = ref_agc_world_store_clear( &ref_agc_world, model->name );
+		return result == REF_AGC_WORLD_OK ||
+			result == REF_AGC_WORLD_NOT_FOUND;
+	}
+	result = RefAgcExtractWorld( model, &input, &vertices, &indices, &draws );
+	if( result == 0 )
+		result = ref_agc_world_store_publish( &ref_agc_world, &input );
+	free( vertices ); free( indices ); free( draws );
+	return result == 0;
 }
 
 static void RefAgcCaptureWorld(void)
@@ -224,6 +444,19 @@ static qboolean RefAgcInit(void)
 		}
 		ref_agc_textures_initialized = 1;
 	}
+	if( !ref_agc_world_initialized )
+	{
+		if( ref_agc_world_store_init( &ref_agc_world, NULL ) != 0 )
+		{
+			ref_agc_texture_store_destroy( &ref_agc_textures );
+			ref_agc_textures_initialized = 0;
+			ref_agc_live_store_destroy( &ref_agc_live );
+			ref_agc_live_initialized = 0;
+			ref_agc_engine.R_Free_Video();
+			return false;
+		}
+		ref_agc_world_initialized = 1;
+	}
 	ref_agc_runtime_state = REF_AGC_STARTING;
 	if( pthread_create( &ref_agc_thread, NULL, RefAgcRuntimeThread, NULL ) != 0 )
 	{
@@ -233,6 +466,8 @@ static qboolean RefAgcInit(void)
 		ref_agc_live_initialized = 0;
 		ref_agc_texture_store_destroy( &ref_agc_textures );
 		ref_agc_textures_initialized = 0;
+		ref_agc_world_store_destroy( &ref_agc_world );
+		ref_agc_world_initialized = 0;
 		ref_agc_engine.R_Free_Video();
 		return false;
 	}
@@ -265,6 +500,11 @@ static void RefAgcShutdown(void)
 	{
 		ref_agc_live_store_destroy( &ref_agc_live );
 		ref_agc_live_initialized = 0;
+	}
+	if( ref_agc_world_initialized )
+	{
+		ref_agc_world_store_destroy( &ref_agc_world );
+		ref_agc_world_initialized = 0;
 	}
 	if( ref_agc_textures_initialized )
 	{
@@ -451,6 +691,18 @@ int PS5_RefAgcVisitTextures(uint64_t after_revision,
 int PS5_RefAgcTextureStats(RefAgcTextureStats *out)
 {
 	return ref_agc_texture_store_stats( &ref_agc_textures, out );
+}
+
+int PS5_RefAgcVisitWorld(uint64_t after_revision,
+	RefAgcWorldVisitor visitor, void *user, uint64_t *out_revision)
+{
+	return ref_agc_world_store_visit_changed( &ref_agc_world,
+		after_revision, visitor, user, out_revision );
+}
+
+int PS5_RefAgcWorldStats(RefAgcWorldStats *out)
+{
+	return ref_agc_world_store_stats( &ref_agc_world, out );
 }
 
 static const char *RefAgcConfigName(void)
@@ -699,5 +951,6 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->GL_TextureData = RefAgcTextureData;
 	funcs->GL_LoadTexture = RefAgcLoadTexture;
 	funcs->GL_FreeTexture = RefAgcFreeTexture;
+	funcs->Mod_ProcessRenderData = RefAgcProcessRenderData;
 	return REF_API_VERSION;
 }

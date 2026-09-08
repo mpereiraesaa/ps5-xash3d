@@ -132,7 +132,10 @@ def renderer_messages(errors: str = "0") -> list[str]:
 
 
 def phase7_renderer_messages(serial: int = 100, *,
-                             resources: bool = False) -> list[str]:
+                             resources: bool = False,
+                             world: bool = False) -> list[str]:
+    if world and not resources:
+        raise ValueError("live world evidence requires GPU textures")
     texture = ([
         "REF_AGC_GPU_TEXTURE_COMPLETE revision=251 creates=200 updates=1 "
         "deletes=0 active=200 peak=200 resident_bytes=4194304 "
@@ -141,14 +144,29 @@ def phase7_renderer_messages(serial: int = 100, *,
         "descriptors=rgba8+bilinear memory=direct "
         "ownership=fence+videoout-before-reuse errors=0",
     ] if resources else [])
+    gpu_world = ([
+        "REF_AGC_GPU_WORLD_COMPLETE revision=1 publishes=1 clears=0 "
+        "vertices=17245 indices=29565 draws=3695 texture_tables=3695 "
+        "resident_bytes=1047584 peak_bytes=1047584 "
+        "source_hash=ba427a54bcdc4cb9 upload_hash=934960d09d207e22 "
+        "flushes=2 arena_bytes=33554432 geometry=live-refapi "
+        "textures=live-refapi memory=direct source_indices=u32 "
+        "gpu_indices=per-draw-u16 "
+        "ownership=fence+videoout-before-reuse errors=0",
+    ] if world else [])
+    studio = "" if world else \
+        f" studio_sha256={STUDIO} studio_bytes=200"
+    geometry = "live-refapi" if world else "baked-c1a0"
+    lists = "world" if world else "world+entities+2d"
+    textures = " textures=live-refapi" if world else ""
     return [
         f"BSP_TEXTURE_PATH_BOOT schema=1 slice=phase7-live-consumer target=gfx1013 "
         f"fw=12.02 ownership=fence+videoout+ack bundle_sha256={BUNDLE} "
-        f"bundle_bytes=100 studio_sha256={STUDIO} studio_bytes=200 "
+        f"bundle_bytes=100{studio} "
         "lifetime=engine-owned input_owner=engine",
         "BSP_LOOP_BEGIN mode=phase7-live-consumer buffers=2 color_dma=false "
         "depth_dma=true indexed=true frames=engine-owned camera=live-refapi "
-        "geometry=baked-c1a0 lists=world+entities+2d "
+        f"geometry={geometry}{textures} lists={lists} "
         "retirement=fence+videoout+ack input_dependency=engine",
         "REF_AGC_RUNTIME_READY backend=phase4-native api=18 videoout=owned "
         "direct_memory=owned agc=initialized scene=planned",
@@ -158,10 +176,11 @@ def phase7_renderer_messages(serial: int = 100, *,
         "camera_hash=0000000000000000 camera_changes=0 map_serial=0 "
         "entities=0 draw2d=1 ack=exact drops=zero",
         *texture,
+        *gpu_world,
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
-        f"bright_pixels=820521 resource_reclaimed={7 if resources else 6} "
+        f"bright_pixels=820521 resource_reclaimed={8 if world else 7 if resources else 6} "
         "ownership=fence+videoout+ack guards=intact errors=0",
         "REF_AGC_TEARDOWN videoout=closed direct_memory=released agc=unloaded "
         "result=0 ownership=exact",
@@ -234,6 +253,42 @@ def main() -> None:
         assert resource_summary["ref_agc_world_texture_refs"] == 121
         assert resource_summary["ref_agc_world_textures_resolved"] == 121
         assert resource_summary["gpu_texture"]["revision"] == "251"
+
+        world_renderer = write_run(
+            directory, "world-renderer", "ps5-xash3d",
+            phase7_renderer_messages(resources=True, world=True),
+            started="2026-09-08T19:13:27.984+00:00")
+        world_valid = run(resource_engine, world_renderer)
+        assert world_valid.returncode == 0, world_valid.stderr
+        world_summary = json.loads(world_valid.stdout)
+        assert world_summary["gpu_world"]["draws"] == "3695"
+        assert world_summary["gpu_world"]["vertices"] == "17245"
+
+        bad_world_messages = [message.replace(
+            "draws=3695 texture_tables=3695",
+            "draws=3694 texture_tables=3694")
+            for message in phase7_renderer_messages(
+                resources=True, world=True)]
+        bad_world_renderer = write_run(
+            directory, "bad-world-renderer", "ps5-xash3d",
+            bad_world_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(resource_engine, bad_world_renderer)
+        assert rejected.returncode != 0 \
+            and "engine/GPU world accounting" in rejected.stderr
+
+        missing_world_messages = [message for message in
+                                  phase7_renderer_messages(
+                                      resources=True, world=True)
+                                  if not message.startswith(
+                                      "REF_AGC_GPU_WORLD_COMPLETE ")]
+        missing_world_renderer = write_run(
+            directory, "missing-world-renderer", "ps5-xash3d",
+            missing_world_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(resource_engine, missing_world_renderer)
+        assert rejected.returncode != 0 \
+            and "live world loop/evidence" in rejected.stderr
 
         missing_gpu = run(resource_engine, phase7_renderer)
         assert missing_gpu.returncode != 0 \
