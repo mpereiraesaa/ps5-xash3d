@@ -2,8 +2,9 @@
 
 > This is the diagnostic snapshot that exposed the Phase 5 filesystem/libc
 > blockers. Those blockers and all Phase 5 gates are closed; Phase 6 has since
-> passed the loader, filesystem, server and MainUI gates. The current next
-> boundary is `client.prx`, using the accepted menu checkpoint as rollback.
+> passed the loader, filesystem, server, MainUI and GoldSrc client gates. The
+> current next boundary is `ref_agc`, using the accepted five-file client
+> checkpoint as rollback.
 
 This branch brings the engine up in **client mode** without a display as an
 early Phase 6 integration harness. It builds and boots; it is not a completed
@@ -188,7 +189,7 @@ expected; worth confirming it is not repopulating every lookup.
 2. Continue the Phase 5 platform gates (input, audio, direct memory,
    threads/time, frametime telemetry, and libc shims) independently of this
    Phase 6 client integration harness.
-3. Resume the client/ref renderer work only under the Phase 6 boundary.
+3. Resume `ref_agc` renderer integration only under the Phase 6 boundary.
 
 A curated render set (subset + WADs + `gfx/` + `resource/`) is sufficient to
 reproduce the historical libc fault. The accepted complete-tree filesystem

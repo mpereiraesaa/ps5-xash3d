@@ -33,6 +33,9 @@ def main() -> None:
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     engine_boot = (ROOT / "xash/platform_ps5/boot_ps5.c").read_text(encoding="utf-8")
     engine_library = (ROOT / "xash/platform_ps5/lib_ps5.c").read_text(encoding="utf-8")
+    client_prx_module = (
+        ROOT / "xash/platform_ps5/client_prx_module.cpp"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -151,11 +154,40 @@ def main() -> None:
         if item not in engine_library:
             raise SystemExit(f"menu PRX runtime contract missing: {item}")
     if "#if !PS5_XASH_MENU_PRX" not in engine_boot or \
-            '"filesystem_prx=%d server_prx=%d menu_prx=%d "' not in engine_boot:
+            '"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d "' not in engine_boot:
         raise SystemExit("menu PRX bounded menu-only boot contract missing")
     if "engine-menu-prx-native-release" not in makefile or \
             "XASH_MENU_PRX=1" not in makefile:
         raise SystemExit("menu PRX release target missing")
+    for item in (
+        "XASH_CLIENT_PRX", "#define PS5_XASH_CLIENT_PRX $client_prx",
+        "client.shared.elf", "client.prx", "client_prx_descriptor.c",
+        "PS5_CLIENT_PRX_DYNAMIC_IMPORT_AUDIT.md", "__init_array_start",
+        "__fini_array_end",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"client PRX build contract missing: {item}")
+    for item in (
+        "XASH_CLIENT_PRX_READY", "XASH_CLIENT_PRX_API",
+        "XASH_CLIENT_PRX_ABI_SMOKE", "XASH_CLIENT_PRX_INIT",
+        "XASH_CLIENT_PRX_VID_INIT", "XASH_CLIENT_PRX_FRAME",
+        "XASH_CLIENT_PRX_REDRAW", "XASH_CLIENT_PRX_SHUTDOWN",
+        "XASH_CLIENT_PRX_STATE", "XASH_CLIENT_PRX_COMPLETE",
+        "PS5_ClientInitializeTrampoline",
+    ):
+        if item not in engine_library:
+            raise SystemExit(f"client PRX runtime contract missing: {item}")
+    for item in (
+        "PS5_ClientPrxEngineTableMask", "PS5_ClientPrxEngineTableSmoke",
+        "pfnGetCvarPointer", "pfnGetGameDirectory",
+    ):
+        if item not in client_prx_module:
+            raise SystemExit(f"client PRX ABI probe missing: {item}")
+    if 'filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d' not in engine_boot:
+        raise SystemExit("client PRX boot identity contract missing")
+    if "engine-client-prx-native-release" not in makefile or \
+            "XASH_CLIENT_PRX=1" not in makefile:
+        raise SystemExit("client PRX release target missing")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

@@ -349,6 +349,29 @@ that order with active-module counts 2, 1 and 0. `XASH_MENU_PRX_COMPLETE`
 requires one init/shutdown, positive redraw/activation counts, both ABI passes
 and exact ownership before the gap-free completion BYE.
 
+## Phase 6 GoldSrc client PRX evidence
+
+The client gate announces `mode=client filesystem_prx=1 server_prx=1
+menu_prx=1 client_prx=1`. `XASH_PRX_LOAD` must identify
+`/app0/sce_module/client.prx`, a bounded segment count, 48 descriptor entries
+and zero start/load results. `XASH_CLIENT_PRX_READY` and the later state record
+bind lifecycle state 1 to 42 actual GoldSrc exports.
+
+`XASH_CLIENT_PRX_API` requires interface version 7, the six-bit host table
+mask 63 and the four-bit module callback mask 15. Exactly two
+`XASH_CLIENT_PRX_ABI_SMOKE` records prove live cvar and game-directory calls
+from PRX code. One paired init and shutdown, positive video-init/frame/redraw
+counts, raw Half-Life DLL and `Spawn Server: c1a0` proof, and non-black
+software frames distinguish execution from descriptor presence.
+
+Shutdown must unload server, menu, client and filesystem in that order with
+active-module counts 3, 2, 1 and 0. `XASH_CLIENT_PRX_COMPLETE` requires both
+ABI passes, one initialize/init/video-init/shutdown, positive frame/redraw
+counts and exact ownership. `XASH_EXIT` retains every PRX flag before the
+gap-free completion BYE. During this map-focused gate, the preserved menu API
+and lifecycle remain mandatory but the standalone menu gate is the authority
+for visible menu redraw.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a
