@@ -400,7 +400,7 @@ int main( int argc, char **argv )
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
 		"audio_gate=%d memory_gate=%d thread_time_gate=%d libc_shim_gate=%d prx_gate=%d "
-		"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d "
+		"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
@@ -409,6 +409,7 @@ int main( int argc, char **argv )
 		PS5_XASH_MEMORY_GATE, PS5_XASH_THREAD_TIME_GATE,
 		PS5_XASH_LIBC_SHIM_GATE, PS5_XASH_PRX_GATE, PS5_XASH_FILESYSTEM_PRX,
 		PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX,
+		PS5_XASH_REF_AGC_PRX,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
@@ -506,7 +507,7 @@ int main( int argc, char **argv )
 			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
 			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d "
 			"thread_time_gate=%d thread_time_pass=%d libc_shim_gate=%d libc_shim_pass=%d "
-			"prx_gate=%d prx_pass=%d filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d",
+			"prx_gate=%d prx_pass=%d filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d",
 			result, PS5_ListingRefusedCount( ), arena.live_bytes,
 			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
 			(unsigned long long)arena.failures,
@@ -515,7 +516,8 @@ int main( int argc, char **argv )
 			PS5_XASH_MEMORY_GATE, memory_pass, PS5_XASH_THREAD_TIME_GATE,
 			thread_time_pass, PS5_XASH_LIBC_SHIM_GATE, libc_shim_pass,
 			PS5_XASH_PRX_GATE, prx_pass, PS5_XASH_FILESYSTEM_PRX,
-			PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX );
+			PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX,
+			PS5_XASH_REF_AGC_PRX );
 	}
 	ps5log_close( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ?
 		"xash-engine-boot-complete" : !memory_pass ? "xash-memory-gate-failed" :

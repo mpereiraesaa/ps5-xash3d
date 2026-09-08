@@ -22,7 +22,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
-| 6 — Engine integration | In progress | The loader, filesystem, server, MainUI and GoldSrc `client.prx` gates passed on FW 12.02; `c1a0` runs through the dynamic client ABI with exact unload. Only `ref_agc` remains |
+| 6 — Engine integration | Complete | Filesystem, server, MainUI, GoldSrc client and `ref_agc` all run as application-owned PRXs; `c1a0` starts while the native AGC backend presents 600 validated frames, then all five modules unwind exactly |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
@@ -151,6 +151,22 @@ XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
 Its interface-version contract, callback-table probes, live HUD lifecycle,
 map workload and exact four-module teardown are in
 [`docs/CLIENT_PRX_PHASE6.md`](docs/CLIENT_PRX_PHASE6.md).
+
+Build the final Phase 6 gate. The engine runs `c1a0` through the complete
+dynamic module stack while `ref_agc.prx` owns the accepted Phase 4 native AGC
+backend. The integration proof uses the feature-complete `c1a0e` baked scene;
+private game data and generated bundles remain ignored:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  XASH_GATE_SECONDS=20 BSP_INPUT=/private/path/valve/maps/c1a0e.bsp \
+  STUDIO_INPUT=/private/path/valve/models/sphere.mdl \
+  make engine-ref-agc-prx-native-release
+```
+
+The RefAPI contract, paired engine/renderer validation, exact five-module
+teardown and the deliberately bounded Phase 7 boundary are recorded in
+[`docs/REF_AGC_PRX_PHASE6.md`](docs/REF_AGC_PRX_PHASE6.md).
 
 Build the ScePad gate on the same dedicated host. The foreground DualSense
 must exercise movement, look, jump, crouch, use and fire before the bounded

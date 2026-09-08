@@ -36,6 +36,9 @@ def main() -> None:
     client_prx_module = (
         ROOT / "xash/platform_ps5/client_prx_module.cpp"
     ).read_text(encoding="utf-8")
+    ref_agc_module = (
+        ROOT / "xash/platform_ps5/ref_agc_module.c"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -154,7 +157,7 @@ def main() -> None:
         if item not in engine_library:
             raise SystemExit(f"menu PRX runtime contract missing: {item}")
     if "#if !PS5_XASH_MENU_PRX" not in engine_boot or \
-            '"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d "' not in engine_boot:
+            '"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d "' not in engine_boot:
         raise SystemExit("menu PRX bounded menu-only boot contract missing")
     if "engine-menu-prx-native-release" not in makefile or \
             "XASH_MENU_PRX=1" not in makefile:
@@ -188,6 +191,33 @@ def main() -> None:
     if "engine-client-prx-native-release" not in makefile or \
             "XASH_CLIENT_PRX=1" not in makefile:
         raise SystemExit("client PRX release target missing")
+    for item in (
+        "XASH_REF_AGC_PRX", "#define PS5_XASH_REF_AGC_PRX $ref_agc_prx",
+        "ref_agc.shared.elf", "ref_agc.prx", "ref_agc_prx_descriptor.c",
+        "PS5_REF_AGC_PRX_DYNAMIC_IMPORT_AUDIT.md", "build/bsp/map.ps5bsp",
+        "build/studio/model.ps5mdl",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"ref_agc PRX build contract missing: {item}")
+    for item in (
+        "GetRefAPI", "REF_API_VERSION", "PS5_RefAgcPrxRuntimeState",
+        "PS5_RefAgcPrxRuntimeResult", "PS5_RefAgcPrxTeardownResult",
+        "PS5_RefAgcPrxEngineTableMask", "PS5_RefAgcPrxRuntimeFrames",
+        "PS5_RefAgcPrxFrameHash", "PS5_RefAgcPrxBrightPixels",
+        "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
+        "pthread_create", "pthread_join",
+    ):
+        if item not in ref_agc_module:
+            raise SystemExit(f"ref_agc module contract missing: {item}")
+    for item in (
+        "XASH_REF_AGC_PRX_READY", "XASH_REF_AGC_PRX_STATE",
+        "XASH_REF_AGC_PRX_COMPLETE", "PS5_LogRefAgcPrxState",
+    ):
+        if item not in engine_library:
+            raise SystemExit(f"ref_agc runtime contract missing: {item}")
+    if "engine-ref-agc-prx-native-release" not in makefile or \
+            "XASH_REF_AGC_PRX=1" not in makefile or "XASH_REF=agc" not in makefile:
+        raise SystemExit("ref_agc release target missing")
     if 'make -C "$foundation" app' in builder:
         raise SystemExit("standalone builder must not build the foundation sample title")
     for unit in ("native_app_builder.cpp", "self_container.cpp",

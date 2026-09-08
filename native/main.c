@@ -81,6 +81,14 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef PS5_REF_AGC_MODULE
+#include <pthread.h>
+
+void PS5_RefAgcRuntimeReady(void);
+void PS5_RefAgcRuntimeComplete(uint64_t frames, uint64_t frame_hash,
+                               uint64_t bright_pixels, int teardown_result);
+void PS5_RefAgcRuntimeFailed(int result);
+#endif
 
 #if defined(PS5_TEXTURE_ACCOUNTING_GATE) || \
     defined(PS5_TEXTURE_FINAL_GATE)
@@ -175,7 +183,11 @@ enum {
     BSP_FIXED_COMMAND_DWORDS = 4096u,
     BSP_MAX_BUNDLE_BYTES = 64u * 1024u * 1024u,
     STUDIO_MAX_BUNDLE_BYTES = 16u * 1024u * 1024u,
-#ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
+#ifdef PS5_REF_AGC_MODULE
+    /* The PRX integration gate proves ten seconds of live ownership.  The
+     * standalone Phase 4 soak remains the 60,000-frame durability evidence. */
+    BSP_GATE_FRAME_COUNT = 600u,
+#elif defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
     BSP_GATE_FRAME_COUNT = 60000u,
     BSP_NOCLIP_MIN_MOVING_FRAMES = 600u,
     BSP_NOCLIP_MIN_LOOKING_FRAMES = 120u,
@@ -199,6 +211,12 @@ enum {
     BSP_GATE_FRAME_COUNT = 600u,
 #endif
 };
+
+#ifdef PS5_REF_AGC_MODULE
+#define PS5_REF_AGC_FEATURE_FRAME(index) ((uint64_t)(index) + UINT64_C(59400))
+#else
+#define PS5_REF_AGC_FEATURE_FRAME(index) ((uint64_t)(index))
+#endif
 
 struct native_resources {
     uint64_t agc_state;
@@ -922,6 +940,15 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     struct native_renderer *state = opaque;
     if (!frame || !state || frame->buffer >= 2u)
         return -1;
+#ifdef PS5_REF_AGC_MODULE
+    /* Reuse the already-proven final 600-frame composition window without
+     * repeating the standalone 60,000-frame durability soak in every engine
+     * integration run. Ownership tokens keep their original 0..599 sequence. */
+    const uint64_t feature_frame_index =
+        PS5_REF_AGC_FEATURE_FRAME(frame->frame_index);
+#else
+    const uint64_t feature_frame_index = frame->frame_index;
+#endif
 #ifdef PS5_BSP_NOCLIP
     if (update_noclip_camera(state, frame) != 0)
         return -9;
@@ -957,7 +984,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_TEXTURE_PATH
 #ifdef PS5_GOLDSRC_LIGHTING_GATE
     const uint32_t lighting_mode =
-        goldsrc_lighting_mode(frame->frame_index);
+        goldsrc_lighting_mode(feature_frame_index);
     if (goldsrc_lightmap_lighting_update(
             &state->goldsrc_lighting_plan,
             &state->dynamic_lightmap_slots[resource_slot],
@@ -1031,7 +1058,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->noclip.forward,
                 (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
-            frame->frame_index,
+            feature_frame_index,
             base_filter
 #ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
             , &matrix_constants
@@ -1047,7 +1074,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->resources->resource_heap_bytes,
             state->resources->surface.width,
             state->resources->surface.height,
-            frame->frame_index) != 0)
+            feature_frame_index) != 0)
         return resource_compose_fail(state, resource_slot, -9);
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
@@ -1061,7 +1088,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->noclip.position, state->noclip.forward,
             (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
-            frame->frame_index) != 0)
+            feature_frame_index) != 0)
         return resource_compose_fail(state, resource_slot, -9);
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
@@ -1076,7 +1103,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->noclip.position, state->noclip.forward,
             (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
-            frame->frame_index) != 0)
+            feature_frame_index) != 0)
         return resource_compose_fail(state, resource_slot, -9);
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
@@ -1096,7 +1123,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->noclip.position, state->noclip.forward,
             (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
-            frame->frame_index) != 0)
+            feature_frame_index) != 0)
         return resource_compose_fail(state, resource_slot, -9);
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
@@ -1114,7 +1141,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->noclip.position, state->noclip.forward,
             (float)state->resources->surface.width /
                 (float)state->resources->surface.height,
-            frame->frame_index) != 0)
+            feature_frame_index) != 0)
         return resource_compose_fail(state, resource_slot, -9);
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
@@ -1302,7 +1329,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     }
 #endif
 #ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
-    if (frame->frame_index == 59400u || frame->frame_index == 59401u ||
+    if (feature_frame_index == 59400u || feature_frame_index == 59401u ||
         frame->frame_index + 2u >= BSP_GATE_FRAME_COUNT) {
         const GoldSrcLightmapLightingUpdate *const lighting =
             &state->goldsrc_lighting_updates[resource_slot];
@@ -2283,6 +2310,12 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
                             uint64_t *observed_token, void *opaque)
 {
     struct native_renderer *state = opaque;
+#ifdef PS5_REF_AGC_MODULE
+    const uint64_t feature_frame_index = frame ?
+        PS5_REF_AGC_FEATURE_FRAME(frame->frame_index) : 0u;
+#else
+    const uint64_t feature_frame_index = frame ? frame->frame_index : 0u;
+#endif
     if (!frame || !state || !observed_token || frame->buffer >= 2u)
         return -1;
     struct ps5_frame_completion completion;
@@ -2380,7 +2413,7 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
 #endif
 #ifdef PS5_GOLDSRC_LIGHTING_GATE
             const uint32_t lighting_mode =
-                goldsrc_lighting_mode(frame->frame_index);
+                goldsrc_lighting_mode(feature_frame_index);
             if (!state->goldsrc_lighting_seen[lighting_mode]
                                                    [frame->buffer]) {
                 const uint8_t *const pixels =
@@ -2414,7 +2447,7 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
 #endif
 #ifdef PS5_GOLDSRC_SPRITE_PARTICLE_GATE
             const uint32_t effect_mode =
-                goldsrc_sprite_particle_mode(frame->frame_index);
+                goldsrc_sprite_particle_mode(feature_frame_index);
             if (!state->goldsrc_effect_seen[effect_mode][frame->buffer]) {
                 const uint8_t *const pixels =
                     (const uint8_t *)state->resources->framebuffer +
@@ -2444,7 +2477,7 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
 #endif
 #ifdef PS5_GOLDSRC_STUDIO_GATE
             const uint32_t studio_mode =
-                goldsrc_studio_mode(frame->frame_index);
+                goldsrc_studio_mode(feature_frame_index);
             if (!state->goldsrc_studio_seen[studio_mode][frame->buffer]) {
                 const uint8_t *const pixels =
                     (const uint8_t *)state->resources->framebuffer +
@@ -2473,7 +2506,7 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
 #endif
 #ifdef PS5_GOLDSRC_BRUSH_GATE
             const uint32_t brush_mode =
-                goldsrc_brush_mode(frame->frame_index);
+                goldsrc_brush_mode(feature_frame_index);
             if (!state->goldsrc_brush_seen[brush_mode][frame->buffer]) {
                 const uint8_t *const pixels =
                     (const uint8_t *)state->resources->framebuffer +
@@ -2502,7 +2535,7 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
 #endif
 #ifdef PS5_GOLDSRC_VISIBILITY_GATE
             const uint32_t visibility_mode =
-                goldsrc_visibility_mode(frame->frame_index);
+                goldsrc_visibility_mode(feature_frame_index);
             const GoldSrcVisibilityFrame *const visibility =
                 &state->goldsrc_visibility_frames[frame->buffer];
             if (!state->goldsrc_visibility_seen[visibility_mode]
@@ -2546,8 +2579,8 @@ static int frame_wait_video(const GearsAnimationFrame *frame,
             }
 #endif
 #ifdef PS5_GOLDSRC_PHASE4_FINAL_GATE
-            if ((frame->frame_index == 59400u ||
-                 frame->frame_index == 59401u) &&
+            if ((feature_frame_index == 59400u ||
+                 feature_frame_index == 59401u) &&
                 !state->goldsrc_phase4_final_seen[frame->buffer]) {
                 const uint8_t *const pixels =
                     (const uint8_t *)state->resources->framebuffer +
@@ -2777,8 +2810,13 @@ static void park(const char *reason)
     (void)ps5log_printf(PS5LOG_ERR, "PARKED retain_all_resources=true reason=%s",
                         reason ? reason : "unknown");
     ps5log_close("parked-retain");
+#ifdef PS5_REF_AGC_MODULE
+    PS5_RefAgcRuntimeFailed(-1);
+    pthread_exit(NULL);
+#else
     for (;;)
         (void)pause();
+#endif
 }
 
 #ifdef PS5_BSP_VIEWER
@@ -2806,6 +2844,23 @@ static uint64_t bright_pixel_count(const void *data, size_t bytes)
 
 static void park_complete(void)
 {
+#ifdef PS5_REF_AGC_MODULE
+    const int cleanup_result = cleanup();
+    (void)ps5log_printf(cleanup_result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+        "REF_AGC_TEARDOWN videoout=closed direct_memory=released "
+        "agc=unloaded result=%d ownership=%s",
+        cleanup_result, cleanup_result == 0 ? "exact" : "retained");
+    PS5_RefAgcRuntimeComplete(
+        BSP_GATE_FRAME_COUNT,
+        renderer.goldsrc_phase4_final_hashes[0] ^
+            renderer.goldsrc_phase4_final_hashes[1],
+        renderer.goldsrc_phase4_final_bright[0] +
+            renderer.goldsrc_phase4_final_bright[1],
+        cleanup_result);
+    ps5log_close(cleanup_result == 0 ? "ref-agc-runtime-complete" :
+                                      "ref-agc-teardown-failure");
+    pthread_exit(NULL);
+#else
 #ifdef PS5_TEXTURE_PATH
 #ifdef PS5_GPU_FLIP_TIMING_GATE
     ps5log_close("gpu-flip-timing-soak-complete");
@@ -2847,6 +2902,7 @@ static void park_complete(void)
 #endif
     for (;;)
         (void)pause();
+#endif
 }
 #endif
 
@@ -2861,6 +2917,9 @@ static int fail_pre_submit(const char *step, int result)
 
 int main(void)
 {
+#ifdef PS5_REF_AGC_MODULE
+    (void)PS5_RefAgcRuntimeFailed(0);
+#endif
     memset(&resources, 0, sizeof(resources));
     resources.command_offset = resources.framebuffer_offset =
         resources.shader_offset = resources.depth_offset = -1;
@@ -4171,6 +4230,15 @@ int main(void)
         "descriptors=per-frame overlay=fixed "
         "retirement=fence+videoout input_dependency=none");
 #elif defined(PS5_GOLDSRC_PHASE4_FINAL_GATE)
+#ifdef PS5_REF_AGC_MODULE
+    (void)ps5log_line(PS5LOG_MARK,
+        "BSP_LOOP_BEGIN mode=ref-agc-integration buffers=2 "
+        "color_dma=false depth_dma=true indexed=true frames=600 "
+        "features=lighting+2d+sprites+particles+studio+brush+pvs+frustum "
+        "combined_window=0..599 camera=locked-bsp-tree "
+        "geometry=phase4-baked-c1a0e descriptors=per-frame overlay=fixed "
+        "retirement=fence+videoout input_dependency=none");
+#else
     (void)ps5log_line(PS5LOG_MARK,
         "BSP_LOOP_BEGIN mode=goldsrc-phase4-final-soak buffers=2 "
         "color_dma=false depth_dma=true indexed=true frames=60000 "
@@ -4178,6 +4246,7 @@ int main(void)
         "combined_window=59400..59999 camera=locked-bsp-tree "
         "geometry=world+entities descriptors=per-frame overlay=fixed "
         "retirement=fence+videoout input_dependency=none");
+#endif
 #elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
     (void)ps5log_line(PS5LOG_MARK,
         "BSP_LOOP_BEGIN mode=goldsrc-visibility-soak buffers=2 "
@@ -4290,6 +4359,12 @@ int main(void)
         "color_dma=false depth_dma=true");
 #endif
     GearsFrameLoop loop;
+#ifdef PS5_REF_AGC_MODULE
+    PS5_RefAgcRuntimeReady();
+    (void)ps5log_line(PS5LOG_MARK,
+        "REF_AGC_RUNTIME_READY backend=phase4-native api=18 "
+        "videoout=owned direct_memory=owned agc=initialized scene=planned");
+#endif
     if (gears_frame_loop_init(&loop, &input) != 0)
         return fail_pre_submit("frame_loop_init", -1);
 #ifdef PS5_BSP_VIEWER
@@ -4459,9 +4534,11 @@ int main(void)
     defined(PS5_GOLDSRC_VISIBILITY_GATE)
 #ifdef PS5_GOLDSRC_LIGHTING_GATE
         renderer.dynamic_lightmap_slots[0].last_pattern ==
-            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 2u) &&
+            goldsrc_lighting_mode(
+                PS5_REF_AGC_FEATURE_FRAME(BSP_GATE_FRAME_COUNT - 2u)) &&
         renderer.dynamic_lightmap_slots[1].last_pattern ==
-            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 1u) &&
+            goldsrc_lighting_mode(
+                PS5_REF_AGC_FEATURE_FRAME(BSP_GATE_FRAME_COUNT - 1u)) &&
 #else
         renderer.dynamic_lightmap_slots[0].last_pattern == 0u &&
         renderer.dynamic_lightmap_slots[1].last_pattern == 0u &&
@@ -4504,7 +4581,8 @@ int main(void)
             renderer.dynamic_lightmap_slots[1].pixels,
             &renderer.dynamic_lightmap_layout),
         goldsrc_lighting_mode_name(
-            goldsrc_lighting_mode(BSP_GATE_FRAME_COUNT - 1u)),
+            goldsrc_lighting_mode(
+                PS5_REF_AGC_FEATURE_FRAME(BSP_GATE_FRAME_COUNT - 1u))),
         (unsigned long long)run.frames_completed);
 #elif defined(PS5_GOLDSRC_VISIBILITY_GATE)
     (void)ps5log_printf(PS5LOG_MARK,

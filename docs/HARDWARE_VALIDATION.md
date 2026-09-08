@@ -1106,6 +1106,32 @@ as a diagnostic: it proved client load, interface and teardown but the
 menu-only workload never invoked client video init/redraw. The accepted gate
 enters `c1a0`; the prior standalone menu gate remains the visible-UI authority.
 
+## Phase 6 final `ref_agc.prx` gate
+
+- Accepted paired runs:
+  `20260908T191327933Z_PPSA99996_xash3d-engine_0x11059870e2628` and
+  `20260908T191327984Z_PPSA99996_ps5-xash3d_0x110598a25cd2f`
+- Host ELF / fSELF SHA-256:
+  `c00933748ce9dad152ae163b83205d6b042fe4516494928d3afbaff63792b310` /
+  `b27647e03263b72d3a9e32efcd6b4bce02cb9fdbade3626c0456dea8fb06b5b9`
+- Renderer ELF / PRX fSELF SHA-256:
+  `4a1b4cb19c31ee765caade673c625dac19deba714634c1ecbe33404ded571a98` /
+  `23437e8a26141bfedb2f64abbb3a3bb0621019b9adbcab1ea25ad5c3b80c2156`
+- The streams began 51 ms apart. The host loaded all five application modules,
+  started `c1a0`, observed RefAPI v18 with engine mask 63, 203,420 balanced
+  begin/end callbacks, 203,411 scene callbacks and one new-map callback.
+- The native backend presented 600 combined Phase 4 frames with final GPU
+  hashes `a9e62c5188ca6bf5` and `0044418de19349d8`, 807,578 visible pixels,
+  exact fence/VideoOut tokens, intact guards and zero errors.
+- Native teardown closed VideoOut, released direct memory and unloaded AGC.
+  Engine teardown then released server, menu, client, renderer and filesystem
+  with active counts 4, 3, 2, 1 and 0; both logs ended with clean gap-free BYE.
+
+`tools/validate_ref_agc_prx_evidence.py` accepts the pair only when both
+manifests, the assets, callback state, GPU readbacks and ownership chain agree.
+The complete command and rejected diagnostic runs are recorded in
+`REF_AGC_PRX_PHASE6.md`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

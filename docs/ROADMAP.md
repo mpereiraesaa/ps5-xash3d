@@ -169,7 +169,9 @@
 - [x] Convert the client module while preserving the independently bootable
   filesystem/server/menu rollback point; prove interface 7, both callback
   masks, live video/HUD execution on `c1a0` and exact four-module teardown.
-- [ ] Bind `ref_agc` as the final engine module and replace the diagnostic
-  renderer path with the Phase 4 backend.
+- [x] Bind `ref_agc` as the final engine module and replace the diagnostic
+  renderer path with the Phase 4 backend; prove RefAPI v18 callbacks, 600
+  native frames, nonzero GPU readbacks and exact five-module teardown on FW
+  12.02.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

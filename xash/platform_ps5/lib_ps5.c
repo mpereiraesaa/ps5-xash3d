@@ -375,6 +375,11 @@ static int PS5_IsClientPrx( const ps5_dynamic_library_t *library )
 	return library && !strcmp( library->module.name, "client.prx" );
 }
 
+static int PS5_IsRefAgcPrx( const ps5_dynamic_library_t *library )
+{
+	return library && !strcmp( library->module.name, "ref_agc.prx" );
+}
+
 static void PS5_LogFilesystemPrxState( ps5_dynamic_library_t *library,
 	const char *marker )
 {
@@ -444,6 +449,60 @@ static void PS5_LogClientPrxState( ps5_dynamic_library_t *library,
 		PS5LOG_MARK : PS5LOG_ERR,
 		"%s module=client.prx state=%d exports=%d resolver=PRXDESC1",
 		marker, state ? state( ) : -1, export_count ? export_count( ) : -1 );
+}
+
+static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
+	const char *marker )
+{
+	int ( *state )( void );
+	int ( *result )( void );
+	int ( *teardown )( void );
+	int ( *engine_mask )( void );
+	uint64_t ( *frames )( void );
+	uint64_t ( *frame_hash )( void );
+	uint64_t ( *bright )( void );
+	uint64_t ( *begin )( void );
+	uint64_t ( *scene )( void );
+	uint64_t ( *end )( void );
+	uint64_t ( *newmap )( void );
+	int complete, pass;
+	if( !PS5_IsRefAgcPrx( library )) return;
+#define REF_AGC_PROC(type, name) ((type)PS5_PrxGetProc( &library->module, name ))
+	state = REF_AGC_PROC( int ( * )( void ), "PS5_RefAgcPrxRuntimeState" );
+	result = REF_AGC_PROC( int ( * )( void ), "PS5_RefAgcPrxRuntimeResult" );
+	teardown = REF_AGC_PROC( int ( * )( void ), "PS5_RefAgcPrxTeardownResult" );
+	engine_mask = REF_AGC_PROC( int ( * )( void ), "PS5_RefAgcPrxEngineTableMask" );
+	frames = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxRuntimeFrames" );
+	frame_hash = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxFrameHash" );
+	bright = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxBrightPixels" );
+	begin = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxBeginCalls" );
+	scene = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxSceneCalls" );
+	end = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxEndCalls" );
+	newmap = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxNewMapCalls" );
+#undef REF_AGC_PROC
+	complete = marker && !strcmp( marker, "XASH_REF_AGC_PRX_STATE" );
+	pass = state && result && teardown && engine_mask && frames && frame_hash &&
+		bright && begin && scene && end && newmap;
+	if( complete )
+		pass = pass && state( ) == 5 && result( ) == 0 && teardown( ) == 0 &&
+			engine_mask( ) == 63 && frames( ) == 600u && frame_hash( ) != 0u &&
+			bright( ) != 0u && begin( ) > 0u && scene( ) > 0u && end( ) > 0u &&
+			newmap( ) > 0u;
+	(void)ps5log_printf( pass ? PS5LOG_MARK : PS5LOG_ERR,
+		"%s module=ref_agc.prx api=18 state=%d runtime_result=%d "
+		"teardown_result=%d engine_mask=%d expected_mask=63 frames=%llu "
+		"frame_hash=%016llx bright_pixels=%llu begin_calls=%llu "
+		"scene_calls=%llu end_calls=%llu newmap_calls=%llu "
+		"backend=phase4-native ownership=fence+videoout pass=%d",
+		marker, state ? state( ) : -1, result ? result( ) : -1,
+		teardown ? teardown( ) : -1, engine_mask ? engine_mask( ) : -1,
+		(unsigned long long)( frames ? frames( ) : 0u ),
+		(unsigned long long)( frame_hash ? frame_hash( ) : 0u ),
+		(unsigned long long)( bright ? bright( ) : 0u ),
+		(unsigned long long)( begin ? begin( ) : 0u ),
+		(unsigned long long)( scene ? scene( ) : 0u ),
+		(unsigned long long)( end ? end( ) : 0u ),
+		(unsigned long long)( newmap ? newmap( ) : 0u ), pass );
 }
 
 static int PS5_DynamicStart( ps5_dynamic_library_t *library )
@@ -652,6 +711,7 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table,
 	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_READY" );
 	PS5_LogMenuPrxState( library, "XASH_MENU_PRX_READY" );
 	PS5_LogClientPrxState( library, "XASH_CLIENT_PRX_READY" );
+	PS5_LogRefAgcPrxState( library, "XASH_REF_AGC_PRX_READY" );
 	return library;
 }
 
@@ -665,6 +725,7 @@ void COM_FreeLibrary( void *hInstance )
 	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_STATE" );
 	PS5_LogMenuPrxState( library, "XASH_MENU_PRX_STATE" );
 	PS5_LogClientPrxState( library, "XASH_CLIENT_PRX_STATE" );
+	PS5_LogRefAgcPrxState( library, "XASH_REF_AGC_PRX_STATE" );
 	if( PS5_DynamicStop( library ) != 0 )
 	{
 		ps5_last_result = PS5_PRX_ERROR_UNLOAD;
@@ -688,6 +749,7 @@ void COM_FreeLibrary( void *hInstance )
 		const int server = PS5_IsServerPrx( library );
 		const int menu = PS5_IsMenuPrx( library );
 		const int client = PS5_IsClientPrx( library );
+		const int ref_agc = PS5_IsRefAgcPrx( library );
 		*link = library->next;
 		free( library );
 		if( server ) ps5_server_give_fnptrs = NULL;
@@ -753,6 +815,11 @@ void COM_FreeLibrary( void *hInstance )
 			ps5_client_redraw_calls = ps5_client_shutdown_calls = 0u;
 			ps5_client_api_pass = ps5_client_abi_pass = 0;
 		}
+		if( ref_agc )
+			(void)ps5log_printf( PS5LOG_MARK,
+				"XASH_REF_AGC_PRX_COMPLETE module=ref_agc.prx stop_result=0 "
+				"active_modules=%u ownership=exact pass=1",
+				PS5_PrxLibraryActiveCount( ));
 	}
 }
 

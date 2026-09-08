@@ -10,6 +10,7 @@ STUDIO_SEQUENCE ?= fire
 	engine-prx-loader-native-release \
 	engine-filesystem-prx-native-release \
 	engine-server-prx-native-release \
+	engine-ref-agc-prx-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -166,6 +167,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_audit_dyn_imports.py
 	python3 tests/test_ps5_libc_contract.py
 	python3 tests/test_validate_engine_boot_evidence.py
+	python3 tests/test_validate_ref_agc_prx_evidence.py
 	rm -rf build tools/__pycache__ xash/tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
@@ -335,6 +337,13 @@ engine-menu-prx-native-release:
 engine-client-prx-native-release:
 	XASH_MODE=client XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 bash xash/build_engine.sh
+
+# Phase 6 gate 6: keep all accepted application PRXs and replace the static
+# diagnostic renderer with ref_agc.prx, which owns the Phase 4 AGC backend.
+engine-ref-agc-prx-native-release: bsp-bundle studio-bundle shaders
+	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
+		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
+		bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
