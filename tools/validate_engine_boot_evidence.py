@@ -811,13 +811,13 @@ def validate_ref_agc_prx_gate(
     exports = int(load.get("exports", "0"), 10)
     if load.get("path") != "/app0/sce_module/ref_agc.prx" \
             or load.get("result") != "0" or load.get("init_result") != "0" \
-            or exports not in (16, 26, 31) \
+            or exports not in (16, 26, 31, 40) \
             or not 1 <= int(load.get("segments", "0"), 10) <= 4:
         fail("ref_agc PRX load contract failed")
     expected_common = {
         "module": "ref_agc.prx", "api": "18",
-        "backend": "phase7-live" if exports == 31 else "phase4-native",
-        "ownership": "fence+videoout+ack" if exports == 31 else "fence+videoout",
+        "backend": "phase7-live" if exports in (31, 40) else "phase4-native",
+        "ownership": "fence+videoout+ack" if exports in (31, 40) else "fence+videoout",
         "pass": "1",
     }
     if any(ready.get(key) != value for key, value in expected_common.items()) \
@@ -831,8 +831,8 @@ def validate_ref_agc_prx_gate(
             or state.get("teardown_result") != "0" \
             or state.get("engine_mask") != "63" \
             or state.get("expected_mask") != "63" \
-            or (exports == 31 and frame_count <= 0) \
-            or (exports != 31 and frame_count != 600) \
+            or (exports in (31, 40) and frame_count <= 0) \
+            or (exports not in (31, 40) and frame_count != 600) \
             or state.get("frame_hash") in (None, "0000000000000000") \
             or int(state.get("bright_pixels", "0"), 10) <= 0:
         fail("ref_agc PRX runtime state did not pass")
@@ -841,7 +841,7 @@ def validate_ref_agc_prx_gate(
             fail(f"ref_agc PRX recorded no {field}")
     if state.get("begin_calls") != state.get("end_calls"):
         fail("ref_agc begin/end callback counts differ")
-    if exports in (26, 31):
+    if exports in (26, 31, 40):
         live_positive = (
             "live_frames", "live_view_frames", "live_map_serial",
             "world_surfaces", "entity_peak", "draw2d_peak",
@@ -856,7 +856,7 @@ def validate_ref_agc_prx_gate(
                 or state.get("dropped_entities") != "0" \
                 or state.get("dropped_2d") != "0":
             fail("ref_agc live frame capture contract failed")
-    if exports == 31:
+    if exports in (31, 40):
         consumed_positive = (
             "consumed_frames", "consumed_serial", "consumed_view_frames",
         )
@@ -870,6 +870,16 @@ def validate_ref_agc_prx_gate(
                 or state.get("consumed_camera_hash") in (
                     None, "0000000000000000"):
             fail("ref_agc live consumer/ACK contract failed")
+    if exports == 40:
+        for field in (
+            "texture_revision", "texture_creates", "texture_handles",
+            "texture_peak_active", "texture_peak_bytes", "world_texture_refs",
+        ):
+            if int(state.get(field, "0"), 10) <= 0:
+                fail(f"ref_agc live resource bridge recorded no {field}")
+        if state.get("world_textures_resolved") != state.get(
+                "world_texture_refs"):
+            fail("ref_agc live resource bridge left world textures unresolved")
     if unload.get("result") != "0" or unload.get("stop_result") != "0" \
             or unload.get("ownership") != "released":
         fail("ref_agc PRX unload did not release ownership")
@@ -1266,6 +1276,27 @@ def validate(
         if ref_agc_state else 0,
         "ref_agc_consumed_camera_hash": ref_agc_state.get(
             "consumed_camera_hash") if ref_agc_state else None,
+        "ref_agc_texture_revision": int(
+            ref_agc_state.get("texture_revision", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_texture_creates": int(
+            ref_agc_state.get("texture_creates", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_texture_handles": int(
+            ref_agc_state.get("texture_handles", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_texture_peak_active": int(
+            ref_agc_state.get("texture_peak_active", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_texture_peak_bytes": int(
+            ref_agc_state.get("texture_peak_bytes", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_world_texture_refs": int(
+            ref_agc_state.get("world_texture_refs", "0"), 10)
+        if ref_agc_state else 0,
+        "ref_agc_world_textures_resolved": int(
+            ref_agc_state.get("world_textures_resolved", "0"), 10)
+        if ref_agc_state else 0,
     }
 
 

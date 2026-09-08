@@ -180,6 +180,10 @@
   coordinates to the baker's AGC convention, and acknowledge each producer
   serial only after exact fence plus VideoOut retirement; pass 5,265 matched
   frames with zero drops/errors and exact teardown on FW 12.02.
+- [x] Replace the null RefAPI texture callbacks with a bounded revisioned RGBA8
+  store; on FW 12.02 issue 333 stable handles and resolve all 164 non-null
+  `c1a0` world texture references with exact teardown. This proves CPU
+  ingestion, not direct-memory upload or AGC sampling.
 - [ ] Replace baked world resources, entity fixtures and the procedural 2D list
   with engine-driven resources and draws, binding each live class to
   GPU-visible evidence without an OpenGL emulation layer.

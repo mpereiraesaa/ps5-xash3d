@@ -856,6 +856,15 @@ if [[ $ref_agc_prx == 1 ]]; then
         --extra PS5_RefAgcPrxConsumedViewFrames \
         --extra PS5_RefAgcPrxConsumedCameraHash \
         --extra PS5_RefAgcPrxConsumedCameraChanges \
+        --extra PS5_RefAgcPrxTextureRevision \
+        --extra PS5_RefAgcPrxTextureCreates \
+        --extra PS5_RefAgcPrxTextureUpdates \
+        --extra PS5_RefAgcPrxTextureFrees \
+        --extra PS5_RefAgcPrxTexturePeakBytes \
+        --extra PS5_RefAgcPrxTextureHandles \
+        --extra PS5_RefAgcPrxTexturePeakActive \
+        --extra PS5_RefAgcPrxWorldTextureRefs \
+        --extra PS5_RefAgcPrxWorldTexturesResolved \
         --source "$gen/ref_agc_prx_descriptor.c" \
         --version-script "$gen/ref_agc_prx_exports.map"
     ref_agc_defines=(
@@ -878,6 +887,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/native/main.c" "$root/native/ps5_agc_native.c"
         "$root/xash/platform_ps5/ref_agc_module.c"
         "$root/src/ref_agc_live_frame.c"
+        "$root/src/ref_agc_texture_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"
         "$root/src/bsp_flat_draw.c" "$root/src/bsp_dynamic_lightmap.c"
         "$root/src/bsp_alpha_test.c" "$root/src/bsp_sky.c"
@@ -1353,6 +1363,11 @@ if [[ $ref_agc_prx == 1 ]]; then
         PS5_RefAgcPrxConsumedFrames PS5_RefAgcPrxConsumedSerial \
         PS5_RefAgcPrxConsumedViewFrames PS5_RefAgcPrxConsumedCameraHash \
         PS5_RefAgcPrxConsumedCameraChanges \
+        PS5_RefAgcPrxTextureRevision PS5_RefAgcPrxTextureCreates \
+        PS5_RefAgcPrxTextureUpdates PS5_RefAgcPrxTextureFrees \
+        PS5_RefAgcPrxTexturePeakBytes PS5_RefAgcPrxTextureHandles \
+        PS5_RefAgcPrxTexturePeakActive PS5_RefAgcPrxWorldTextureRefs \
+        PS5_RefAgcPrxWorldTexturesResolved \
         ref_agc_prx_exports module_start module_stop; do
         if ! grep -Eq "[[:space:]]$symbol$" "$build/ref-agc-prx-shared-symbols.txt"; then
             echo "ref_agc.prx did not export $symbol" >&2

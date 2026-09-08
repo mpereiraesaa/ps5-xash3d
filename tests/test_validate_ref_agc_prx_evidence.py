@@ -49,13 +49,16 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
 
 
 def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
-                    live: bool = True, consumer: bool = False) -> list[str]:
+                    live: bool = True, consumer: bool = False,
+                    resources: bool = False) -> list[str]:
     complete = [
         "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 active_modules=4 ownership=exact",
         "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 active_modules=3 ownership=exact pass=1",
         "XASH_CLIENT_PRX_COMPLETE module=client.prx stop_result=0 active_modules=2 ownership=exact pass=1",
     ]
-    exports = 31 if consumer else 26 if live else 16
+    if resources and not consumer:
+        raise ValueError("resource evidence requires the live consumer")
+    exports = 40 if resources else 31 if consumer else 26 if live else 16
     backend = "phase7-live" if consumer else "phase4-native"
     ownership = "fence+videoout+ack" if consumer else "fence+videoout"
     ready_live = (" live_frames=0 live_view_frames=0 "
@@ -72,6 +75,14 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
     state_consumer = (" consumed_frames=100 consumed_serial=100 "
                       "consumed_view_frames=99 consumed_camera_hash=abcdef1234567890 "
                       "consumed_camera_changes=0") if consumer else ""
+    ready_resources = (" texture_revision=0 texture_creates=0 texture_updates=0 "
+                       "texture_frees=0 texture_handles=0 texture_peak_active=0 "
+                       "texture_peak_bytes=0 world_texture_refs=0 "
+                       "world_textures_resolved=0") if resources else ""
+    state_resources = (" texture_revision=251 texture_creates=250 texture_updates=1 "
+                       "texture_frees=0 texture_handles=250 texture_peak_active=250 "
+                       "texture_peak_bytes=3145728 world_texture_refs=121 "
+                       "world_textures_resolved=121") if resources else ""
     return [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"XASH_BOOT schema=1 slice=engine-boot mode=client ref=agc fw=12.02 engine={ENGINE} "
@@ -84,12 +95,12 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
         "XASH_REF_AGC_PRX_READY module=ref_agc.prx api=18 state=0 runtime_result=0 "
         "teardown_result=0 engine_mask=0 expected_mask=63 frames=0 "
         "frame_hash=0000000000000000 bright_pixels=0 begin_calls=0 scene_calls=0 "
-        f"end_calls=0 newmap_calls=0{ready_live}{ready_consumer} backend={backend} ownership={ownership} pass=1",
+        f"end_calls=0 newmap_calls=0{ready_live}{ready_consumer}{ready_resources} backend={backend} ownership={ownership} pass=1",
         *complete,
         "XASH_REF_AGC_PRX_STATE module=ref_agc.prx api=18 state=5 runtime_result=0 "
         f"teardown_result=0 engine_mask=63 expected_mask=63 frames={100 if consumer else 600} frame_hash={frame_hash} "
         f"bright_pixels=820521 begin_calls=100 scene_calls=99 end_calls=100 newmap_calls=1{state_live} "
-        f"{state_consumer} backend={backend} ownership={ownership} pass=1",
+        f"{state_consumer}{state_resources} backend={backend} ownership={ownership} pass=1",
         "XASH_PRX_UNLOAD module=ref_agc.prx result=0 stop_result=0 ownership=released",
         "XASH_REF_AGC_PRX_COMPLETE module=ref_agc.prx stop_result=0 active_modules=1 "
         "ownership=exact pass=1",
@@ -197,6 +208,28 @@ def main() -> None:
         phase7_summary = json.loads(phase7_valid.stdout)
         assert phase7_summary["phase"] == 7 \
             and phase7_summary["frames"] == 100
+
+        resource_engine = write_run(
+            directory, "resource-engine", "xash3d-engine",
+            engine_messages(consumer=True, resources=True), raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        resource_valid = run(resource_engine, phase7_renderer)
+        assert resource_valid.returncode == 0, resource_valid.stderr
+        resource_summary = json.loads(resource_valid.stdout)
+        assert resource_summary["ref_agc_texture_handles"] == 250
+        assert resource_summary["ref_agc_world_texture_refs"] == 121
+        assert resource_summary["ref_agc_world_textures_resolved"] == 121
+
+        unresolved_messages = [message.replace(
+            "world_textures_resolved=121", "world_textures_resolved=120")
+            for message in engine_messages(consumer=True, resources=True)]
+        unresolved_engine = write_run(
+            directory, "unresolved-engine", "xash3d-engine",
+            unresolved_messages, raw=raw,
+            started="2026-09-08T19:13:27.933+00:00")
+        rejected = run(unresolved_engine, phase7_renderer)
+        assert rejected.returncode != 0 \
+            and "world textures unresolved" in rejected.stderr
 
         capture_phase7_mismatch = run(engine, phase7_renderer)
         assert capture_phase7_mismatch.returncode != 0 \

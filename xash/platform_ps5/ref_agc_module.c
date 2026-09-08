@@ -17,6 +17,7 @@ callbacks below are always the project-owned AGC implementation.
 #include <time.h>
 
 #include "ref_agc_live_frame.h"
+#include "ref_agc_texture_store.h"
 
 /* Reuse the upstream ABI-complete callback skeleton without modifying the
  * pinned submodule.  Its public entry point is renamed and wrapped below. */
@@ -63,10 +64,21 @@ static volatile uint64_t ref_agc_consumed_serial;
 static volatile uint64_t ref_agc_consumed_view_frames;
 static volatile uint64_t ref_agc_consumed_camera_hash;
 static volatile uint64_t ref_agc_consumed_camera_changes;
+static volatile uint64_t ref_agc_texture_revision;
+static volatile uint64_t ref_agc_texture_creates;
+static volatile uint64_t ref_agc_texture_updates;
+static volatile uint64_t ref_agc_texture_frees;
+static volatile uint64_t ref_agc_texture_peak_bytes;
+static volatile uint64_t ref_agc_texture_handles;
+static volatile uint64_t ref_agc_texture_peak_active;
+static volatile uint64_t ref_agc_world_texture_refs;
+static volatile uint64_t ref_agc_world_textures_resolved;
 static pthread_t ref_agc_thread;
 static int ref_agc_thread_created;
 static RefAgcLiveStore ref_agc_live;
 static int ref_agc_live_initialized;
+static RefAgcTextureStore ref_agc_textures;
+static int ref_agc_textures_initialized;
 
 static void RefAgcCopy3(float out[3], const float in[3])
 {
@@ -90,6 +102,9 @@ static void RefAgcCaptureWorld(void)
 	const ref_client_t *client;
 	const model_t *model;
 	RefAgcLiveWorld world;
+	RefAgcTextureView texture_view;
+	uint64_t texture_refs = 0;
+	uint64_t textures_resolved = 0;
 	if( !ref_agc_live_initialized || !ref_agc_engine.EngineGetParm )
 		return;
 	client = (const ref_client_t *)ref_agc_engine.EngineGetParm(
@@ -108,6 +123,18 @@ static void RefAgcCaptureWorld(void)
 	world.leafs = model->numleafs > 0 ? (uint32_t)model->numleafs : 0u;
 	world.has_visibility = model->visdata != NULL;
 	world.has_lightdata = model->lightdata != NULL;
+	for( int i = 0; i < model->numtextures; ++i )
+	{
+		const texture_t *texture = model->textures[i];
+		if( !texture ) continue;
+		++texture_refs;
+		if( texture->gl_texturenum > 0 &&
+			ref_agc_texture_store_get( &ref_agc_textures,
+				(uint32_t)texture->gl_texturenum, &texture_view ) == 0 )
+			++textures_resolved;
+	}
+	ref_agc_world_texture_refs = texture_refs;
+	ref_agc_world_textures_resolved = textures_resolved;
 	RefAgcCopy3( world.mins, model->mins );
 	RefAgcCopy3( world.maxs, model->maxs );
 	ref_agc_live_set_world( &ref_agc_live, &world );
@@ -186,6 +213,17 @@ static qboolean RefAgcInit(void)
 		}
 		ref_agc_live_initialized = 1;
 	}
+	if( !ref_agc_textures_initialized )
+	{
+		if( ref_agc_texture_store_init( &ref_agc_textures, NULL ) != 0 )
+		{
+			ref_agc_live_store_destroy( &ref_agc_live );
+			ref_agc_live_initialized = 0;
+			ref_agc_engine.R_Free_Video();
+			return false;
+		}
+		ref_agc_textures_initialized = 1;
+	}
 	ref_agc_runtime_state = REF_AGC_STARTING;
 	if( pthread_create( &ref_agc_thread, NULL, RefAgcRuntimeThread, NULL ) != 0 )
 	{
@@ -193,6 +231,8 @@ static qboolean RefAgcInit(void)
 		ref_agc_runtime_result = -2;
 		ref_agc_live_store_destroy( &ref_agc_live );
 		ref_agc_live_initialized = 0;
+		ref_agc_texture_store_destroy( &ref_agc_textures );
+		ref_agc_textures_initialized = 0;
 		ref_agc_engine.R_Free_Video();
 		return false;
 	}
@@ -211,6 +251,7 @@ static qboolean RefAgcInit(void)
 
 static void RefAgcShutdown(void)
 {
+	RefAgcTextureStats texture_stats;
 	if( ref_agc_thread_created )
 	{
 		if( ref_agc_live_initialized )
@@ -225,7 +266,190 @@ static void RefAgcShutdown(void)
 		ref_agc_live_store_destroy( &ref_agc_live );
 		ref_agc_live_initialized = 0;
 	}
+	if( ref_agc_textures_initialized )
+	{
+		if( ref_agc_texture_store_stats( &ref_agc_textures,
+			&texture_stats ) == 0 )
+		{
+			ref_agc_texture_revision = texture_stats.revision;
+			ref_agc_texture_creates = texture_stats.creates;
+			ref_agc_texture_updates = texture_stats.updates;
+			ref_agc_texture_frees = texture_stats.frees;
+			ref_agc_texture_peak_bytes = texture_stats.peak_resident_bytes;
+			ref_agc_texture_handles = texture_stats.handles_issued;
+			ref_agc_texture_peak_active = texture_stats.peak_active;
+		}
+		ref_agc_texture_store_destroy( &ref_agc_textures );
+		ref_agc_textures_initialized = 0;
+	}
 	ref_agc_engine.R_Free_Video();
+}
+
+static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
+	texFlags_t flags, qboolean update)
+{
+	rgbdata_t *owned = NULL;
+	const rgbdata_t *source = image;
+	RefAgcTextureInput input;
+	uint32_t handle = 0;
+	uint process_flags = IMAGE_FORCE_RGBA;
+	if( !ref_agc_textures_initialized || !name || !name[0] || !image ||
+		image->width == 0 || image->height == 0 || image->size == 0 )
+		return 0;
+	if( image->buffer )
+	{
+		owned = ref_agc_engine.FS_CopyImage( image );
+		if( !owned )
+			return 0;
+		if( flags & TF_MAKELUMA )
+			process_flags |= IMAGE_MAKE_LUMA;
+		if( !ref_agc_engine.Image_Process( &owned, 0, 0,
+			process_flags, 0.0f ) && owned->type != PF_RGBA_32 )
+		{
+			ref_agc_engine.FS_FreeImage( owned );
+			return 0;
+		}
+		source = owned;
+	}
+	if( source->type != PF_RGBA_32 || source->size == 0 )
+	{
+		if( owned ) ref_agc_engine.FS_FreeImage( owned );
+		return 0;
+	}
+	if( source->flags & IMAGE_HAS_ALPHA ) flags |= TF_HAS_ALPHA;
+	if( source->flags & IMAGE_HAS_LUMA ) flags |= TF_HAS_LUMA;
+	flags &= ~(TF_MAKELUMA|TF_UPDATE);
+	memset( &input, 0, sizeof(input) );
+	input.name = name;
+	input.width = source->width;
+	input.height = source->height;
+	input.depth = source->depth ? source->depth : 1u;
+	input.format = source->type;
+	input.flags = (uint32_t)flags;
+	input.mip_count = source->numMips ? source->numMips : 1u;
+	input.pixels = source->buffer;
+	input.pixel_bytes = source->size;
+	if( ref_agc_texture_store_upsert( &ref_agc_textures, &input,
+		update != false, &handle ) != 0 )
+		handle = 0;
+	if( owned ) ref_agc_engine.FS_FreeImage( owned );
+	return (int)handle;
+}
+
+static int RefAgcLoadTextureFromBuffer(const char *name, rgbdata_t *image,
+	texFlags_t flags, qboolean update)
+{
+	return RefAgcStoreImage( name, image, flags, update );
+}
+
+static int RefAgcLoadTexture(const char *name, const byte *buffer,
+	size_t size, int flags)
+{
+	rgbdata_t *image;
+	uint32_t existing;
+	uint image_flags = 0;
+	int handle;
+	if( !name || !name[0] )
+		return 0;
+	if( ref_agc_texture_store_find( &ref_agc_textures, name,
+		&existing ) == 0 )
+		return (int)existing;
+	if( flags & TF_NOFLIP_TGA ) image_flags |= IL_DONTFLIP_TGA;
+	ref_agc_engine.Image_SetForceFlags( image_flags );
+	image = ref_agc_engine.FS_LoadImage( name, buffer, size );
+	if( !image )
+		return 0;
+	handle = RefAgcStoreImage( name, image, (texFlags_t)flags, false );
+	ref_agc_engine.FS_FreeImage( image );
+	return handle;
+}
+
+static int RefAgcCreateTexture(const char *name, int width, int height,
+	const void *buffer, texFlags_t flags)
+{
+	rgbdata_t image;
+	size_t bytes;
+	if( width <= 0 || height <= 0 || width > UINT16_MAX ||
+		height > UINT16_MAX ||
+		(size_t)width > SIZE_MAX / 4u / (size_t)height )
+		return 0;
+	bytes = (size_t)width * (size_t)height * 4u;
+	memset( &image, 0, sizeof(image) );
+	image.width = (word)width;
+	image.height = (word)height;
+	image.depth = 1;
+	image.type = PF_RGBA_32;
+	image.buffer = (byte *)buffer;
+	image.size = bytes;
+	if( flags & TF_HAS_ALPHA ) image.flags |= IMAGE_HAS_ALPHA;
+	return RefAgcStoreImage( name, &image, flags,
+		(flags & TF_UPDATE) != 0 );
+}
+
+static int RefAgcFindTexture(const char *name)
+{
+	uint32_t handle = 0;
+	return ref_agc_texture_store_find( &ref_agc_textures, name,
+		&handle ) == 0 ? (int)handle : 0;
+}
+
+static const char *RefAgcTextureName(unsigned int handle)
+{
+	RefAgcTextureView view;
+	return ref_agc_texture_store_get( &ref_agc_textures, handle,
+		&view ) == 0 ? view.name : NULL;
+}
+
+static const byte *RefAgcTextureData(unsigned int handle)
+{
+	RefAgcTextureView view;
+	return ref_agc_texture_store_get( &ref_agc_textures, handle,
+		&view ) == 0 ? view.pixels : NULL;
+}
+
+static void RefAgcFreeTexture(unsigned int handle)
+{
+	if( handle != 0u )
+		(void)ref_agc_texture_store_free( &ref_agc_textures, handle );
+}
+
+static intptr_t RefAgcGetParm(int parm, int arg)
+{
+	RefAgcTextureView view;
+	RefAgcTextureStats stats;
+	if( parm == PARM_GL_CONTEXT_TYPE )
+		return CONTEXT_TYPE_SOFTWARE;
+	if( parm == PARM_TEX_MEMORY )
+		return ref_agc_texture_store_stats( &ref_agc_textures, &stats ) == 0 ?
+			(intptr_t)stats.resident_bytes : 0;
+	if( ref_agc_texture_store_get( &ref_agc_textures,
+		(uint32_t)arg, &view ) != 0 )
+		return 0;
+	switch( parm )
+	{
+	case PARM_TEX_WIDTH:
+	case PARM_TEX_SRC_WIDTH: return view.width;
+	case PARM_TEX_HEIGHT:
+	case PARM_TEX_SRC_HEIGHT: return view.height;
+	case PARM_TEX_DEPTH: return view.depth;
+	case PARM_TEX_GLFORMAT: return view.format;
+	case PARM_TEX_MIPCOUNT: return view.mip_count;
+	case PARM_TEX_FLAGS: return view.flags;
+	case PARM_TEX_TEXNUM: return view.handle;
+	default: return 0;
+	}
+}
+
+int PS5_RefAgcVisitTextures(uint64_t after_revision,
+	RefAgcTextureVisitor visitor, void *user, uint64_t *out_revision)
+{
+	return ref_agc_texture_store_visit_changed( &ref_agc_textures,
+		after_revision, visitor, user, out_revision );
+}
+
+int PS5_RefAgcTextureStats(RefAgcTextureStats *out)
+{
+	return ref_agc_texture_store_stats( &ref_agc_textures, out );
 }
 
 static const char *RefAgcConfigName(void)
@@ -420,6 +644,15 @@ uint64_t PS5_RefAgcPrxConsumedSerial(void) { return ref_agc_consumed_serial; }
 uint64_t PS5_RefAgcPrxConsumedViewFrames(void) { return ref_agc_consumed_view_frames; }
 uint64_t PS5_RefAgcPrxConsumedCameraHash(void) { return ref_agc_consumed_camera_hash; }
 uint64_t PS5_RefAgcPrxConsumedCameraChanges(void) { return ref_agc_consumed_camera_changes; }
+uint64_t PS5_RefAgcPrxTextureRevision(void) { return ref_agc_texture_revision; }
+uint64_t PS5_RefAgcPrxTextureCreates(void) { return ref_agc_texture_creates; }
+uint64_t PS5_RefAgcPrxTextureUpdates(void) { return ref_agc_texture_updates; }
+uint64_t PS5_RefAgcPrxTextureFrees(void) { return ref_agc_texture_frees; }
+uint64_t PS5_RefAgcPrxTexturePeakBytes(void) { return ref_agc_texture_peak_bytes; }
+uint64_t PS5_RefAgcPrxTextureHandles(void) { return ref_agc_texture_handles; }
+uint64_t PS5_RefAgcPrxTexturePeakActive(void) { return ref_agc_texture_peak_active; }
+uint64_t PS5_RefAgcPrxWorldTextureRefs(void) { return ref_agc_world_texture_refs; }
+uint64_t PS5_RefAgcPrxWorldTexturesResolved(void) { return ref_agc_world_textures_resolved; }
 
 int PS5_RefAgcPrxEngineTableMask(void)
 {
@@ -456,5 +689,14 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_Set2DMode = RefAgcSet2DMode;
 	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
 	funcs->FillRGBA = RefAgcFillRGBA;
+	funcs->R_GetTextureOriginalBuffer = RefAgcTextureData;
+	funcs->GL_LoadTextureFromBuffer = RefAgcLoadTextureFromBuffer;
+	funcs->RefGetParm = RefAgcGetParm;
+	funcs->GL_CreateTexture = RefAgcCreateTexture;
+	funcs->GL_FindTexture = RefAgcFindTexture;
+	funcs->GL_TextureName = RefAgcTextureName;
+	funcs->GL_TextureData = RefAgcTextureData;
+	funcs->GL_LoadTexture = RefAgcLoadTexture;
+	funcs->GL_FreeTexture = RefAgcFreeTexture;
 	return REF_API_VERSION;
 }

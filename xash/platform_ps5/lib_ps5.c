@@ -480,6 +480,15 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 	uint64_t ( *consumed_view_frames )( void );
 	uint64_t ( *consumed_camera_hash )( void );
 	uint64_t ( *consumed_camera_changes )( void );
+	uint64_t ( *texture_revision )( void );
+	uint64_t ( *texture_creates )( void );
+	uint64_t ( *texture_updates )( void );
+	uint64_t ( *texture_frees )( void );
+	uint64_t ( *texture_peak_bytes )( void );
+	uint64_t ( *texture_handles )( void );
+	uint64_t ( *texture_peak_active )( void );
+	uint64_t ( *world_texture_refs )( void );
+	uint64_t ( *world_textures_resolved )( void );
 	int complete, pass;
 	if( !PS5_IsRefAgcPrx( library )) return;
 #define REF_AGC_PROC(type, name) ((type)PS5_PrxGetProc( &library->module, name ))
@@ -509,6 +518,15 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 	consumed_view_frames = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedViewFrames" );
 	consumed_camera_hash = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedCameraHash" );
 	consumed_camera_changes = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxConsumedCameraChanges" );
+	texture_revision = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTextureRevision" );
+	texture_creates = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTextureCreates" );
+	texture_updates = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTextureUpdates" );
+	texture_frees = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTextureFrees" );
+	texture_peak_bytes = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTexturePeakBytes" );
+	texture_handles = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTextureHandles" );
+	texture_peak_active = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxTexturePeakActive" );
+	world_texture_refs = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxWorldTextureRefs" );
+	world_textures_resolved = REF_AGC_PROC( uint64_t ( * )( void ), "PS5_RefAgcPrxWorldTexturesResolved" );
 #undef REF_AGC_PROC
 	complete = marker && !strcmp( marker, "XASH_REF_AGC_PRX_STATE" );
 	pass = state && result && teardown && engine_mask && frames && frame_hash &&
@@ -517,7 +535,10 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 		live_map_serial && live_world_surfaces && live_entity_peak &&
 		live_2d_peak && live_dropped_entities && live_dropped_2d &&
 		consumed_frames && consumed_serial && consumed_view_frames &&
-		consumed_camera_hash && consumed_camera_changes;
+		consumed_camera_hash && consumed_camera_changes && texture_revision &&
+		texture_creates && texture_updates && texture_frees &&
+		texture_peak_bytes && texture_handles && texture_peak_active &&
+		world_texture_refs && world_textures_resolved;
 	if( complete )
 		pass = pass && state( ) == 5 && result( ) == 0 && teardown( ) == 0 &&
 			engine_mask( ) == 63 && frames( ) > 0u && frame_hash( ) != 0u &&
@@ -530,7 +551,11 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 			consumed_frames( ) == live_frames( ) &&
 			consumed_serial( ) == consumed_frames( ) &&
 			consumed_view_frames( ) == live_view_frames( ) &&
-			consumed_camera_hash( ) != 0u;
+			consumed_camera_hash( ) != 0u && texture_revision( ) > 0u &&
+			texture_creates( ) > 0u && texture_handles( ) > 0u &&
+			texture_peak_active( ) > 0u && texture_peak_bytes( ) > 0u &&
+			world_texture_refs( ) > 0u &&
+			world_textures_resolved( ) == world_texture_refs( );
 	(void)ps5log_printf( pass ? PS5LOG_MARK : PS5LOG_ERR,
 		"%s module=ref_agc.prx api=18 state=%d runtime_result=%d "
 		"teardown_result=%d engine_mask=%d expected_mask=63 frames=%llu "
@@ -542,6 +567,10 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 		"dropped_2d=%llu consumed_frames=%llu consumed_serial=%llu "
 		"consumed_view_frames=%llu consumed_camera_hash=%016llx "
 		"consumed_camera_changes=%llu "
+		"texture_revision=%llu texture_creates=%llu texture_updates=%llu "
+		"texture_frees=%llu texture_handles=%llu texture_peak_active=%llu "
+		"texture_peak_bytes=%llu world_texture_refs=%llu "
+		"world_textures_resolved=%llu "
 		"backend=phase7-live ownership=fence+videoout+ack pass=%d",
 		marker, state ? state( ) : -1, result ? result( ) : -1,
 		teardown ? teardown( ) : -1, engine_mask ? engine_mask( ) : -1,
@@ -567,6 +596,15 @@ static void PS5_LogRefAgcPrxState( ps5_dynamic_library_t *library,
 		(unsigned long long)( consumed_view_frames ? consumed_view_frames( ) : 0u ),
 		(unsigned long long)( consumed_camera_hash ? consumed_camera_hash( ) : 0u ),
 		(unsigned long long)( consumed_camera_changes ? consumed_camera_changes( ) : 0u ),
+		(unsigned long long)( texture_revision ? texture_revision( ) : 0u ),
+		(unsigned long long)( texture_creates ? texture_creates( ) : 0u ),
+		(unsigned long long)( texture_updates ? texture_updates( ) : 0u ),
+		(unsigned long long)( texture_frees ? texture_frees( ) : 0u ),
+		(unsigned long long)( texture_handles ? texture_handles( ) : 0u ),
+		(unsigned long long)( texture_peak_active ? texture_peak_active( ) : 0u ),
+		(unsigned long long)( texture_peak_bytes ? texture_peak_bytes( ) : 0u ),
+		(unsigned long long)( world_texture_refs ? world_texture_refs( ) : 0u ),
+		(unsigned long long)( world_textures_resolved ? world_textures_resolved( ) : 0u ),
 		pass );
 }
 

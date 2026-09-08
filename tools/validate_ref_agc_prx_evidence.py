@@ -263,6 +263,17 @@ def main() -> int:
             "frames": renderer["frames"],
             "phase": renderer["phase"],
             "engine_frame_hash": engine["ref_agc_frame_hash"],
+            "ref_agc_texture_revision": engine["ref_agc_texture_revision"],
+            "ref_agc_texture_creates": engine["ref_agc_texture_creates"],
+            "ref_agc_texture_handles": engine["ref_agc_texture_handles"],
+            "ref_agc_texture_peak_active": engine[
+                "ref_agc_texture_peak_active"],
+            "ref_agc_texture_peak_bytes": engine[
+                "ref_agc_texture_peak_bytes"],
+            "ref_agc_world_texture_refs": engine[
+                "ref_agc_world_texture_refs"],
+            "ref_agc_world_textures_resolved": engine[
+                "ref_agc_world_textures_resolved"],
             "gpu_buffers": [renderer["buffer0"], renderer["buffer1"]],
             "gpu_bright_pixels": renderer["bright_pixels"],
             "ownership": "exact",

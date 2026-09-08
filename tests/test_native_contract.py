@@ -39,6 +39,9 @@ def main() -> None:
     ref_agc_module = (
         ROOT / "xash/platform_ps5/ref_agc_module.c"
     ).read_text(encoding="utf-8")
+    ref_agc_texture_store = (
+        ROOT / "src/ref_agc_texture_store.c"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -210,6 +213,9 @@ def main() -> None:
         "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
         "PS5_RefAgcPrxConsumedFrames", "PS5_RefAgcPrxConsumedSerial",
         "PS5_RefAgcPrxConsumedViewFrames", "PS5_RefAgcPrxConsumedCameraHash",
+        "PS5_RefAgcPrxTextureRevision", "PS5_RefAgcPrxTextureCreates",
+        "PS5_RefAgcPrxTexturePeakBytes", "PS5_RefAgcPrxTexturePeakActive",
+        "PS5_RefAgcPrxWorldTextureRefs", "PS5_RefAgcPrxWorldTexturesResolved",
         "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
         "pthread_create", "pthread_join",
     ):
@@ -219,6 +225,7 @@ def main() -> None:
         "XASH_REF_AGC_PRX_READY", "XASH_REF_AGC_PRX_STATE",
         "XASH_REF_AGC_PRX_COMPLETE", "PS5_LogRefAgcPrxState",
         "consumed_frames( ) == live_frames( )",
+        "world_textures_resolved( ) == world_texture_refs( )",
         "backend=phase7-live ownership=fence+videoout+ack",
     ):
         if item not in engine_library:
@@ -228,6 +235,7 @@ def main() -> None:
         raise SystemExit("ref_agc release target missing")
     for item in (
         "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
+        "src/ref_agc_texture_store.c",
     ):
         if item not in engine_builder:
             raise SystemExit(f"Phase 7 live renderer build contract missing: {item}")
@@ -243,6 +251,24 @@ def main() -> None:
     ):
         if item not in source:
             raise SystemExit(f"Phase 7 live renderer runtime contract missing: {item}")
+    for item in (
+        "GL_LoadTextureFromBuffer = RefAgcLoadTextureFromBuffer",
+        "GL_CreateTexture = RefAgcCreateTexture",
+        "GL_FindTexture = RefAgcFindTexture",
+        "GL_LoadTexture = RefAgcLoadTexture",
+        "GL_FreeTexture = RefAgcFreeTexture",
+        "RefGetParm = RefAgcGetParm",
+        "PS5_RefAgcVisitTextures",
+    ):
+        if item not in ref_agc_module:
+            raise SystemExit(f"Phase 7 texture callback contract missing: {item}")
+    for item in (
+        "REF_AGC_TEXTURE_MAX", "ref_agc_texture_store_upsert",
+        "ref_agc_texture_store_visit_changed", "content_hash",
+        "peak_resident_bytes",
+    ):
+        if item not in ref_agc_texture_store:
+            raise SystemExit(f"Phase 7 texture store contract missing: {item}")
     if source.index("ps5_surface_make_plan(0u, &resources.surface)") > \
             source.index("renderer.live_aspect_ratio ="):
         raise SystemExit(
