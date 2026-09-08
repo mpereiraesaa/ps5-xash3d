@@ -20,6 +20,13 @@ RELRO load-segment congruence fix. Original boilerplate code is Copyright (C)
 ignored dependency directory and verified at the pinned revision; it is not
 vendored into this repository.
 
+The Xash3D Phase 6 builder uses the same public fork's `exp/prx-module`
+revision `1e9b564a4dd1d567e63ee0d292ed9a026ce06008` for its PRX conversion
+tool. The `PRXDESC1` descriptor ABI and kernel module-loading flow in
+`xash/platform_ps5/prx_loader_ps5.*` derive from that GPL-3.0-or-later work;
+the engine adapter, validation hardening, rollback ownership, tests and
+telemetry are maintained in this repository.
+
 ## Project icon
 
 The PS5 AGC Gears icon was generated specifically for this project with

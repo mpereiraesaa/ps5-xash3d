@@ -22,7 +22,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
-| 6 — Engine integration | Later | Modular Xash3D boot: `ref_agc`, menu, client, server and filesystem as application-owned PRX modules |
+| 6 — Engine integration | In progress | The application-owned PRX loader passed load/resolve/call/unload on FW 12.02; converting filesystem, server, menu, client and `ref_agc` remains |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
@@ -90,6 +90,17 @@ XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
 The result lands in `dist/engine-boot/PPSA99996/`. See
 [`docs/ENGINE_BOOT_PHASE5.md`](docs/ENGINE_BOOT_PHASE5.md) for the gate
 contract and the hardware acceptance rules.
+
+Build the first Phase 6 gate, which exercises Xash's `COM_*` API against a
+real application-owned PRX while retaining the proven static modules:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  XASH_GATE_SECONDS=15 make engine-prx-loader-native-release
+```
+
+Its descriptor ABI, rollback ownership and accepted FW 12.02 evidence are in
+[`docs/PRX_LOADER_PHASE6.md`](docs/PRX_LOADER_PHASE6.md).
 
 Build the ScePad gate on the same dedicated host. The foreground DualSense
 must exercise movement, look, jump, crouch, use and fire before the bounded
@@ -194,6 +205,7 @@ Useful references:
 - [`docs/THREAD_TIME_PHASE5.md`](docs/THREAD_TIME_PHASE5.md) — pthread ownership, monotonic clock and sleep-granularity gate
 - [`docs/GPU_FLIP_TIMING_PHASE5.md`](docs/GPU_FLIP_TIMING_PHASE5.md) — GPU end-of-pipe timestamps and exact VideoOut flip latency
 - [`docs/LIBC_SHIMS_PHASE5.md`](docs/LIBC_SHIMS_PHASE5.md) — project-owned assert, identity and address-fallback shims
+- [`docs/PRX_LOADER_PHASE6.md`](docs/PRX_LOADER_PHASE6.md) — application-owned PRX loader, descriptor ABI and hardware evidence
 - [`docs/GOLDSRC_RENDER_STATES_PHASE4.md`](docs/GOLDSRC_RENDER_STATES_PHASE4.md) — Phase 4 state space, gate order and current checkpoint
 - [`docs/BACKEND_PROVENANCE.md`](docs/BACKEND_PROVENANCE.md) — source provenance boundary
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — hardware evidence

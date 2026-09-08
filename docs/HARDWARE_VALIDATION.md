@@ -943,6 +943,48 @@ definition, while the host test exercises normal and truncating formatter
 paths. Existing crash logging uses the kernel module-list APIs and therefore
 does not rely on `dladdr`.
 
+## Phase 6 application-owned PRX loader gate
+
+- Accepted run:
+  `20260908T054317837Z_PPSA99996_xash3d-engine_0xe423c3826406`
+- Gate ELF / signed fSELF SHA-256:
+  `1c8fd80e7cbcdadc4a03cb96449d1d49544c7b9741f229ede40255bb43034f6e` /
+  `c67f1cb7f1bd9e966d9364dec9ad9388afb89ee0bb07ee3091443a0e45f85b8f`
+- Probe ELF / signed fSELF SHA-256:
+  `f9f276d47c2626d7d848523263e17ccc34fbf74eb5ef3ccf80fc2af55338eea0` /
+  `e1a1591fcc2f06de915345f8b6ab17505dd6b78b67d28f65b0d383791d804f69`
+- Transcript / manifest SHA-256:
+  `ebbec4fb52731b11726da8e246c41bf9400c5a13103a16cc4ad7fef1e461bfe1` /
+  `7d09166be6700f0f6f9076fc824fde63b48170ca5e2b39d0ac08be12d74f7c4c`
+- Loader: positive handle, four validated mappings, six `PRXDESC1`
+  exports; missing-symbol lookup returned NULL
+- Calls: `19 + 23 = 42`, two calls around the PRX's
+  `sceKernelUsleep` import, version `0x10000`, function-name round trip
+- Startup observation: `auto_started=0`; explicit idempotent `module_start`
+  returned zero and changed `started` to one
+- Teardown: one successful `sceKernelStopUnloadModule`, active modules zero,
+  ownership exact
+- Engine regression in the same run: static filesystem/server loaded the full
+  private asset tree, spawned `c1a0`, timed out after 15 seconds and exited
+  cleanly; 31 records, 40 raw lines, no gaps or errors
+
+The fail-closed engine validator accepted this manifest with `--prx-gate`.
+Two earlier diagnostics established that FW 12.02 clears the 0x160 module-info
+input size word on successful return and does not automatically mutate this
+probe through its ELF `module_start` entry. Both facts are preserved in
+`PRX_LOADER_PHASE6.md`; neither diagnostic is classified as acceptance.
+
+Afterward the probe and all deployment transaction files were removed. Normal
+hybrid-backend regression run
+`20260908T054524368Z_PPSA99996_xash3d-engine_0xe441394ac877` packaged no
+probe (`prx_gate=0`), loaded the static modules and `c1a0`, and closed cleanly.
+Its transcript / manifest SHA-256 are
+`9af22c4abc996bebf209c3d2c4af79607e7fdd84b150afba7744606f443061ca` /
+`5dc161cf4cff639ab815b304b1ac0bdb73c6d729a20c71ef4be4ab2f429abcb4`;
+production ELF / fSELF SHA-256 are
+`15264acb49412810228151df0019efb85ae61448b25c75cc9dc5f3ce3917c3c8` /
+`422bf298926dea76937e3f834f85fe584eb48ccc47157761a8c1893979600b69`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until
