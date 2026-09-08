@@ -37,6 +37,7 @@ typedef struct RefAgcTextureInput {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int sampler_clamp;
     const void *pixels;
     size_t pixel_bytes;
 } RefAgcTextureInput;
@@ -49,6 +50,7 @@ typedef struct RefAgcTextureView {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int sampler_clamp;
     uint64_t revision;
     uint64_t content_hash;
     size_t pixel_bytes;
@@ -83,6 +85,7 @@ typedef struct RefAgcTextureEntry {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int sampler_clamp;
     int active;
 } RefAgcTextureEntry;
 

@@ -145,3 +145,43 @@ count unless every reference resolves. The accepted paired result is:
 ```json
 {"frames":5217,"ownership":"exact","pass":true,"phase":7,"ref_agc_texture_creates":333,"ref_agc_texture_handles":333,"ref_agc_texture_peak_active":329,"ref_agc_texture_peak_bytes":13166784,"ref_agc_texture_revision":442,"ref_agc_world_texture_refs":164,"ref_agc_world_textures_resolved":164,"start_skew_ms":55}
 ```
+
+## Accepted FW 12.02 direct-memory texture gate
+
+The next checkpoint adds a single 64 MiB parent allocation to the native
+resource pool and suballocates the engine textures inside it at 256-byte
+boundaries. Each active RGBA8 base level is row-padded, copied and flushed,
+then receives a project-built GFX10.3 T# plus bilinear repeat/clamp S#.
+Replacement and deletion are refused unless the preceding frame has completed
+its exact fence and VideoOut token; the one-frame producer/ACK contract provides
+that proof before the next revision is visited.
+
+Correlated runs `20260908T223347685Z_PPSA99996_xash3d-engine_0x11b480e6bf9f8`
+and `20260908T223347740Z_PPSA99996_ps5-xash3d_0x11b4811bb7bb1` began 55 ms
+apart and passed 5,206 matched serials. The GPU cache applied revision 337,
+created 330 images, deleted one, retained 329, copied 13,297,856 source bytes
+into 14,171,136 pitched bytes and produced descriptor-sequence hash
+`b1a857ec0c1edfd6`. Later CPU-only renderer shutdown advanced the source store
+to revision 442 with 109 total frees; the validator therefore requires GPU
+revision to be positive and no newer than the final CPU revision. It also
+requires the GPU active count to cover all 164 world texture references.
+
+The parent arena retired with the six prior resources, so the completion marker
+records seven exact reclaims. Both streams were clean and gap-free, both GPU
+readbacks remained nonzero, and native plus five-module teardown completed with
+zero errors.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Engine ELF | `0efb8729b9d6547667fe1e0cd3d875ed8d37903ef4bd8e09822aee63bbecd553` |
+| Engine fSELF | `c09cb469add09a7323795b2e5130d6b6a4afa545282c5869c0096e81c80fec2e` |
+| `ref_agc` ELF | `855dd54537fc3a4d5cd4faead70445f3e2c8a22f42a6437343b76747a65674ae` |
+| `ref_agc.prx` | `5b2162afb617f62e1ebf99ada4b4e11ef37445c66db7e2af5f563a1ccad3ef86` |
+| Engine transcript | `8b088dfe24edf981d80723ae11aec13e8468d720278bdc143b017b6ec364925e` |
+| Renderer transcript | `193ef2045e74f739eab2d7a42f15b72e77c260675fc1f9f9bc6308071068e79d` |
+| Engine manifest | `7aabd2ade226eaad1e76219e3b2d5f77e360ff7e977a8cc51914367934958586` |
+| Renderer manifest | `a9a203d5952c26ee0ef556e9499468fb0e8ee6457ae9f4ee1ea29cff9394843e` |
+
+This gate proves native direct-memory residency, descriptor construction,
+cache flush and exact lifetime. It does not prove shader sampling from these
+descriptors; that claim waits for live world geometry and draw translation.

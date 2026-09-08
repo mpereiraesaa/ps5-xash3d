@@ -184,6 +184,10 @@
   store; on FW 12.02 issue 333 stable handles and resolve all 164 non-null
   `c1a0` world texture references with exact teardown. This proves CPU
   ingestion, not direct-memory upload or AGC sampling.
+- [x] Mirror active engine texture revisions into a 64 MiB direct-memory arena,
+  build and hash 330 GFX10.3 RGBA8/bilinear descriptor pairs, enforce
+  fence+VideoOut-before-reuse and reclaim the parent allocation exactly on FW
+  12.02. Shader sampling remains part of live draw translation.
 - [ ] Replace baked world resources, entity fixtures and the procedural 2D list
   with engine-driven resources and draws, binding each live class to
   GPU-visible evidence without an OpenGL emulation layer.

@@ -327,6 +327,7 @@ static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
 	input.format = source->type;
 	input.flags = (uint32_t)flags;
 	input.mip_count = source->numMips ? source->numMips : 1u;
+	input.sampler_clamp = (flags & TF_CLAMP) != 0;
 	input.pixels = source->buffer;
 	input.pixel_bytes = source->size;
 	if( ref_agc_texture_store_upsert( &ref_agc_textures, &input,

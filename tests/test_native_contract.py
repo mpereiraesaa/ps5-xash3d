@@ -42,6 +42,9 @@ def main() -> None:
     ref_agc_texture_store = (
         ROOT / "src/ref_agc_texture_store.c"
     ).read_text(encoding="utf-8")
+    ref_agc_gpu_texture_cache = (
+        ROOT / "src/ref_agc_gpu_texture_cache.c"
+    ).read_text(encoding="utf-8")
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
@@ -235,6 +238,7 @@ def main() -> None:
         raise SystemExit("ref_agc release target missing")
     for item in (
         "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
+        "src/ref_agc_gpu_texture_cache.c",
         "src/ref_agc_texture_store.c",
     ):
         if item not in engine_builder:
@@ -246,6 +250,10 @@ def main() -> None:
         "live-frame-sequence-or-capacity-failure",
         "gears_frame_loop_retire_oldest(&loop)",
         "live-frame-retire-or-ownership-failure",
+        "REF_AGC_LIVE_TEXTURE_SYNC", "REF_AGC_GPU_TEXTURE_COMPLETE",
+        "live-texture-arena-retirement-failure",
+        "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u",
+        "live_reclaimed != 7u",
         "#define PS5_BSP_FINAL_WINDOW(index) 0",
         "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
     ):
@@ -269,6 +277,13 @@ def main() -> None:
     ):
         if item not in ref_agc_texture_store:
             raise SystemExit(f"Phase 7 texture store contract missing: {item}")
+    for item in (
+        "ref_agc_gpu_texture_cache_apply", "prior_use_retired",
+        "ps5_gfx1013_build_tsharp_rgba8", "PS5_GFX1013_FILTER_BILINEAR",
+        "source_bytes_copied", "descriptor_hash",
+    ):
+        if item not in ref_agc_gpu_texture_cache:
+            raise SystemExit(f"Phase 7 GPU texture cache contract missing: {item}")
     if source.index("ps5_surface_make_plan(0u, &resources.surface)") > \
             source.index("renderer.live_aspect_ratio ="):
         raise SystemExit(

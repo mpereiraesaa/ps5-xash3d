@@ -890,6 +890,8 @@ def validate_ref_agc_prx_gate(
     if any(complete.get(key) != value for key, value in expected_complete.items()):
         fail("ref_agc PRX completion contract failed")
 
+    state["_descriptor_exports"] = str(exports)
+
     # The final gate keeps all four earlier module checkpoints and must unwind
     # server -> menu -> client -> renderer -> filesystem.
     active = {
@@ -1254,6 +1256,9 @@ def validate(
         "client_prx_frame_calls": int(client_prx_complete["frame_calls"], 10)
         if client_prx_complete else 0,
         "ref_agc_prx_gate": ref_agc_prx_gate,
+        "ref_agc_exports": int(
+            ref_agc_state.get("_descriptor_exports", "0"), 10)
+        if ref_agc_state else 0,
         "ref_agc_frames": int(ref_agc_state["frames"], 10)
         if ref_agc_state else 0,
         "ref_agc_frame_hash": ref_agc_state["frame_hash"]

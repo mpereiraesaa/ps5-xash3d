@@ -128,11 +128,36 @@ def validate_renderer(
                 or complete.get("camera_hash") in (None, "0000000000000000") \
                 or complete.get("buffer0") in (None, "0000000000000000") \
                 or complete.get("buffer1") in (None, "0000000000000000") \
-                or bright <= 0 or complete.get("resource_reclaimed") != "6" \
+                or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7") \
                 or complete.get("ownership") != "fence+videoout+ack" \
                 or complete.get("guards") != "intact" \
                 or complete.get("errors") != "0":
             fail("Phase 7 live renderer completion mismatch")
+        texture_markers = [parse_fields(message) for message in messages
+                           if message.startswith(
+                               "REF_AGC_GPU_TEXTURE_COMPLETE ")]
+        if len(texture_markers) > 1:
+            fail("Phase 7 GPU texture completion marker is duplicated")
+        texture = texture_markers[0] if texture_markers else None
+        if texture is not None:
+            positive = (
+                "revision", "creates", "active", "peak", "resident_bytes",
+                "peak_bytes", "source_bytes", "flushes",
+            )
+            if any(int(texture.get(field, "0"), 10) <= 0
+                   for field in positive) \
+                    or texture.get("descriptor_hash") in (
+                        None, "0000000000000000") \
+                    or texture.get("arena_bytes") != "67108864" \
+                    or texture.get("descriptors") != "rgba8+bilinear" \
+                    or texture.get("memory") != "direct" \
+                    or texture.get("ownership") != \
+                    "fence+videoout-before-reuse" \
+                    or texture.get("errors") != "0" \
+                    or int(texture["active"], 10) > int(texture["peak"], 10) \
+                    or int(texture["resident_bytes"], 10) > int(
+                        texture["peak_bytes"], 10):
+                fail("Phase 7 GPU texture cache contract mismatch")
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -147,6 +172,8 @@ def validate_renderer(
             "buffer0": complete["buffer0"],
             "buffer1": complete["buffer1"],
             "bright_pixels": bright,
+            "resource_reclaimed": int(complete["resource_reclaimed"], 10),
+            "gpu_texture": texture,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -252,6 +279,18 @@ def main() -> int:
                     or engine["ref_agc_bright_pixels"] != \
                     renderer["bright_pixels"]:
                 fail("Phase 7 engine/renderer consumer accounting mismatch")
+            if engine["ref_agc_exports"] == 40:
+                texture = renderer["gpu_texture"]
+                if texture is None or renderer["resource_reclaimed"] != 7 \
+                        or int(texture["revision"], 10) > \
+                        engine["ref_agc_texture_revision"] \
+                        or int(texture["active"], 10) < \
+                        engine["ref_agc_world_texture_refs"]:
+                    fail("Phase 7 engine/GPU texture accounting mismatch")
+            elif engine["ref_agc_exports"] == 31:
+                if renderer["gpu_texture"] is not None \
+                        or renderer["resource_reclaimed"] != 6:
+                    fail("Phase 7 camera-only renderer contract mismatch")
         skew = abs((started_at(args.engine_manifest.resolve())
                     - started_at(args.renderer_manifest.resolve())).total_seconds())
         if skew > 1.0:
@@ -276,6 +315,7 @@ def main() -> int:
                 "ref_agc_world_textures_resolved"],
             "gpu_buffers": [renderer["buffer0"], renderer["buffer1"]],
             "gpu_bright_pixels": renderer["bright_pixels"],
+            "gpu_texture": renderer.get("gpu_texture"),
             "ownership": "exact",
             "pass": True,
         }

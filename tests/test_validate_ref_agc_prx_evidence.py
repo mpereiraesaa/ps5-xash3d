@@ -131,7 +131,16 @@ def renderer_messages(errors: str = "0") -> list[str]:
     ]
 
 
-def phase7_renderer_messages(serial: int = 100) -> list[str]:
+def phase7_renderer_messages(serial: int = 100, *,
+                             resources: bool = False) -> list[str]:
+    texture = ([
+        "REF_AGC_GPU_TEXTURE_COMPLETE revision=251 creates=200 updates=1 "
+        "deletes=0 active=200 peak=200 resident_bytes=4194304 "
+        "peak_bytes=4194304 source_bytes=3145728 flushes=201 "
+        "descriptor_hash=0123456789abcdef arena_bytes=67108864 "
+        "descriptors=rgba8+bilinear memory=direct "
+        "ownership=fence+videoout-before-reuse errors=0",
+    ] if resources else [])
     return [
         f"BSP_TEXTURE_PATH_BOOT schema=1 slice=phase7-live-consumer target=gfx1013 "
         f"fw=12.02 ownership=fence+videoout+ack bundle_sha256={BUNDLE} "
@@ -148,10 +157,11 @@ def phase7_renderer_messages(serial: int = 100) -> list[str]:
         "REF_AGC_LIVE_CONSUMED serial=1 consumed=1 view_frames=0 "
         "camera_hash=0000000000000000 camera_changes=0 map_serial=0 "
         "entities=0 draw2d=1 ack=exact drops=zero",
+        *texture,
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
-        "bright_pixels=820521 resource_reclaimed=6 "
+        f"bright_pixels=820521 resource_reclaimed={7 if resources else 6} "
         "ownership=fence+videoout+ack guards=intact errors=0",
         "REF_AGC_TEARDOWN videoout=closed direct_memory=released agc=unloaded "
         "result=0 ownership=exact",
@@ -213,12 +223,32 @@ def main() -> None:
             directory, "resource-engine", "xash3d-engine",
             engine_messages(consumer=True, resources=True), raw=raw,
             started="2026-09-08T19:13:27.933+00:00")
-        resource_valid = run(resource_engine, phase7_renderer)
+        resource_renderer = write_run(
+            directory, "resource-renderer", "ps5-xash3d",
+            phase7_renderer_messages(resources=True),
+            started="2026-09-08T19:13:27.984+00:00")
+        resource_valid = run(resource_engine, resource_renderer)
         assert resource_valid.returncode == 0, resource_valid.stderr
         resource_summary = json.loads(resource_valid.stdout)
         assert resource_summary["ref_agc_texture_handles"] == 250
         assert resource_summary["ref_agc_world_texture_refs"] == 121
         assert resource_summary["ref_agc_world_textures_resolved"] == 121
+        assert resource_summary["gpu_texture"]["revision"] == "251"
+
+        missing_gpu = run(resource_engine, phase7_renderer)
+        assert missing_gpu.returncode != 0 \
+            and "engine/GPU texture accounting" in missing_gpu.stderr
+
+        future_gpu_messages = [message.replace(
+            "revision=251 creates=200", "revision=252 creates=200")
+            for message in phase7_renderer_messages(resources=True)]
+        future_gpu_renderer = write_run(
+            directory, "future-gpu-renderer", "ps5-xash3d",
+            future_gpu_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(resource_engine, future_gpu_renderer)
+        assert rejected.returncode != 0 \
+            and "engine/GPU texture accounting" in rejected.stderr
 
         unresolved_messages = [message.replace(
             "world_textures_resolved=121", "world_textures_resolved=120")

@@ -96,6 +96,8 @@ src/gears_rt_clear.c
 src/gears_rt_clear.h
 src/ref_agc_live_frame.c
 src/ref_agc_live_frame.h
+src/ref_agc_gpu_texture_cache.c
+src/ref_agc_gpu_texture_cache.h
 src/ref_agc_texture_store.c
 src/ref_agc_texture_store.h
 src/goldsrc_render_state.c
@@ -238,6 +240,7 @@ tests/test_mem_ps5.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
+tests/test_ref_agc_gpu_texture_cache.c
 tests/test_ref_agc_texture_store.c
 tests/test_bake_bsp.py
 tests/test_bake_studio.py
