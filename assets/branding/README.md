@@ -1,12 +1,11 @@
 # Branding assets
 
-`icon-master.png` is the original 1254×1254 project artwork generated for
-PS5 AGC Gears on 2026-09-05. `../../sce_sys/icon0.png` is its flattened,
-stripped 512×512 RGB application-icon derivative.
+`icon-master.png` is the unmodified 256×256 RGBA Xash3D material icon from the
+pinned `FWGS/xash3d-fwgs` tree. `../../sce_sys/icon0.png` is its deterministic
+512×512 RGB PS5 title-icon derivative: the source is resized to 416×416 with
+Lanczos filtering, centered on `#101018`, flattened and stripped.
 
-The mark depicts three original interlocking gears with emerald/cyan GPU-style
-lighting over deep violet. It contains no text, Sony marks, PlayStation symbols
-or assets from the native-app boilerplate.
-
-Generation prompt and provenance are recorded in `NOTICE.md`. Keep the master
-and release derivative hashes synchronized with the publication auditor.
+The mark is the established Xash3D red circle and white X. It replaces the
+Gears artwork inherited when this repository was forked. Source revision,
+license and both hashes are recorded in `NOTICE.md`; keep those hashes and the
+publication auditor synchronized whenever the icon changes.

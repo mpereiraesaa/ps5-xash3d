@@ -29,16 +29,18 @@ telemetry are maintained in this repository.
 
 ## Project icon
 
-The PS5 AGC Gears icon was generated specifically for this project with
-OpenAI's built-in image-generation tool on 2026-09-05. The prompt requested
-three original interlocking 3D gears, emerald/cyan illumination, a deep violet
-background, strong small-icon readability, no text and no trademarks. It does
-not derive from the boilerplate presentation assets.
+The title icon now uses the established Xash3D material mark from the pinned
+`FWGS/xash3d-fwgs` tree at `game_launch/icon-xash-material.png`. The source
+artwork was introduced by Alibek Omarov in upstream commit
+`92b72a7d330ddaa9b8d5c6e8f4a1b6ad1f166d48`; it is redistributed under the
+same GPL-3.0-or-later terms as that project. The PS5 derivative only resizes,
+centers and flattens the source on a dark neutral background. It contains no
+Sony or PlayStation marks and replaces the Gears icon inherited at the fork.
 
-- Master SHA-256:
-  `50accc91e38822a8b11cb6eed916d968184edb8306a1099fc3d2aa0a72b402b0`
+- Upstream source SHA-256:
+  `4a66332b800fa0653645d95c627697f72ca4e26cf19fbeb2d9184ec39d089837`
 - PS5 512×512 RGB derivative SHA-256:
-  `cc40f50deb429e8bcf07eb43be5a3176c4f8445a88e045e830b066202b66efb8`
+  `244c67fd7147267425ce66b5dcf6031bdc9e2f373a04d958758fae847955bde5`
 
 ## Hardware capture
 
