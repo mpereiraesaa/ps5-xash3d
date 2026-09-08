@@ -343,6 +343,7 @@ docs/LIBC_SHIMS_PHASE5.md
 docs/PRX_LOADER_PHASE6.md
 docs/FILESYSTEM_PRX_PHASE6.md
 docs/SERVER_PRX_PHASE6.md
+docs/MENU_PRX_PHASE6.md
 xash/platform_ps5/lib_ps5.c
 xash/platform_ps5/lib_ps5.h
 xash/platform_ps5/filesystem_prx_exports.map

@@ -1049,6 +1049,30 @@ missing constructor lifecycle: callback lookup succeeded, but the first
 forward order and finalizers in reverse order from idempotent module lifecycle
 entries. Full analysis is in `SERVER_PRX_PHASE6.md`.
 
+## Phase 6 dynamic MainUI menu PRX gate
+
+- Accepted run:
+  `20260908T094038112Z_PPSA99996_xash3d-engine_0xf1174a815840`
+- Host ELF / signed fSELF SHA-256:
+  `8bb9e1106db5c6394b0a4bd65c9509f9f9a2db0b91d1e2c14ab0f9d5bc8cf9b8` /
+  `8bcd0033abb3230841467196adec209146c20b7b4ec3b3a3932b18df7c957680`
+- Menu ELF / signed PRX SHA-256:
+  `64099d2824a41580d482435a5c567ef30bcecf9e868463c915b5cf3c5697686d` /
+  `ec496e4c978dbef7f12305134eb2ba441de2983f551c5ef853e7291c8045aa1b`
+- Transcript / manifest SHA-256:
+  `5f2b7da6f0bb0c9a0c248f3f97800a841c9211fe0876c3e34c62ab55ab6dc579` /
+  `a7c17f88e0160a9d6ae216eea034eaae3452122f788a4730d20e738252705d29`
+- MainUI published all 16 base and 12 extended callbacks, received both
+  complete engine masks, initialized once, activated and redrew 5,127 times.
+- The software framebuffer presented 5,100 frames with non-zero content and
+  final hash `b12dbb47c69ddcb2`. This proves UI execution, not native AGC display.
+- Server, menu and filesystem unloaded in order with active counts 2, 1 and 0;
+  the run has 73 structured records, 77 raw lines, no errors/gaps and clean BYE.
+
+The fail-closed validator accepted it with `--mode client
+--filesystem-prx-gate --menu-prx-gate`. The optional legacy VGUI1 probe is
+recorded separately as a bounded warning and is not MainUI.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

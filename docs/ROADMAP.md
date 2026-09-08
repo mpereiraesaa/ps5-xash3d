@@ -163,8 +163,11 @@
 - [x] Convert the HLSDK server to an application-owned PRX, run its C++
   initializer/finalizer arrays explicitly, spawn `c1a0` through the dynamic
   callback ABI and unload it exactly before the filesystem module.
-- [ ] Convert the menu and client modules incrementally, preserving this
-  independently bootable filesystem/server rollback point after each boundary.
+- [x] Convert MainUI to `menu.prx`; prove the 16-callback base API, 12-callback
+  extended API, visible redraws into a non-black software framebuffer and exact
+  server/menu/filesystem teardown on FW 12.02.
+- [ ] Convert the client module while preserving the independently bootable
+  filesystem/server/menu rollback point.
 - [ ] Bind `ref_agc` as the final engine module and replace the diagnostic
   renderer path with the Phase 4 backend.
 - [x] Require pull requests on `main`; require the host CI check after this PR

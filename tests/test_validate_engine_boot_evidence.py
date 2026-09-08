@@ -28,6 +28,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   prx_gate: bool = False,
                   filesystem_prx_gate: bool = False,
                   server_prx_gate: bool = False,
+                  menu_prx_gate: bool = False,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -41,13 +42,17 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                  f"audio_gate={int(audio_gate)} memory_gate={int(memory_gate)} "
                  f"thread_time_gate={int(thread_time_gate)} "
                  f"libc_shim_gate={int(libc_shim_gate)} prx_gate={int(prx_gate)} "
-                 f"filesystem_prx={int(filesystem_prx_gate)} "
-                 f"server_prx={int(server_prx_gate)} "
+                 f"filesystem_prx={int(filesystem_prx_gate or menu_prx_gate)} "
+                 f"server_prx={int(server_prx_gate or menu_prx_gate)} "
+                 f"menu_prx={int(menu_prx_gate)} "
                  "rodir_present=1"),
     ]
     if mode == "client":
-        structured.append(("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
-                                   f"hash=0123456789abcdef nonzero={nonzero}"))
+        structured += [
+            ("INFO", "XASH_SW_BUFFER width=640 height=480 bpp=4 bytes=1228800"),
+            ("MARK", "XASH_FRAME source=software presented=300 width=640 height=480 "
+                     f"hash=0123456789abcdef nonzero={nonzero}"),
+        ]
     if pad_gate:
         structured += [
             ("MARK", "XASH_PAD_INIT schema=1 user_service_rc=0 owns_user_service=1 "
@@ -193,7 +198,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
             ("MARK", "XASH_PRX_COMPLETE pass=1 load=1 resolve=1 call=1 unload=1 "
                      "active=0 ownership=exact"),
         ]
-    if filesystem_prx_gate:
+    if filesystem_prx_gate or menu_prx_gate:
         structured += [
             ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/filesystem_stdio.prx "
                      "module=filesystem_stdio.prx handle=0xd1 segments=4 exports=8 result=0"),
@@ -201,7 +206,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                      "allocator_contract=libc-shared allocator_result=0 "
                      "listing_refused=0 resolver=PRXDESC1"),
         ]
-    if server_prx_gate:
+    if server_prx_gate or menu_prx_gate:
         structured += [
             ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/server.prx "
                      "module=server.prx handle=0xd2 segments=4 exports=257 "
@@ -213,6 +218,9 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
             ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=1 phase=complete result=1 pass=1"),
             ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=2 phase=begin"),
             ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=2 phase=complete result=1 pass=1"),
+        ]
+    if server_prx_gate:
+        structured += [
             ("MARK", "XASH_SERVER_PRX_STATE module=server.prx state=1 exports=251 "
                      "resolver=PRXDESC1"),
             ("MARK", "XASH_PRX_UNLOAD module=server.prx result=0 reason=ok "
@@ -220,7 +228,45 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
             ("MARK", "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 "
                      "active_modules=1 ownership=exact"),
         ]
-    if filesystem_prx_gate:
+    if menu_prx_gate:
+        structured += [
+            ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/menu.prx module=menu.prx "
+                     "handle=0xd3 segments=4 exports=6 init_result=0 result=0"),
+            ("MARK", "XASH_MENU_PRX_READY module=menu.prx state=1 exports=2 "
+                     "resolver=PRXDESC1"),
+            ("MARK", "XASH_MENU_PRX_API result=1 callbacks=16 expected=16 "
+                     "engine_mask=63 expected_mask=63 globals=1 pass=1"),
+            ("MARK", "XASH_MENU_PRX_EXT_API version=1 result=1 callbacks=12 expected=12 "
+                     "engine_mask=15 expected_mask=15 pass=1"),
+            ("MARK", "XASH_MENU_PRX_INIT phase=begin call=1"),
+            ("MARK", "XASH_MENU_PRX_INIT phase=complete call=1 active_modules=3"),
+            ("MARK", "XASH_MENU_PRX_ACTIVE active=1 call=1 visible=0"),
+            ("WARN", "XASH_PRX_OPTIONAL_MISS path=/app0/sce_module/libvgui_support.prx "
+                     "module=libvgui_support.prx result=-2 reason=load/start-syscall-failed "
+                     "loaded_handle=0x80020002 start_result=0 module_info_rc=0x0 "
+                     "info_size=0x0 segment_count=0 load_error=0 rollback_rc=0x0 "
+                     "rollback_stop_result=0 rollback=complete fallback=client-probe"),
+            ("MARK", "XASH_MENU_PRX_REDRAW call=1 visible=1 realtime_ms=100 "
+                     "active_modules=3"),
+            ("MARK", "XASH_SERVER_PRX_STATE module=server.prx state=1 exports=251 "
+                     "resolver=PRXDESC1"),
+            ("MARK", "XASH_PRX_UNLOAD module=server.prx result=0 reason=ok "
+                     "stop_result=0 ownership=released"),
+            ("MARK", "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 "
+                     "active_modules=2 ownership=exact"),
+            ("MARK", "XASH_MENU_PRX_ACTIVE active=0 call=2 visible=0"),
+            ("MARK", "XASH_MENU_PRX_SHUTDOWN phase=begin call=1 redraw_calls=300"),
+            ("MARK", "XASH_MENU_PRX_SHUTDOWN phase=complete call=1 redraw_calls=300"),
+            ("MARK", "XASH_MENU_PRX_STATE module=menu.prx state=1 exports=2 "
+                     "resolver=PRXDESC1"),
+            ("MARK", "XASH_PRX_UNLOAD module=menu.prx result=0 reason=ok "
+                     "stop_result=0 ownership=released"),
+            ("MARK", "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 "
+                     "api_pass=1 ext_api_pass=1 init_calls=1 shutdown_calls=1 "
+                     "redraw_calls=300 active_calls=2 active_modules=1 "
+                     "ownership=exact pass=1"),
+        ]
+    if filesystem_prx_gate or menu_prx_gate:
         structured += [
             ("MARK", "XASH_FS_PRX_STATE module=filesystem_stdio.prx index_entries=4823 "
                      "allocator_contract=libc-shared allocator_result=0 "
@@ -235,8 +281,9 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                                f"thread_time_gate={int(thread_time_gate)} thread_time_pass=1 "
                                f"libc_shim_gate={int(libc_shim_gate)} libc_shim_pass=1 "
                                f"prx_gate={int(prx_gate)} prx_pass=1 "
-                               f"filesystem_prx={int(filesystem_prx_gate)} "
-                               f"server_prx={int(server_prx_gate)}"))
+                               f"filesystem_prx={int(filesystem_prx_gate or menu_prx_gate)} "
+                               f"server_prx={int(server_prx_gate or menu_prx_gate)} "
+                               f"menu_prx={int(menu_prx_gate)}"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -246,7 +293,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
     ]
     if mode == "client":
         console += ["Loading renderer: soft -> ref_soft", "Renderer ref_soft initialized"]
-    if filesystem_prx_gate:
+    if filesystem_prx_gate or menu_prx_gate:
         console.append("XASH_FS_PRX_PROBE schema=1 index_entries=4823 "
                        "listing_pattern=gfx/* listing_matches=41 "
                        "case_path=GfX/PaLeTtE.LmP palette_bytes=768 "
@@ -254,6 +301,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                        "large_bytes=2546336 large_hash=5555666677778888 pass=1")
     if server_prx_gate:
         console += ['Dll loaded for game "Half-Life"', "4 player server started"]
+    if menu_prx_gate:
+        console.append("UI_LoadProgs: extended Menu API initialized")
     lines = ["HELLO ps5log/1 title=PPSA99996 app=xash3d-engine boot=0x1234 tag=test"]
     seq = 0
     for index, (level, message) in enumerate(structured):
@@ -296,7 +345,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   libc_shim_gate: bool = False,
                   prx_gate: bool = False,
                   filesystem_prx_gate: bool = False,
-                  server_prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  server_prx_gate: bool = False,
+                  menu_prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -316,6 +366,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--filesystem-prx-gate")
     if server_prx_gate:
         command.append("--server-prx-gate")
+    if menu_prx_gate:
+        command.append("--menu-prx-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -452,6 +504,36 @@ def main() -> int:
             make_evidence(directory, filesystem_prx_gate=True), server_prx_gate=True)
         assert missing_server_prx.returncode != 0 \
             and "not enabled" in missing_server_prx.stderr
+
+        menu_prx = run_validator(
+            make_evidence(directory, spawn=False, mode="client", menu_prx_gate=True),
+            mode="client", filesystem_prx_gate=True, menu_prx_gate=True)
+        assert menu_prx.returncode == 0, menu_prx.stderr
+        menu_summary = json.loads(menu_prx.stdout)
+        assert menu_summary["menu_prx_gate"]
+        assert menu_summary["menu_prx_redraw_calls"] == 300
+        missing_menu_prx = run_validator(
+            make_evidence(directory, spawn=False, mode="client",
+                          filesystem_prx_gate=True),
+            mode="client", filesystem_prx_gate=True, menu_prx_gate=True)
+        assert missing_menu_prx.returncode != 0 \
+            and "not enabled" in missing_menu_prx.stderr
+        bad_menu_prx = make_evidence(
+            directory, spawn=False, mode="client", menu_prx_gate=True)
+        bad_menu_log = directory / json.loads(bad_menu_prx.read_text())["log_path"]
+        bad_menu_text = bad_menu_log.read_text().replace(
+            "XASH_MENU_PRX_API result=1", "XASH_MENU_PRX_API result=0", 1)
+        bad_menu_log.write_text(bad_menu_text)
+        bad_menu_data = bad_menu_log.read_bytes()
+        bad_menu_manifest = json.loads(bad_menu_prx.read_text())
+        bad_menu_manifest["bytes"] = len(bad_menu_data)
+        bad_menu_manifest["sha256"] = hashlib.sha256(bad_menu_data).hexdigest()
+        bad_menu_prx.write_text(json.dumps(bad_menu_manifest))
+        rejected_menu_prx = run_validator(
+            bad_menu_prx, mode="client", filesystem_prx_gate=True,
+            menu_prx_gate=True)
+        assert rejected_menu_prx.returncode != 0 \
+            and "base API contract" in rejected_menu_prx.stderr
 
         bad_prx = make_evidence(directory, prx_gate=True)
         bad_prx_log = directory / json.loads(bad_prx.read_text())["log_path"]

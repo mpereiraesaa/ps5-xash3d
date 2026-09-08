@@ -22,7 +22,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
-| 6 — Engine integration | In progress | The loader, dynamic `filesystem_stdio` and dynamic HLSDK server gates passed on FW 12.02; `c1a0` starts through both PRXs with exact unload. Menu, client and `ref_agc` remain |
+| 6 — Engine integration | In progress | The loader, filesystem, server and MainUI `menu.prx` gates passed on FW 12.02; MainUI redraws through a non-black software framebuffer with exact unload. Client and `ref_agc` remain |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
@@ -127,6 +127,18 @@ XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
 Its derived export table, C++ initializer lifecycle, engine callback ABI,
 post-mortem and accepted evidence are in
 [`docs/SERVER_PRX_PHASE6.md`](docs/SERVER_PRX_PHASE6.md).
+
+Build the fourth Phase 6 gate, which moves MainUI into its own PRX and keeps
+the accepted filesystem/server boundary:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  XASH_GATE_SECONDS=15 make engine-menu-prx-native-release
+```
+
+The base and extended UI ABI, software-frame proof, optional legacy VGUI
+fallback and accepted evidence are in
+[`docs/MENU_PRX_PHASE6.md`](docs/MENU_PRX_PHASE6.md).
 
 Build the ScePad gate on the same dedicated host. The foreground DualSense
 must exercise movement, look, jump, crouch, use and fire before the bounded
