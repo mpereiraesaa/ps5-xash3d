@@ -98,8 +98,9 @@ python3 tools/validate_engine_boot_evidence.py RUN.json \
 - 30 structured records, 41 raw console lines, no sequence gaps or oversized
   lines; engine/hlsdk commits `9aa39ad` / `e277ffa`.
 
-## Next gate
+## Subsequent gate status
 
-Convert only the HLSDK server to a PRX while preserving this now-proven dynamic
-filesystem checkpoint. Menu, client and `ref_agc` remain later independent
-module boundaries.
+The subsequent HLSDK server and MainUI gates passed while preserving this
+dynamic-filesystem checkpoint; see `SERVER_PRX_PHASE6.md` and
+`MENU_PRX_PHASE6.md`. Client conversion is now the next independent boundary,
+followed by `ref_agc`.

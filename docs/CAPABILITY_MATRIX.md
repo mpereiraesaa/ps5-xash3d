@@ -1,7 +1,10 @@
 # AGC capability and import matrix
 
 This document separates missing public imports from missing renderer contracts.
-Most remaining work does not require discovering a new NID.
+It preserves the pre-Phase-1 capability analysis that led to the native Gears
+and GoldSrc renderer. All renderer gates through Phase 4 have since passed on
+FW 12.02; the current integration boundary is `client.prx`, followed by
+`ref_agc`.
 
 ## Hardware-proven core
 
@@ -108,10 +111,10 @@ further:
 - the SRD table is 16-byte aligned and its 32-bit GPU pointer occupies the
   compiler-selected `VertexBufferTable` user register.
 
-Thus non-indexed Cube/Gears needs neither two descriptors nor a general uniform
-subsystem. The next hardware gate is depth consumption using the now-bounded
-offline bootstrap; indexed drawing and explicit VideoOut pacing remain optional
-refinements.
+Thus non-indexed Cube/Gears needed neither two descriptors nor a general
+uniform subsystem. At this historical checkpoint, the next hardware gate was
+depth consumption using the bounded offline bootstrap; that depth gate and the
+later VideoOut pacing contracts subsequently passed.
 
 The standalone project now contains the corresponding project-authored CPU mesh
 generator. A 20-tooth gear expands deterministically to 1,920 vertices with
@@ -166,9 +169,10 @@ through L2 with write-confirm and `cp_sync` enabled. Public PAL and RADV define
 that combination as a completed, coherent CP-DMA write before subsequent 3D
 work; the same builder mode has already filled and presented a larger surface
 in the private hardware lab. No pre-draw range ACQUIRE is inferred from the
-captured label-only ACQUIRE. Actual depth-test consumption and target reuse
-remain hardware gates, and the post-draw DB completion/ownership chain must be
-retained.
+captured label-only ACQUIRE. Actual depth-test consumption, target reuse and
+the post-draw DB completion/ownership chain were still hardware gates at this
+checkpoint. They subsequently passed and remain required contracts in the
+Phase 4 backend.
 
 ## Frame ownership contract
 

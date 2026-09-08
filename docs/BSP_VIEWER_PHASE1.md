@@ -308,17 +308,18 @@ exact identity; Chiaki and all development services remained running.
 On the reference Ubuntu/PS5 setup, Chiaki owns interactive input while its
 Remote Play session is open and maps the workstation keyboard to the console.
 Taking the physical DualSense to play directly on the PS5 disconnects the
-Remote Play session and transfers control to the console, but does not
-immediately close the `Chiaki | Stream` window. That window remains black with
-a `Session has quit` dialog until the operator clicks `OK`; only then does the
-stream window close. The main Chiaki client remains open and can start a new
-stream through the existing registered console entry.
+Remote Play session and transfers control to the console.
+
+At the time of this Phase 1 gate, the ended stream was closed manually through
+Chiaki's `Session has quit` dialog. That is historical procedure, not the
+current lab contract. The canonical helper now launches the already registered
+console directly through Chiaki's CLI and `stop-stream` terminates only the
+exact verified CLI-owned PID. Normal restart does not require the discovery
+window, pairing, focus changes or a synthetic `OK` click.
 
 Gate 2 uses this handoff to prove physical-controller movement. Gate 5 does not
 repeat it: inspect or capture the textured frame through the stream and leave
 the connected pad neutral while `ps5log/1` judges the unattended graphics
-soak. If the operator does take over physically, acknowledge the disconnect
-dialog before restarting from the main client. Automation must not assume that
-session disconnection implies window disappearance or dismiss the
-operator-visible dialog without an explicit request. This workflow never
-pairs, re-registers or synthesizes input.
+soak. If the operator does take over physically, use the lab's `stop-stream`
+command before restarting the CLI stream. This workflow never pairs,
+re-registers or synthesizes input.
