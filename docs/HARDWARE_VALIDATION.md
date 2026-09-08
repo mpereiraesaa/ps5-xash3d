@@ -1016,6 +1016,39 @@ invalid private-arena implementation of the cross-module `LoadFileMalloc`
 contract; it passed the reads but aborted when host `COM_FreeFile` reached
 libc. Full design and fault analysis are in `FILESYSTEM_PRX_PHASE6.md`.
 
+## Phase 6 dynamic server PRX gate
+
+- Accepted run:
+  `20260908T082646982Z_PPSA99996_xash3d-engine_0xed0f9a243abc`
+- Host ELF / signed fSELF SHA-256:
+  `10284d275fa5ec6cdbd194b9682d0b7ab5c813ebe69d86aceffc8a3a200478c5` /
+  `53548f84c50942e49edeeee0ce2d1283db5fa3286a9c76d71f0070bb1b43488a`
+- Server PRX ELF / signed fSELF SHA-256:
+  `26eb2e10b966918692e378166307bb4ac3b52bc76f2a0dccc4cbe26266e889a5` /
+  `c3aa4956510f9e638cedaa54178f5fb313a76eb7601336cc39180b22bad9295c`
+- Transcript / manifest SHA-256:
+  `69cb7dd0f0fb5dacfde1de0486c183da63b6b5a11643dcfbde2860b6a9bb5a3f` /
+  `fe73667d6a764d5e5e363afcd2cd75b29232e3d2cc4c498e4ce7c1c6a4435428`
+- Dynamic boundary: four server mappings, 257 descriptor entries, 251 actual
+  engine exports, initializer-array lifecycle and zero banned imports.
+- Callback ABI: `pfnCVarGetPointer`, `pfnCVarRegister` and `gpGlobals` mask 7;
+  both non-mutating PRX-to-engine lookup smokes passed.
+- Engine workload: both application PRXs loaded, the 4,823-entry tree and
+  mixed-case/large reads passed, `c1a0` spawned, its graph loaded and a four
+  player server ran for the bounded 15 seconds.
+- Teardown: server stop/unload zero with filesystem still active, filesystem
+  stop/unload zero with no modules active, exact memory teardown, 40
+  structured records, 41 raw lines, zero errors/gaps and clean BYE.
+
+The validator accepted the immutable manifest with
+`--filesystem-prx-gate --server-prx-gate`. Rejected diagnostic run
+`20260908T081747518Z_PPSA99996_xash3d-engine_0xec9200150ba2` isolated the
+missing constructor lifecycle: callback lookup succeeded, but the first
+`CVarRegister` received a null `build_commit.name` because the two relocated
+`.init_array` entries had not run. The accepted build runs constructors in
+forward order and finalizers in reverse order from idempotent module lifecycle
+entries. Full analysis is in `SERVER_PRX_PHASE6.md`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

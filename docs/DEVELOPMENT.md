@@ -52,5 +52,22 @@ required when synchronization, ownership, memory layout or command emission
 changes. Generated `.deps/`, `build/`, `dist/` and `release/` content remains
 ignored and disposable.
 
+Phase 6 multi-file bundles are promoted with one exact transaction rather than
+independent FTP overwrites:
+
+```sh
+python3 xash/tools/deploy_engine_bundle.py --host <console-ip> \
+  --local-root dist/engine-boot/PPSA99996 \
+  --module filesystem_stdio.prx --module server.prx \
+  --journal /absolute/private/deploy.jsonl --apply
+```
+
+The helper uploads hidden, content-tagged staging files, verifies each stored
+artifact, retains exact prior paths until every rename succeeds, rolls back a
+partial promotion, and deletes backups only after commit. A cleanup failure
+never rolls back an already committed live bundle; it is journaled and leaves
+the explicit backup for manual recovery. Omit `--apply` to print the immutable
+local/remote/hash plan without changing the console.
+
 The private laboratory may retain source notes and hardware evidence, but its
 generated stage directories and title packages are never inputs to this repo.

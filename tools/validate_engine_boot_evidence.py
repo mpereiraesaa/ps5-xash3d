@@ -53,6 +53,18 @@ def one(messages: list[str], prefix: str) -> dict[str, str]:
     return parse_fields(matches[0])
 
 
+def one_where(messages: list[str], prefix: str, key: str, value: str) -> dict[str, str]:
+    matches = []
+    for message in messages:
+        if message.startswith(prefix + " "):
+            fields = parse_fields(message)
+            if fields.get(key) == value:
+                matches.append(fields)
+    if len(matches) != 1:
+        fail(f"expected exactly one {prefix} with {key}={value}, found {len(matches)}")
+    return matches[0]
+
+
 def one_raw(lines: list[str], prefix: str) -> dict[str, str]:
     matches = [line[line.index(prefix):] for line in lines if prefix in line]
     if len(matches) != 1:
@@ -418,10 +430,10 @@ def validate_libc_shim_gate(messages: list[str]) -> dict[str, str]:
 def validate_prx_gate(messages: list[str]) -> dict[str, str]:
     """Validate load, descriptor resolution, calls and exact PRX teardown."""
     begin = one(messages, "XASH_PRX_BEGIN")
-    load = one(messages, "XASH_PRX_LOAD")
+    load = one_where(messages, "XASH_PRX_LOAD", "module", "xash_prx_probe.prx")
     resolve = one(messages, "XASH_PRX_RESOLVE")
     call = one(messages, "XASH_PRX_CALL")
-    unload = one(messages, "XASH_PRX_UNLOAD")
+    unload = one_where(messages, "XASH_PRX_UNLOAD", "module", "xash_prx_probe.prx")
     complete = one(messages, "XASH_PRX_COMPLETE")
 
     if begin != {
@@ -465,10 +477,10 @@ def validate_filesystem_prx_gate(
     messages: list[str], raw: list[str]
 ) -> dict[str, str]:
     """Validate the first real engine module and its filesystem workload."""
-    load = one(messages, "XASH_PRX_LOAD")
+    load = one_where(messages, "XASH_PRX_LOAD", "module", "filesystem_stdio.prx")
     ready = one(messages, "XASH_FS_PRX_READY")
     state = one(messages, "XASH_FS_PRX_STATE")
-    unload = one(messages, "XASH_PRX_UNLOAD")
+    unload = one_where(messages, "XASH_PRX_UNLOAD", "module", "filesystem_stdio.prx")
     complete = one(messages, "XASH_FS_PRX_COMPLETE")
     probe = one_raw(raw, "XASH_FS_PRX_PROBE")
 
@@ -513,6 +525,68 @@ def validate_filesystem_prx_gate(
     return probe
 
 
+def validate_server_prx_gate(
+    messages: list[str], raw: list[str]
+) -> dict[str, str]:
+    """Validate the HLSDK server module, map workload and exact unload."""
+    load = one_where(messages, "XASH_PRX_LOAD", "module", "server.prx")
+    ready = one(messages, "XASH_SERVER_PRX_READY")
+    abi = one(messages, "XASH_SERVER_PRX_ABI")
+    state = one(messages, "XASH_SERVER_PRX_STATE")
+    unload = one_where(messages, "XASH_PRX_UNLOAD", "module", "server.prx")
+    complete = one(messages, "XASH_SERVER_PRX_COMPLETE")
+    if load.get("path") != "/app0/sce_module/server.prx" \
+            or load.get("result") != "0" \
+            or load.get("init_result") != "0" \
+            or load.get("exports") != "257" \
+            or not 1 <= int(load.get("segments", "0"), 10) <= 4:
+        fail("server PRX load contract failed")
+    for marker, fields in (("ready", ready), ("state", state)):
+        if fields.get("module") != "server.prx" \
+                or fields.get("state") != "1" \
+                or fields.get("exports") != "251" \
+                or fields.get("resolver") != "PRXDESC1":
+            fail(f"server PRX {marker} contract failed")
+    if abi.get("engine_table_mask") != "7" \
+            or abi.get("expected") != "7" or abi.get("pass") != "1":
+        fail("server PRX engine callback ABI contract failed")
+    smoke = [parse_fields(message) for message in messages
+             if message.startswith("XASH_SERVER_PRX_ABI_SMOKE ")]
+    for step in (1, 2):
+        begin_smoke = [fields for fields in smoke
+                       if fields.get("step") == str(step)
+                       and fields.get("phase") == "begin"]
+        complete_smoke = [fields for fields in smoke
+                          if fields.get("step") == str(step)
+                          and fields.get("phase") == "complete"]
+        if len(begin_smoke) != 1 or len(complete_smoke) != 1 \
+                or complete_smoke[0].get("result") != "1" \
+                or complete_smoke[0].get("pass") != "1":
+            fail(f"server PRX engine callback smoke step {step} failed")
+    if len(smoke) != 4:
+        fail("server PRX engine callback smoke contains unexpected records")
+    console = "\n".join(raw)
+    if 'Dll loaded for game "Half-Life"' not in console \
+            or "4 player server started" not in console:
+        fail("server PRX workload did not initialize the Half-Life server")
+    if unload.get("result") != "0" or unload.get("stop_result") != "0" \
+            or unload.get("ownership") != "released":
+        fail("server PRX unload did not release ownership")
+    expected = {"module": "server.prx", "stop_result": "0",
+                "active_modules": "1", "ownership": "exact"}
+    if any(complete.get(key) != value for key, value in expected.items()):
+        fail("server PRX completion contract failed")
+    ordered = (
+        "XASH_FS_PRX_READY", "XASH_SERVER_PRX_READY", "XASH_SERVER_PRX_ABI",
+        "XASH_SERVER_PRX_STATE", "XASH_SERVER_PRX_COMPLETE", "XASH_FS_PRX_STATE",
+    )
+    positions = [next(i for i, message in enumerate(messages)
+                      if message.startswith(marker + " ")) for marker in ordered]
+    if positions != sorted(positions) or len(set(positions)) != len(positions):
+        fail("server/filesystem PRX lifecycle order is invalid")
+    return complete
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -527,6 +601,7 @@ def validate(
     libc_shim_gate: bool = False,
     prx_gate: bool = False,
     filesystem_prx_gate: bool = False,
+    server_prx_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -621,6 +696,9 @@ def validate(
         fail("PRX loader gate was not enabled in the artifact")
     if filesystem_prx_gate and boot.get("filesystem_prx") != "1":
         fail("filesystem PRX gate was not enabled in the artifact")
+    if server_prx_gate and (boot.get("server_prx") != "1" or
+                            boot.get("filesystem_prx") != "1"):
+        fail("server PRX gate was not enabled on the filesystem checkpoint")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -637,6 +715,10 @@ def validate(
     if prx_gate and (exit_fields.get("prx_gate") != "1" or
                      exit_fields.get("prx_pass") != "1"):
         fail("PRX loader result was not successful")
+    if filesystem_prx_gate and exit_fields.get("filesystem_prx") != "1":
+        fail("filesystem PRX result was not retained at exit")
+    if server_prx_gate and exit_fields.get("server_prx") != "1":
+        fail("server PRX result was not retained at exit")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -687,6 +769,10 @@ def validate(
     filesystem_prx_complete: dict[str, str] | None = None
     if filesystem_prx_gate:
         filesystem_prx_complete = validate_filesystem_prx_gate(messages, raw)
+
+    server_prx_complete: dict[str, str] | None = None
+    if server_prx_gate:
+        server_prx_complete = validate_server_prx_gate(messages, raw)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -785,6 +871,9 @@ def validate(
         "filesystem_prx_gate": filesystem_prx_gate,
         "filesystem_prx_large_bytes": int(filesystem_prx_complete["large_bytes"], 10)
         if filesystem_prx_complete else 0,
+        "server_prx_gate": server_prx_gate,
+        "server_prx_active_after_unload": int(server_prx_complete["active_modules"], 10)
+        if server_prx_complete else 0,
     }
 
 
@@ -802,6 +891,7 @@ def main() -> int:
     parser.add_argument("--libc-shim-gate", action="store_true")
     parser.add_argument("--prx-gate", action="store_true")
     parser.add_argument("--filesystem-prx-gate", action="store_true")
+    parser.add_argument("--server-prx-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -820,6 +910,7 @@ def main() -> int:
             libc_shim_gate=args.libc_shim_gate,
             prx_gate=args.prx_gate,
             filesystem_prx_gate=args.filesystem_prx_gate,
+            server_prx_gate=args.server_prx_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

@@ -36,10 +36,49 @@ typedef struct ps5_dynamic_library_s
 
 static ps5_dynamic_library_t *ps5_dynamic_libraries;
 static int ps5_last_result;
+static void ( *ps5_server_give_fnptrs )( void *, void * );
+
+static void PS5_ServerGiveFnptrsTrampoline( void *functions, void *globals )
+{
+	ps5_dynamic_library_t *library;
+	int ( *mask )( void ) = NULL;
+	int ( *smoke )( int ) = NULL;
+	int engine_table_mask = -1;
+	int step;
+	if( ps5_server_give_fnptrs ) ps5_server_give_fnptrs( functions, globals );
+	for( library = ps5_dynamic_libraries; library; library = library->next )
+		if( !strcmp( library->module.name, "server.prx" ))
+		{
+			mask = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+				"PS5_ServerPrxEngineTableMask" );
+			smoke = (int ( * )( int ))PS5_PrxGetProc( &library->module,
+				"PS5_ServerPrxEngineTableSmoke" );
+			break;
+		}
+	if( mask ) engine_table_mask = mask( );
+	(void)ps5log_printf( engine_table_mask == 7 ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_SERVER_PRX_ABI engine_table_mask=%d expected=7 pass=%d",
+		engine_table_mask, engine_table_mask == 7 ? 1 : 0 );
+	for( step = 1; smoke && step <= 2; ++step )
+	{
+		int result;
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_SERVER_PRX_ABI_SMOKE step=%d phase=begin", step );
+		result = smoke( step );
+		(void)ps5log_printf( result == 1 ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_SERVER_PRX_ABI_SMOKE step=%d phase=complete result=%d pass=%d",
+			step, result, result == 1 ? 1 : 0 );
+	}
+}
 
 static int PS5_IsFilesystemPrx( const ps5_dynamic_library_t *library )
 {
 	return library && !strcmp( library->module.name, "filesystem_stdio.prx" );
+}
+
+static int PS5_IsServerPrx( const ps5_dynamic_library_t *library )
+{
+	return library && !strcmp( library->module.name, "server.prx" );
 }
 
 static void PS5_LogFilesystemPrxState( ps5_dynamic_library_t *library,
@@ -63,6 +102,22 @@ static void PS5_LogFilesystemPrxState( ps5_dynamic_library_t *library,
 		marker, index_count ? index_count( ) : -1,
 		allocator_result ? allocator_result( ) : -1,
 		listing_refused ? listing_refused( ) : -1 );
+}
+
+static void PS5_LogServerPrxState( ps5_dynamic_library_t *library,
+	const char *marker )
+{
+	int ( *state )( void );
+	int ( *export_count )( void );
+	if( !PS5_IsServerPrx( library )) return;
+	state = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_ServerPrxState" );
+	export_count = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_ServerPrxExportCount" );
+	(void)ps5log_printf( state && export_count && state( ) == 1 ?
+		PS5LOG_MARK : PS5LOG_ERR,
+		"%s module=server.prx state=%d exports=%d resolver=PRXDESC1",
+		marker, state ? state( ) : -1, export_count ? export_count( ) : -1 );
 }
 
 static int PS5_DynamicStart( ps5_dynamic_library_t *library )
@@ -248,11 +303,21 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table,
 	ps5_dynamic_libraries = library;
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_PRX_LOAD path=%s module=%s handle=0x%x segments=%u exports=%u "
-		"init_result=%d result=0",
+		"init_result=%d result=0 seg0=%llx+0x%x seg1=%llx+0x%x "
+		"seg2=%llx+0x%x seg3=%llx+0x%x",
 		path, library->module.name, (unsigned)library->module.handle,
 		library->module.segment_count, library->module.descriptor->header.count,
-		library->module_start_result );
+		library->module_start_result,
+		(unsigned long long)(uintptr_t)library->module.segments[0].address,
+		library->module.segments[0].size,
+		(unsigned long long)(uintptr_t)library->module.segments[1].address,
+		library->module.segments[1].size,
+		(unsigned long long)(uintptr_t)library->module.segments[2].address,
+		library->module.segments[2].size,
+		(unsigned long long)(uintptr_t)library->module.segments[3].address,
+		library->module.segments[3].size );
 	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_READY" );
+	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_READY" );
 	return library;
 }
 
@@ -263,6 +328,7 @@ void COM_FreeLibrary( void *hInstance )
 	int result;
 	if( !library ) return;
 	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_STATE" );
+	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_STATE" );
 	if( PS5_DynamicStop( library ) != 0 )
 	{
 		ps5_last_result = PS5_PRX_ERROR_UNLOAD;
@@ -283,11 +349,18 @@ void COM_FreeLibrary( void *hInstance )
 	if( result == PS5_PRX_OK )
 	{
 		const int filesystem = PS5_IsFilesystemPrx( library );
+		const int server = PS5_IsServerPrx( library );
 		*link = library->next;
 		free( library );
+		if( server ) ps5_server_give_fnptrs = NULL;
 		if( filesystem )
 			(void)ps5log_printf( PS5LOG_MARK,
 				"XASH_FS_PRX_COMPLETE module=filesystem_stdio.prx stop_result=0 "
+				"active_modules=%u ownership=exact",
+				PS5_PrxLibraryActiveCount( ));
+		if( server )
+			(void)ps5log_printf( PS5LOG_MARK,
+				"XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 "
 				"active_modules=%u ownership=exact",
 				PS5_PrxLibraryActiveCount( ));
 	}
@@ -296,7 +369,17 @@ void COM_FreeLibrary( void *hInstance )
 void *COM_GetProcAddress( void *hInstance, const char *name )
 {
 	ps5_dynamic_library_t *library = PS5_FindDynamic( hInstance, NULL );
-	if( library ) return (void *)PS5_PrxGetProc( &library->module, name );
+	if( library )
+	{
+		void *result = (void *)PS5_PrxGetProc( &library->module, name );
+		if( PS5_IsServerPrx( library ) && result &&
+			!strcmp( name, "GiveFnptrsToDll" ))
+		{
+			ps5_server_give_fnptrs = (void ( * )( void *, void * ))result;
+			return (void *)PS5_ServerGiveFnptrsTrampoline;
+		}
+		return result;
+	}
 	if( PS5_IsStaticHandle( hInstance ))
 		return PS5_StaticFind((table_t *)hInstance, name );
 	return NULL;

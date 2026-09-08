@@ -70,7 +70,7 @@ def parse_spec(spec: str) -> tuple[str, pathlib.Path]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
+    if len(argv) < 2:
         sys.stderr.write(__doc__)
         return 2
     out_dir = pathlib.Path(argv[1])

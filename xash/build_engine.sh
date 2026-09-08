@@ -43,6 +43,8 @@
 #                          through the engine COM_* API (default 0)
 #   XASH_FILESYSTEM_PRX   package filesystem_stdio as the first real dynamic
 #                         engine module; server remains static (default 0)
+#   XASH_SERVER_PRX       package the HLSDK server as a dynamic module on top
+#                         of the proven filesystem PRX checkpoint (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -67,6 +69,7 @@ thread_time_gate=${XASH_THREAD_TIME_GATE:-0}
 libc_shim_gate=${XASH_LIBC_SHIM_GATE:-0}
 prx_gate=${XASH_PRX_GATE:-0}
 filesystem_prx=${XASH_FILESYSTEM_PRX:-0}
+server_prx=${XASH_SERVER_PRX:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -80,6 +83,11 @@ ref_name=${XASH_REF:-soft}
 [[ $libc_shim_gate == 0 || $libc_shim_gate == 1 ]] || { echo "XASH_LIBC_SHIM_GATE must be 0 or 1" >&2; exit 2; }
 [[ $prx_gate == 0 || $prx_gate == 1 ]] || { echo "XASH_PRX_GATE must be 0 or 1" >&2; exit 2; }
 [[ $filesystem_prx == 0 || $filesystem_prx == 1 ]] || { echo "XASH_FILESYSTEM_PRX must be 0 or 1" >&2; exit 2; }
+[[ $server_prx == 0 || $server_prx == 1 ]] || { echo "XASH_SERVER_PRX must be 0 or 1" >&2; exit 2; }
+if [[ $server_prx == 1 && $filesystem_prx != 1 ]]; then
+    echo "XASH_SERVER_PRX=1 requires the proven XASH_FILESYSTEM_PRX=1 checkpoint" >&2
+    exit 2
+fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -199,13 +207,17 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_LIBC_SHIM_GATE $libc_shim_gate
 #define PS5_XASH_PRX_GATE $prx_gate
 #define PS5_XASH_FILESYSTEM_PRX $filesystem_prx
+#define PS5_XASH_SERVER_PRX $server_prx
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
 # generated_library_tables.h lists the module names (mode-dependent) and is
 # compiled into the static half of lib_ps5.c; per-module export tables are generated later into
 # $gen/helpers once each relocatable is known.
-table_specs=(server="$root/xash/exports/server.txt")
+table_specs=()
+if [[ $server_prx == 0 ]]; then
+    table_specs+=(server="$root/xash/exports/server.txt")
+fi
 if [[ $filesystem_prx == 0 ]]; then
     table_specs=(filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" "${table_specs[@]}")
 fi
@@ -461,6 +473,10 @@ fi
 echo "== server module (hlsdk-portable)"
 server_defines=(-DCLIENT_WEAPONS -DNO_VOICEGAMEMGR -Dstricmp=strcasecmp
     -Dstrnicmp=strncasecmp -D_snprintf=snprintf -D_vsnprintf=vsnprintf)
+server_module_cflags=("${module_cflags[@]}")
+if [[ $server_prx == 1 ]]; then
+    server_module_cflags+=(-fPIC)
+fi
 server_includes=(-I"$hlsdk/dlls" -I"$hlsdk/common" -I"$hlsdk/engine"
     -I"$hlsdk/pm_shared" -I"$hlsdk/game_shared" -I"$hlsdk/public")
 server_cxx=$(find "$hlsdk/dlls" -name '*.cpp' \
@@ -469,10 +485,10 @@ server_c=$(find "$hlsdk/pm_shared" -name '*.c'; echo "$hlsdk/public/safe_snprint
     echo "$hlsdk/external/openbsd/strlcpy.c"; echo "$hlsdk/external/openbsd/strlcat.c"
     echo "$gen/vcs_info_server.c")
 printf '%s\n' "$server_cxx" | sort -u |
-    compile_set "$build/server-cxx.objects" "$build/obj/server" -std=gnu++11 "${module_cflags[@]}" \
+    compile_set "$build/server-cxx.objects" "$build/obj/server" -std=gnu++11 "${server_module_cflags[@]}" \
         -fno-exceptions -fno-rtti "${server_defines[@]}" "${server_includes[@]}"
 printf '%s\n' "$server_c" | sort -u |
-    compile_set "$build/server-c.objects" "$build/obj/server" -std=gnu11 "${module_cflags[@]}" \
+    compile_set "$build/server-c.objects" "$build/obj/server" -std=gnu11 "${server_module_cflags[@]}" \
         "${server_defines[@]}" "${server_includes[@]}"
 mapfile -t server_objects < "$build/server-cxx.objects"
 mapfile -t server_c_objects < "$build/server-c.objects"
@@ -501,11 +517,13 @@ out.write_text("# generated: fixed entry points + LINK_ENTITY_TO_CLASS symbols d
                + "".join(n + "\n" for n in exported))
 print(f"server exports: {len(exported)} ({len(classes)} entity classes scanned, {len(missing)} not compiled in)")
 PY
-python3 "$root/xash/tools/generate_static_library_tables.py" "$gen/helpers" \
-    server="$gen/server_exports.txt" >/dev/null
-"${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/helpers/link_helper_server.c" \
-    -o "$build/obj/server/link_helper_server.o"
-build_module server "$build/server.stage1.o" "$build/obj/server/link_helper_server.o"
+if [[ $server_prx == 0 ]]; then
+    python3 "$root/xash/tools/generate_static_library_tables.py" "$gen/helpers" \
+        server="$gen/server_exports.txt" >/dev/null
+    "${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/helpers/link_helper_server.c" \
+        -o "$build/obj/server/link_helper_server.o"
+    build_module server "$build/server.stage1.o" "$build/obj/server/link_helper_server.o"
+fi
 
 # Export list = fixed names that the compiled relocatable defines (+ scanned entity classes for the server).
 export_intersect() {
@@ -523,7 +541,10 @@ print(f"{name} exports: {len(kept)} of {len(names)} listed names are defined")
 PY
 }
 
-module_names=(server)
+module_names=()
+if [[ $server_prx == 0 ]]; then
+    module_names=(server)
+fi
 if [[ $filesystem_prx == 0 ]]; then
     module_names=(filesystem_stdio "${module_names[@]}")
 fi
@@ -594,7 +615,10 @@ if [[ $mode == client ]]; then
         "${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/helpers/link_helper_$m.c" -o "$build/obj/link_helper_$m.o"
         build_module "$m" "$build/$m.stage1.o" "$build/obj/link_helper_$m.o"
     done
-    module_names=(server menu client ref_null ref_soft)
+    module_names=(menu client ref_null ref_soft)
+    if [[ $server_prx == 0 ]]; then
+        module_names=(server "${module_names[@]}")
+    fi
     if [[ $filesystem_prx == 0 ]]; then
         module_names=(filesystem_stdio "${module_names[@]}")
     fi
@@ -634,6 +658,40 @@ if [[ $filesystem_prx == 1 ]]; then
     "$tool" self --sign --in "$build/prx/filesystem_stdio.elf" \
         --out "$dist/sce_module/filesystem_stdio.prx"
     "$tool" self --inspect --file "$dist/sce_module/filesystem_stdio.prx"
+fi
+
+if [[ $server_prx == 1 ]]; then
+    echo "== Phase 6 HLSDK server PRX"
+    mkdir -p "$build/prx/server"
+    python3 "$root/xash/tools/generate_prx_descriptor.py" \
+        --module server --exports "$gen/server_exports.txt" \
+        --extra PS5_ServerPrxEngineTableMask \
+        --extra PS5_ServerPrxEngineTableSmoke \
+        --source "$gen/server_prx_descriptor.c" \
+        --version-script "$gen/server_prx_exports.map"
+    "${cc[@]}" -std=gnu11 "${cflags[@]}" -fPIC \
+        -I"$root/xash/platform_ps5" -c "$gen/server_prx_descriptor.c" \
+        -o "$build/prx/server/server_prx_descriptor.o"
+    "${cc[@]}" -std=gnu++11 "${server_module_cflags[@]}" \
+        -fno-exceptions -fno-rtti "${server_defines[@]}" "${server_includes[@]}" \
+        -c "$root/xash/platform_ps5/server_prx_module.cpp" \
+        -o "$build/prx/server/server_prx_module.o"
+    "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
+        -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+        -o "$build/prx/server/app_cpp_runtime.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$gen/server_prx_exports.map" \
+        -soname server.prx -o "$build/prx/server.shared.elf" \
+        "$build/server.stage1.o" "$build/prx/server/server_prx_descriptor.o" \
+        "$build/prx/server/server_prx_module.o" \
+        "$build/prx/server/app_cpp_runtime.o" --as-needed "$sdk"/target/lib/*.so
+    "$tool" link --module --in "$build/prx/server.shared.elf" \
+        --out "$build/prx/server.elf" --stub-dir "$sdk/target/lib" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name server.prx
+    "$tool" self --sign --in "$build/prx/server.elf" \
+        --out "$dist/sce_module/server.prx"
+    "$tool" self --inspect --file "$dist/sce_module/server.prx"
 fi
 
 if [[ $prx_gate == 1 ]]; then
@@ -855,6 +913,54 @@ if [[ $filesystem_prx == 1 ]]; then
         --stub-dir "$sdk/target/lib" \
         --output "$build/PS5_FILESYSTEM_PRX_DYNAMIC_IMPORT_AUDIT.md"
 fi
+if [[ $server_prx == 1 ]]; then
+    [[ -s $dist/sce_module/server.prx ]] || {
+        echo "XASH_SERVER_PRX=1 did not package server.prx" >&2; exit 1; }
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_SERVER_PRX_READY XASH_SERVER_PRX_STATE \
+        XASH_SERVER_PRX_ABI XASH_SERVER_PRX_ABI_SMOKE XASH_SERVER_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_SERVER_PRX=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/server.shared.elf" \
+        > "$build/server-prx-shared-symbols.txt"
+    "$readelf" --symbols "$build/prx/server.shared.elf" \
+        > "$build/server-prx-all-symbols.txt"
+    for symbol in __init_array_start __init_array_end \
+        __fini_array_start __fini_array_end; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/server-prx-all-symbols.txt"; then
+            echo "server.prx did not retain lifecycle boundary $symbol" >&2
+            exit 1
+        fi
+    done
+    if ! "$readelf" --dynamic "$build/prx/server.shared.elf" |
+        grep -Eq 'INIT_ARRAYSZ.*[1-9][0-9]* \(bytes\)'; then
+        echo "server.prx did not retain a non-empty C++ initializer array" >&2
+        exit 1
+    fi
+    for symbol in GiveFnptrsToDll GetEntityAPI GetEntityAPI2 \
+        PS5_ServerPrxState PS5_ServerPrxExportCount PS5_ServerPrxEngineTableMask \
+        PS5_ServerPrxEngineTableSmoke server_prx_exports \
+        module_start module_stop; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/server-prx-shared-symbols.txt"; then
+            echo "server.prx did not export $symbol" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/server.elf" \
+        > "$build/server-prx-dynamic-symbols.txt"
+    if grep -Eq 'UND[[:space:]]+(GiveFnptrsToDll|GetEntityAPI|GetEntityAPI2|PS5_ServerPrx)' \
+        "$build/server-prx-dynamic-symbols.txt"; then
+        echo "server.prx leaked an application-owned dynamic import" >&2
+        exit 1
+    fi
+    python3 "$root/xash/tools/audit_dyn_imports.py" "$build/prx/server.elf" \
+        --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+        --stub-dir "$sdk/target/lib" \
+        --output "$build/PS5_SERVER_PRX_DYNAMIC_IMPORT_AUDIT.md"
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -900,4 +1006,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx"

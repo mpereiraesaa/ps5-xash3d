@@ -312,6 +312,28 @@ assert formatting and reporter selection without deliberately terminating the
 hardware run; host tests and the retained `noreturn` implementation cover the
 termination path.
 
+## Phase 6 server PRX evidence
+
+The combined dynamic-module gate announces `filesystem_prx=1 server_prx=1` in
+`XASH_BOOT`. The server `XASH_PRX_LOAD` record must identify
+`/app0/sce_module/server.prx`, four bounded mappings, the derived descriptor
+count and a zero explicit start result. `XASH_SERVER_PRX_READY` binds lifecycle
+state 1 to the actual engine-export count.
+
+Immediately after `GiveFnptrsToDll`, `XASH_SERVER_PRX_ABI` requires the three
+bits for `pfnCVarGetPointer`, `pfnCVarRegister` and `gpGlobals`.
+`XASH_SERVER_PRX_ABI_SMOKE` then bookends two non-mutating calls from module
+code back into the engine; each must complete with `result=1 pass=1`. The
+ordinary raw console must still prove `Spawn Server: c1a0` and a started player
+server, so a table that merely contains non-null pointers is not accepted.
+
+At shutdown `XASH_SERVER_PRX_STATE` precedes the exact server unload.
+`XASH_SERVER_PRX_COMPLETE` requires `active_modules=1`, proving the filesystem
+module remained owned while the game DLL shut down. Its own state/unload/
+completion records must then reduce the active count to zero. Acceptance
+requires `server_prx=1` in `XASH_EXIT`, zero structured errors, the bounded
+timeout and the normal gap-free completion BYE.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

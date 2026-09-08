@@ -304,10 +304,14 @@ xash/platform_ps5/in_ps5.c
 xash/platform_ps5/in_ps5.h
 xash/platform_ps5/sys_ps5.c
 xash/tools/generate_static_library_tables.py
+xash/tools/generate_prx_descriptor.py
 xash/tools/instrument_fs_trace.py
 xash/tools/deploy_game_data.py
+xash/tools/deploy_engine_bundle.py
 xash/tools/audit_dyn_imports.py
 tests/test_generate_static_library_tables.py
+tests/test_generate_prx_descriptor.py
+tests/test_deploy_engine_bundle.py
 tests/test_instrument_fs_trace.py
 tests/test_deploy_game_data.py
 tests/test_audit_dyn_imports.py
@@ -338,10 +342,12 @@ tests/test_libc_shims_ps5.c
 docs/LIBC_SHIMS_PHASE5.md
 docs/PRX_LOADER_PHASE6.md
 docs/FILESYSTEM_PRX_PHASE6.md
+docs/SERVER_PRX_PHASE6.md
 xash/platform_ps5/lib_ps5.c
 xash/platform_ps5/lib_ps5.h
 xash/platform_ps5/filesystem_prx_exports.map
 xash/platform_ps5/filesystem_prx_module.c
+xash/platform_ps5/server_prx_module.cpp
 xash/platform_ps5/prx_gate_ps5.c
 xash/platform_ps5/prx_loader_ps5.c
 xash/platform_ps5/prx_loader_ps5.h

@@ -47,6 +47,12 @@ def main() -> int:
         assert result.returncode == 0, result.stderr
         assert (out / "generated_library_tables.h").exists()
         assert (out / "link_helper_filesystem_stdio.c").exists()
+        empty = directory / "empty"
+        empty_result = subprocess.run(
+            [sys.executable, "-B", str(ROOT / "xash/tools/generate_static_library_tables.py"),
+             str(empty)], text=True, capture_output=True, check=False)
+        assert empty_result.returncode == 0, empty_result.stderr
+        assert "{0,0}" in (empty / "generated_library_tables.h").read_text()
         duplicate = subprocess.run(
             [sys.executable, "-B", str(ROOT / "xash/tools/generate_static_library_tables.py"),
              str(out), f"a={exports}", f"a={exports}"],

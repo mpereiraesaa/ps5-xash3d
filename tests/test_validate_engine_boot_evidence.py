@@ -27,6 +27,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                   libc_shim_gate: bool = False,
                   prx_gate: bool = False,
                   filesystem_prx_gate: bool = False,
+                  server_prx_gate: bool = False,
                   audio_underruns: int = 0, audio_sent: int = 72192,
                   audio_padding: int = 193, audio_source_hash: str = PATTERN_HASH,
                   audio_progress: int = 5, audio_drain_rc: int = 256) -> Path:
@@ -41,6 +42,7 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                  f"thread_time_gate={int(thread_time_gate)} "
                  f"libc_shim_gate={int(libc_shim_gate)} prx_gate={int(prx_gate)} "
                  f"filesystem_prx={int(filesystem_prx_gate)} "
+                 f"server_prx={int(server_prx_gate)} "
                  "rodir_present=1"),
     ]
     if mode == "client":
@@ -198,6 +200,28 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
             ("MARK", "XASH_FS_PRX_READY module=filesystem_stdio.prx index_entries=4823 "
                      "allocator_contract=libc-shared allocator_result=0 "
                      "listing_refused=0 resolver=PRXDESC1"),
+        ]
+    if server_prx_gate:
+        structured += [
+            ("MARK", "XASH_PRX_LOAD path=/app0/sce_module/server.prx "
+                     "module=server.prx handle=0xd2 segments=4 exports=257 "
+                     "init_result=0 result=0"),
+            ("MARK", "XASH_SERVER_PRX_READY module=server.prx state=1 exports=251 "
+                     "resolver=PRXDESC1"),
+            ("MARK", "XASH_SERVER_PRX_ABI engine_table_mask=7 expected=7 pass=1"),
+            ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=1 phase=begin"),
+            ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=1 phase=complete result=1 pass=1"),
+            ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=2 phase=begin"),
+            ("MARK", "XASH_SERVER_PRX_ABI_SMOKE step=2 phase=complete result=1 pass=1"),
+            ("MARK", "XASH_SERVER_PRX_STATE module=server.prx state=1 exports=251 "
+                     "resolver=PRXDESC1"),
+            ("MARK", "XASH_PRX_UNLOAD module=server.prx result=0 reason=ok "
+                     "stop_result=0 ownership=released"),
+            ("MARK", "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 "
+                     "active_modules=1 ownership=exact"),
+        ]
+    if filesystem_prx_gate:
+        structured += [
             ("MARK", "XASH_FS_PRX_STATE module=filesystem_stdio.prx index_entries=4823 "
                      "allocator_contract=libc-shared allocator_result=0 "
                      "listing_refused=0 resolver=PRXDESC1"),
@@ -211,7 +235,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                                f"thread_time_gate={int(thread_time_gate)} thread_time_pass=1 "
                                f"libc_shim_gate={int(libc_shim_gate)} libc_shim_pass=1 "
                                f"prx_gate={int(prx_gate)} prx_pass=1 "
-                               f"filesystem_prx={int(filesystem_prx_gate)}"))
+                               f"filesystem_prx={int(filesystem_prx_gate)} "
+                               f"server_prx={int(server_prx_gate)}"))
     console = [
         "Xash3D FWGS 49/0.21 (freebsd-amd64 build 4900)",
         "FS_LoadProgs: filesystem_stdio successfully loaded",
@@ -227,6 +252,8 @@ def make_evidence(directory: Path, *, spawn: bool = True, exit_result: int = 0,
                        "case_path=GfX/PaLeTtE.LmP palette_bytes=768 "
                        "palette_hash=1111222233334444 large_path=maps/c1a0.bsp "
                        "large_bytes=2546336 large_hash=5555666677778888 pass=1")
+    if server_prx_gate:
+        console += ['Dll loaded for game "Half-Life"', "4 player server started"]
     lines = ["HELLO ps5log/1 title=PPSA99996 app=xash3d-engine boot=0x1234 tag=test"]
     seq = 0
     for index, (level, message) in enumerate(structured):
@@ -268,7 +295,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
                   thread_time_gate: bool = False,
                   libc_shim_gate: bool = False,
                   prx_gate: bool = False,
-                  filesystem_prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
+                  filesystem_prx_gate: bool = False,
+                  server_prx_gate: bool = False) -> subprocess.CompletedProcess[str]:
     command = ["python3", "-B", str(VALIDATOR), str(manifest),
                "--engine-commit", engine, "--hlsdk-commit", HLSDK,
                "--map", "c1a0", "--mode", mode]
@@ -286,6 +314,8 @@ def run_validator(manifest: Path, engine: str = ENGINE, mode: str = "dedicated",
         command.append("--prx-gate")
     if filesystem_prx_gate:
         command.append("--filesystem-prx-gate")
+    if server_prx_gate:
+        command.append("--server-prx-gate")
     return subprocess.run(
         command,
         text=True, capture_output=True, check=False)
@@ -410,6 +440,18 @@ def main() -> int:
             bad_filesystem_prx, filesystem_prx_gate=True)
         assert rejected_filesystem_prx.returncode != 0 \
             and "ready contract" in rejected_filesystem_prx.stderr
+
+        server_prx = run_validator(
+            make_evidence(directory, filesystem_prx_gate=True, server_prx_gate=True),
+            filesystem_prx_gate=True, server_prx_gate=True)
+        assert server_prx.returncode == 0, server_prx.stderr
+        server_summary = json.loads(server_prx.stdout)
+        assert server_summary["server_prx_gate"]
+        assert server_summary["server_prx_active_after_unload"] == 1
+        missing_server_prx = run_validator(
+            make_evidence(directory, filesystem_prx_gate=True), server_prx_gate=True)
+        assert missing_server_prx.returncode != 0 \
+            and "not enabled" in missing_server_prx.stderr
 
         bad_prx = make_evidence(directory, prx_gate=True)
         bad_prx_log = directory / json.loads(bad_prx.read_text())["log_path"]
