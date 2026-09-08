@@ -130,10 +130,12 @@ production ELF / fSELF SHA-256
 `15264acb49412810228151df0019efb85ae61448b25c75cc9dc5f3ce3917c3c8` /
 `422bf298926dea76937e3f834f85fe584eb48ccc47157761a8c1893979600b69`.
 
-## Next gate result
+## Subsequent gate status
 
 The `filesystem_stdio` conversion subsequently passed as Phase 6 gate 2. It
 loaded the complete private 4,823-entry asset tree, proved listing, mixed-case
 lookup, `gfx/palette.lmp`, the 2,546,336-byte `maps/c1a0.bsp` read, `c1a0`
 spawn and exact unload while leaving the server static. See
-`FILESYSTEM_PRX_PHASE6.md`. Server conversion is the next independent gate.
+`FILESYSTEM_PRX_PHASE6.md`. The server and MainUI conversions then passed as
+gates 3 and 4; see `SERVER_PRX_PHASE6.md` and `MENU_PRX_PHASE6.md`. Client
+conversion is the next independent gate.

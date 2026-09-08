@@ -136,9 +136,10 @@ laboratory helpers and watch `ps5logd`. The run passes when
 - no `Host_Error:`/`Sys_Error:` console lines and `XASH_EXIT result=0`.
 
 Default gate length is 90 seconds (`XASH_GATE_SECONDS`); set `0` for an
-open-ended session closed by the operator. Note that ftpsrv serves signed
-files back as their decrypted ELF image with the last 512 bytes rewritten, so
-an upload is verified against `build/engine-boot/eboot.elf` by prefix.
+open-ended session closed by the operator. The old prefix comparison against a
+decrypted ELF view has been retired: the canonical lab deploy helper disables
+ftpsrv's connection-local SELF conversion and verifies the exact stored fSELF
+size and SHA-256.
 
 ## Host verification performed
 
@@ -222,7 +223,7 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
    `20260907T235551519Z_PPSA99996_xash3d-engine_0xd12e2a9238fb`. See
    `LIBC_SHIMS_PHASE5.md`.
 
-This closes Phase 5. The application-owned PRX conversion and `ref_agc` remain
-Phase 6. The
-accepted dedicated run above stays immutable evidence for the first engine
+This closes Phase 5. Phase 6 has since passed the application-owned loader,
+filesystem, server and MainUI conversions; `client.prx` and `ref_agc` remain.
+The accepted dedicated run above stays immutable evidence for the first engine
 bring-up; later gates add evidence rather than rewriting it.

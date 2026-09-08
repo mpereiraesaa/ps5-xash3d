@@ -1,4 +1,9 @@
-# Xash3D client engine boot — Phase 6 pre-gate diagnostic (in progress)
+# Xash3D client engine boot — historical Phase 6 pre-gate diagnostic
+
+> This is the diagnostic snapshot that exposed the Phase 5 filesystem/libc
+> blockers. Those blockers and all Phase 5 gates are closed; Phase 6 has since
+> passed the loader, filesystem, server and MainUI gates. The current next
+> boundary is `client.prx`, using the accepted menu checkpoint as rollback.
 
 This branch brings the engine up in **client mode** without a display as an
 early Phase 6 integration harness. It builds and boots; it is not a completed
@@ -169,14 +174,14 @@ file lookup, so our `opendir` was called ~11,670 times before the renderer.
 Not fatal, but the per-directory case-fix cache is not being reused as
 expected; worth confirming it is not repopulating every lookup.
 
-## Prioritized blockers
+## Prioritized blockers at this snapshot
 
 1. `ref_soft` init fault, then the `ref_null` HUD/font fault. Decide whether
    the gate-2 harness uses `ref_null` (accepting no textures) purely to prove
    the frame loop, and defer real rasterization to `ref_agc` in gate 3.
 2. The excessive re-scan (case-fix cache reuse).
 
-## Next iteration
+## Planned iteration at this snapshot
 
 1. Preserve the complete-tree filesystem run as the Phase 5 FS evidence and
    keep the generated trace path selectable for future single-file probes.
