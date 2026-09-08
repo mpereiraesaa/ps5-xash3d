@@ -51,6 +51,8 @@
 #   XASH_CLIENT_PRX       package the GoldSrc/HLSDK client as a dynamic module
 #                         on top of the filesystem/server/menu rollback point
 #                         (default 0)
+#   XASH_REF_AGC_PRX      package ref_agc as the final Phase 6 module and bind
+#                         it to the Phase 4 native AGC/VideoOut owner (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -78,6 +80,7 @@ filesystem_prx=${XASH_FILESYSTEM_PRX:-0}
 server_prx=${XASH_SERVER_PRX:-0}
 menu_prx=${XASH_MENU_PRX:-0}
 client_prx=${XASH_CLIENT_PRX:-0}
+ref_agc_prx=${XASH_REF_AGC_PRX:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -94,6 +97,7 @@ ref_name=${XASH_REF:-soft}
 [[ $server_prx == 0 || $server_prx == 1 ]] || { echo "XASH_SERVER_PRX must be 0 or 1" >&2; exit 2; }
 [[ $menu_prx == 0 || $menu_prx == 1 ]] || { echo "XASH_MENU_PRX must be 0 or 1" >&2; exit 2; }
 [[ $client_prx == 0 || $client_prx == 1 ]] || { echo "XASH_CLIENT_PRX must be 0 or 1" >&2; exit 2; }
+[[ $ref_agc_prx == 0 || $ref_agc_prx == 1 ]] || { echo "XASH_REF_AGC_PRX must be 0 or 1" >&2; exit 2; }
 if [[ $server_prx == 1 && $filesystem_prx != 1 ]]; then
     echo "XASH_SERVER_PRX=1 requires the proven XASH_FILESYSTEM_PRX=1 checkpoint" >&2
     exit 2
@@ -104,6 +108,10 @@ if [[ $menu_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx
 fi
 if [[ $client_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 || $menu_prx != 1 ) ]]; then
     echo "XASH_CLIENT_PRX=1 requires XASH_MODE=client plus the proven filesystem/server/menu PRX checkpoint" >&2
+    exit 2
+fi
+if [[ $ref_agc_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 || $menu_prx != 1 || $client_prx != 1 || $ref_name != agc ) ]]; then
+    echo "XASH_REF_AGC_PRX=1 requires XASH_MODE=client, XASH_REF=agc and the proven filesystem/server/menu/client PRX checkpoint" >&2
     exit 2
 fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
@@ -228,6 +236,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_SERVER_PRX $server_prx
 #define PS5_XASH_MENU_PRX $menu_prx
 #define PS5_XASH_CLIENT_PRX $client_prx
+#define PS5_XASH_REF_AGC_PRX $ref_agc_prx
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -799,6 +808,143 @@ if [[ $client_prx == 1 ]]; then
     "$tool" self --inspect --file "$dist/sce_module/client.prx"
 fi
 
+if [[ $ref_agc_prx == 1 ]]; then
+    echo "== Phase 6 native AGC renderer PRX"
+    ref_bundle="$root/build/bsp/map.ps5bsp"
+    ref_studio_bundle="$root/build/studio/model.ps5mdl"
+    for required in "$ref_bundle" "$ref_studio_bundle" \
+        "$root/build/generated/goldsrc_shader_assets.S" \
+        "$root/build/generated/goldsrc_shader_catalog_generated.h" \
+        "$root/build/generated/pipeline_permutations.h"; do
+        [[ -s $required ]] || {
+            echo "XASH_REF_AGC_PRX=1 requires generated Phase 4 asset $required" >&2
+            exit 2
+        }
+    done
+    mkdir -p "$build/prx/ref_agc/import-stubs"
+    python3 "$root/tools/generate_bsp_build_metadata.py" \
+        --bundle "$ref_bundle" \
+        --output "$root/build/generated/bsp_build_metadata.h"
+    python3 "$root/tools/generate_studio_build_metadata.py" \
+        --bundle "$ref_studio_bundle" \
+        --output "$root/build/generated/studio_build_metadata.h"
+    python3 "$root/xash/tools/generate_prx_descriptor.py" \
+        --module ref_agc --exports "$root/xash/exports/ref.txt" \
+        --extra PS5_RefAgcPrxRuntimeState \
+        --extra PS5_RefAgcPrxRuntimeResult \
+        --extra PS5_RefAgcPrxTeardownResult \
+        --extra PS5_RefAgcPrxRuntimeFrames \
+        --extra PS5_RefAgcPrxFrameHash \
+        --extra PS5_RefAgcPrxBrightPixels \
+        --extra PS5_RefAgcPrxBeginCalls \
+        --extra PS5_RefAgcPrxSceneCalls \
+        --extra PS5_RefAgcPrxEndCalls \
+        --extra PS5_RefAgcPrxNewMapCalls \
+        --extra PS5_RefAgcPrxEngineTableMask \
+        --source "$gen/ref_agc_prx_descriptor.c" \
+        --version-script "$gen/ref_agc_prx_exports.map"
+    ref_agc_defines=(
+        -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
+        -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
+        -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
+        -DPS5_GOLDSRC_PHASE4=1 -DPS5_GOLDSRC_2D_GATE=1
+        -DPS5_GOLDSRC_LIGHTING_GATE=1 -DPS5_GOLDSRC_SPRITE_PARTICLE_GATE=1
+        -DPS5_GOLDSRC_STUDIO_GATE=1 -DPS5_GOLDSRC_BRUSH_GATE=1
+        -DPS5_GOLDSRC_VISIBILITY_GATE=1 -DPS5_GOLDSRC_PHASE4_FINAL_GATE=1
+    )
+    ref_agc_includes=(
+        -I"$root/include" -I"$root/src" -I"$root/native"
+        -I"$root/native/ps5log" -I"$root/build/generated"
+        -I"$root/xash/platform_ps5" -I"$xash/ref/common"
+        "${engine_includes[@]}"
+    )
+    ref_agc_sources=(
+        "$root/native/main.c" "$root/native/ps5_agc_native.c"
+        "$root/xash/platform_ps5/ref_agc_module.c"
+        "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"
+        "$root/src/bsp_flat_draw.c" "$root/src/bsp_dynamic_lightmap.c"
+        "$root/src/bsp_alpha_test.c" "$root/src/bsp_sky.c"
+        "$root/src/bsp_texture_accounting.c" "$root/src/goldsrc_pipeline_cache.c"
+        "$root/src/goldsrc_render_state.c" "$root/src/bsp_noclip.c"
+        "$root/src/bsp_textured_draw.c" "$root/src/bsp_flat_scene.c"
+        "$root/src/bsp_runtime_plan.c" "$root/src/bsp_texture_descriptor.c"
+        "$root/src/bsp_resource_frame.c" "$root/src/bsp_resource_draw.c"
+        "$root/src/gears_animation.c" "$root/src/gears_draw_compose.c"
+        "$root/src/gears_frame_runner.c" "$root/src/gears_frame_tracker.c"
+        "$root/src/gears_mesh.c" "$root/src/gears_renderer.c"
+        "$root/src/gears_rt_clear.c" "$root/src/gears_scene.c"
+        "$root/src/gears_telemetry.c" "$root/src/ps5_agc_submit.c"
+        "$root/src/ps5_agc_writer.c" "$root/src/ps5_color_target.c"
+        "$root/src/ps5_depth_target.c" "$root/src/ps5_event_adapter.c"
+        "$root/src/ps5_frame_completion.c" "$root/src/ps5_gpu_span.c"
+        "$root/src/ps5_pipeline.c" "$root/src/ps5_goldsrc_render_state.c"
+        "$root/src/ps5_shader_pipeline_slot.c" "$root/src/ps5_goldsrc_pipeline_runtime.c"
+        "$root/src/ps5_viewport_scissor.c" "$root/src/goldsrc_state_matrix.c"
+        "$root/src/goldsrc_2d.c" "$root/src/goldsrc_lightmap_lighting.c"
+        "$root/src/goldsrc_sprite_particles.c" "$root/src/goldsrc_studio_bundle.c"
+        "$root/src/goldsrc_studio_model.c" "$root/src/goldsrc_brush_entities.c"
+        "$root/src/goldsrc_visibility.c" "$root/src/ps5_gpu_flip_timing.c"
+        "$root/src/ps5_present.c" "$root/src/ps5_shader_header.c"
+        "$root/src/ps5_submission.c" "$root/src/ps5_surface.c"
+        "$root/src/ps5_videoout.c" "$root/src/ps5_cache_contract.c"
+        "$root/src/ps5_gfx1013_descriptor.c" "$root/src/ps5_resource_pool.c"
+        "$root/src/ps5_transient_ring.c" "$root/src/ps5_transient_table.c"
+    )
+    printf '%s\n' "${ref_agc_sources[@]}" |
+        compile_set "$build/ref-agc.objects" "$build/prx/ref_agc/obj" -std=gnu11 \
+            -O2 -w -fPIC "${ref_agc_defines[@]}" "${ref_agc_includes[@]}"
+    mapfile -t ref_agc_objects < "$build/ref-agc.objects"
+    "${cc[@]}" -std=gnu11 -O2 -w -fPIC "${ref_agc_includes[@]}" \
+        -c "$gen/ref_agc_prx_descriptor.c" \
+        -o "$build/prx/ref_agc/ref_agc_prx_descriptor.o"
+    "${cc[@]}" -std=gnu11 -O2 -w -fPIC "${ref_agc_includes[@]}" \
+        -include "$root/native/ps5log/ps5log_ps5_net.h" \
+        -c "$root/native/ps5log/ps5log.c" -o "$build/prx/ref_agc/ps5log.o"
+    "${cc[@]}" -std=gnu11 -O2 -w -fPIC "${ref_agc_includes[@]}" \
+        -c "$root/native/ps5log/ps5log_ps5_net.c" \
+        -o "$build/prx/ref_agc/ps5log_ps5_net.o"
+    "${cc[@]}" -fPIC -c "$root/native/shader_assets.S" \
+        -o "$build/prx/ref_agc/shader_assets.o"
+    "${cc[@]}" -fPIC -c "$root/build/generated/goldsrc_shader_assets.S" \
+        -o "$build/prx/ref_agc/goldsrc_shader_assets.o"
+    "${cc[@]}" -std=c11 -O2 -fPIC -I"$root/include" \
+        -c "$root/native/stubs/libSceAgc.c" \
+        -o "$build/prx/ref_agc/agc-stub.o"
+    "$lld" --shared -soname libSceAgc.prx \
+        -o "$build/prx/ref_agc/import-stubs/libSceAgc.so" \
+        "$build/prx/ref_agc/agc-stub.o"
+    "${cc[@]}" -std=c11 -O2 -fPIC -I"$root/include" \
+        -c "$root/native/stubs/libSceAgcDriver.c" \
+        -o "$build/prx/ref_agc/agc-driver-stub.o"
+    "$lld" --shared -soname libSceAgcDriver.prx \
+        -o "$build/prx/ref_agc/import-stubs/libSceAgcDriver.so" \
+        "$build/prx/ref_agc/agc-driver-stub.o"
+    "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
+        -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+        -o "$build/prx/ref_agc/app_cpp_runtime.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$gen/ref_agc_prx_exports.map" \
+        -soname ref_agc.prx -o "$build/prx/ref_agc.shared.elf" \
+        "${ref_agc_objects[@]}" \
+        "$build/prx/ref_agc/ref_agc_prx_descriptor.o" \
+        "$build/prx/ref_agc/ps5log.o" "$build/prx/ref_agc/ps5log_ps5_net.o" \
+        "$build/prx/ref_agc/shader_assets.o" \
+        "$build/prx/ref_agc/goldsrc_shader_assets.o" \
+        "$build/prx/ref_agc/app_cpp_runtime.o" \
+        --as-needed "$sdk"/target/lib/*.so \
+        "$build/prx/ref_agc/import-stubs/libSceAgc.so" \
+        "$build/prx/ref_agc/import-stubs/libSceAgcDriver.so"
+    "$tool" link --module --in "$build/prx/ref_agc.shared.elf" \
+        --out "$build/prx/ref_agc.elf" --stub-dir "$sdk/target/lib" \
+        --stub "$build/prx/ref_agc/import-stubs/libSceAgc.so" \
+        --stub "$build/prx/ref_agc/import-stubs/libSceAgcDriver.so" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name ref_agc.prx
+    "$tool" self --sign --in "$build/prx/ref_agc.elf" \
+        --out "$dist/sce_module/ref_agc.prx"
+    "$tool" self --inspect --file "$dist/sce_module/ref_agc.prx"
+fi
+
 if [[ $prx_gate == 1 ]]; then
     echo "== Phase 6 PRX loader probe module"
     mkdir -p "$build/prx"
@@ -1163,6 +1309,50 @@ if [[ $client_prx == 1 ]]; then
         --stub-dir "$sdk/target/lib" \
         --output "$build/PS5_CLIENT_PRX_DYNAMIC_IMPORT_AUDIT.md"
 fi
+if [[ $ref_agc_prx == 1 ]]; then
+    [[ -s $dist/sce_module/ref_agc.prx ]] || {
+        echo "XASH_REF_AGC_PRX=1 did not package ref_agc.prx" >&2; exit 1; }
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_REF_AGC_PRX_READY XASH_REF_AGC_PRX_STATE \
+        XASH_REF_AGC_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_REF_AGC_PRX=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/ref_agc.shared.elf" \
+        > "$build/ref-agc-prx-shared-symbols.txt"
+    for symbol in GetRefAPI PS5_RefAgcPrxRuntimeState \
+        PS5_RefAgcPrxRuntimeResult PS5_RefAgcPrxTeardownResult \
+        PS5_RefAgcPrxRuntimeFrames PS5_RefAgcPrxFrameHash \
+        PS5_RefAgcPrxBrightPixels PS5_RefAgcPrxBeginCalls \
+        PS5_RefAgcPrxSceneCalls PS5_RefAgcPrxEndCalls \
+        PS5_RefAgcPrxNewMapCalls PS5_RefAgcPrxEngineTableMask \
+        ref_agc_prx_exports module_start module_stop; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/ref-agc-prx-shared-symbols.txt"; then
+            echo "ref_agc.prx did not export $symbol" >&2
+            exit 1
+        fi
+    done
+    for symbol in sceAgcInit sceAgcCreateShader sceAgcLinkShaders \
+        sceAgcGetRegisterDefaults sceAgcDcbSetFlip; do
+        if ! grep -qw "$symbol" "$build/ref-agc-prx-shared-symbols.txt"; then
+            echo "ref_agc.prx did not retain native import $symbol" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/ref_agc.elf" \
+        > "$build/ref-agc-prx-dynamic-symbols.txt"
+    if grep -Eq 'UND[[:space:]]+(GetRefAPI|PS5_RefAgcPrx)' \
+        "$build/ref-agc-prx-dynamic-symbols.txt"; then
+        echo "ref_agc.prx leaked an application-owned dynamic import" >&2
+        exit 1
+    fi
+    python3 "$root/xash/tools/audit_dyn_imports.py" "$build/prx/ref_agc.elf" \
+        --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+        --stub-dir "$sdk/target/lib" \
+        --output "$build/PS5_REF_AGC_PRX_DYNAMIC_IMPORT_AUDIT.md"
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -1184,6 +1374,10 @@ if [[ -n $game_data ]]; then
     }
     cp -R "$game_data/valve" "$dist/xash3d/valve"
     echo "staged game data: $(find "$dist/xash3d" -type f | wc -l) files (private, not published)"
+fi
+if [[ $ref_agc_prx == 1 ]]; then
+    cp "$root/build/bsp/map.ps5bsp" "$dist/map.ps5bsp"
+    cp "$root/build/studio/model.ps5mdl" "$dist/model.ps5mdl"
 fi
 # The packaged image cannot be enumerated on the console (getdents returns
 # EINVAL under /app0); the PS5 backend lists it from this index instead.

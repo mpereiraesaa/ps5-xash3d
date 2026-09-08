@@ -372,6 +372,29 @@ gap-free completion BYE. During this map-focused gate, the preserved menu API
 and lifecycle remain mandatory but the standalone menu gate is the authority
 for visible menu redraw.
 
+## Phase 6 `ref_agc.prx` evidence
+
+The final gate announces `mode=client ref=agc` and all five PRX flags in
+`XASH_BOOT`. `XASH_REF_AGC_PRX_READY` fixes the module identity, RefAPI version
+18 and the native backend before the engine table is bound. At shutdown,
+`XASH_REF_AGC_PRX_STATE` must report state 5, engine mask 63, 600 frames,
+nonzero frame hash/bright-pixel count, positive live renderer callback counts,
+balanced begin/end calls and zero runtime/teardown results.
+
+The separate `ps5-xash3d` stream starts within one second of the engine stream.
+It must announce `REF_AGC_RUNTIME_READY`, run exactly 600 combined Phase 4
+frames, produce two nonzero GPU buffer hashes and bright-pixel counts, retain
+exact fence/VideoOut tokens, reclaim all six resources and close VideoOut,
+direct memory and AGC exactly before its own gap-free BYE. This pairing keeps
+engine ABI evidence and actual native presentation evidence distinct but
+inseparable for acceptance.
+
+The engine then unloads server, menu, client, renderer and filesystem with
+active-module counts 4, 3, 2, 1 and 0. `XASH_EXIT` retains `ref_agc_prx=1` and
+the engine stream closes normally. `tools/validate_ref_agc_prx_evidence.py`
+checks both immutable manifests, their transcript hashes, start-time
+correlation, private asset identities and the complete ownership chain.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

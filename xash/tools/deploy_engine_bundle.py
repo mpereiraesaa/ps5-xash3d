@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 TITLE_ID = "PPSA99996"
 REMOTE_ROOT = PurePosixPath("/data/homebrew") / TITLE_ID
 SAFE_MODULE = re.compile(r"^[A-Za-z0-9_-]+\.prx$")
+SAFE_ASSETS = {"map.ps5bsp", "model.ps5mdl"}
 
 
 def digest(path: Path) -> str:
@@ -72,27 +73,37 @@ def verify_transformed_self(ftp: ftplib.FTP, remote: str, elf: Path) -> int:
     return stable
 
 
-def bundle(local_root: Path, modules: list[str]) -> list[tuple[Path, PurePosixPath]]:
+def bundle(local_root: Path, modules: list[str],
+           assets: list[str] | None = None
+           ) -> list[tuple[Path, PurePosixPath, bool]]:
+    assets = assets or []
     if len(modules) != len(set(modules)):
         raise ValueError("duplicate module name")
-    items = [(local_root / "eboot.bin", REMOTE_ROOT / "eboot.bin")]
+    if len(assets) != len(set(assets)):
+        raise ValueError("duplicate asset name")
+    items = [(local_root / "eboot.bin", REMOTE_ROOT / "eboot.bin", True)]
     for name in modules:
         if not SAFE_MODULE.fullmatch(name):
             raise ValueError(f"unsafe module name: {name}")
         items.append((local_root / "sce_module" / name,
-                      REMOTE_ROOT / "sce_module" / name))
-    for local, _ in items:
+                      REMOTE_ROOT / "sce_module" / name, True))
+    for name in assets:
+        if name not in SAFE_ASSETS:
+            raise ValueError(f"unsafe asset name: {name}")
+        items.append((local_root / name, REMOTE_ROOT / name, False))
+    for local, _, is_self in items:
         if not local.is_file() or local.stat().st_size == 0:
             raise FileNotFoundError(f"missing bundle artifact: {local}")
-        if local.read_bytes()[:4] not in (bytes.fromhex("4f153d1d"),
-                                          bytes.fromhex("5414f5ee")):
+        if is_self and local.read_bytes()[:4] not in (
+                bytes.fromhex("4f153d1d"), bytes.fromhex("5414f5ee")):
             raise ValueError(f"artifact is not a SELF container: {local}")
     return items
 
 
-def promote(host: str, local_root: Path, modules: list[str], journal: Path) -> None:
+def promote(host: str, local_root: Path, modules: list[str], assets: list[str],
+            journal: Path) -> None:
     local_root = local_root.resolve()
-    items = bundle(local_root, modules)
+    items = bundle(local_root, modules, assets)
     tag = digest(items[0][0])[:12]
     staged: list[tuple[str, str, bool]] = []
     promoted: list[tuple[str, str, bool]] = []
@@ -110,7 +121,7 @@ def promote(host: str, local_root: Path, modules: list[str], journal: Path) -> N
         ftp.connect(host, 2121, 8)
         ftp.login()
         try:
-            for local, remote_path in items:
+            for local, remote_path, is_self in items:
                 live = str(remote_path)
                 stage = str(remote_path.parent / f".{remote_path.name}.new-{tag}")
                 backup = str(remote_path.parent / f".{remote_path.name}.previous-{tag}")
@@ -129,18 +140,26 @@ def promote(host: str, local_root: Path, modules: list[str], journal: Path) -> N
                     if size != local.stat().st_size:
                         raise RuntimeError(f"stored size mismatch: {stage}: {size}")
                 except (OSError, TimeoutError):
-                    project = local_root.parents[2]
-                    if local.name == "eboot.bin":
-                        elf = project / "build/engine-boot/eboot.elf"
+                    if is_self:
+                        project = local_root.parents[2]
+                        if local.name == "eboot.bin":
+                            elf = project / "build/engine-boot/eboot.elf"
+                        else:
+                            elf = project / "build/engine-boot/prx" / local.name.replace(".prx", ".elf")
+                        stable_bytes = verify_transformed_self(ftp, stage, elf)
+                        verification = "ftp-transformed-elf"
                     else:
-                        elf = project / "build/engine-boot/prx" / local.name.replace(".prx", ".elf")
-                    stable_bytes = verify_transformed_self(ftp, stage, elf)
+                        actual = bytearray()
+                        ftp.retrbinary(f"RETR {stage}", actual.extend)
+                        if hashlib.sha256(actual).hexdigest() != digest(local):
+                            raise RuntimeError(f"asset digest mismatch: {stage}")
+                        stable_bytes = len(actual)
+                        verification = "ftp-sha256"
                     size = local.stat().st_size
-                    verification = "ftp-transformed-elf"
                 record("engine_bundle_staged", live=live, staged=stage,
                        bytes=size, fself_sha256=digest(local),
                        verification=verification, stable_verified_bytes=stable_bytes)
-            for (_, remote_path), (stage, backup, had_live) in zip(items, staged):
+            for (_, remote_path, _), (stage, backup, had_live) in zip(items, staged):
                 live = str(remote_path)
                 if had_live:
                     ftp.rename(live, backup)
@@ -158,7 +177,7 @@ def promote(host: str, local_root: Path, modules: list[str], journal: Path) -> N
             record("engine_bundle_promoted", title_id=TITLE_ID, tag=tag,
                    items=[{"remote": str(remote), "fself_sha256": digest(local),
                            "bytes": local.stat().st_size}
-                          for local, remote in items], rollback_retained=False)
+                          for local, remote, _ in items], rollback_retained=False)
         except Exception:
             if committed:
                 record("engine_bundle_cleanup_failed", title_id=TITLE_ID,
@@ -187,18 +206,19 @@ def main() -> int:
     parser.add_argument("--host", required=True)
     parser.add_argument("--local-root", required=True, type=Path)
     parser.add_argument("--module", action="append", default=[])
+    parser.add_argument("--asset", action="append", default=[])
     parser.add_argument("--journal", required=True, type=Path)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    items = bundle(args.local_root, args.module)
+    items = bundle(args.local_root, args.module, args.asset)
     plan = {"title_id": TITLE_ID,
             "items": [{"local": str(local), "remote": str(remote),
                        "bytes": local.stat().st_size, "fself_sha256": digest(local)}
-                      for local, remote in items]}
+                      for local, remote, _ in items]}
     if not args.apply:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
-    promote(args.host, args.local_root, args.module, args.journal)
+    promote(args.host, args.local_root, args.module, args.asset, args.journal)
     return 0
 
 

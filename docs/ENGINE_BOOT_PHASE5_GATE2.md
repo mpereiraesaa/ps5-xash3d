@@ -2,9 +2,9 @@
 
 > This is the diagnostic snapshot that exposed the Phase 5 filesystem/libc
 > blockers. Those blockers and all Phase 5 gates are closed; Phase 6 has since
-> passed the loader, filesystem, server, MainUI and GoldSrc client gates. The
-> current next boundary is `ref_agc`, using the accepted five-file client
-> checkpoint as rollback.
+> passed the loader, filesystem, server, MainUI, GoldSrc client and `ref_agc`
+> gates. This file remains the historical pre-gate diagnostic; the accepted
+> final Phase 6 boundary is documented in `REF_AGC_PRX_PHASE6.md`.
 
 This branch brings the engine up in **client mode** without a display as an
 early Phase 6 integration harness. It builds and boots; it is not a completed

@@ -19,11 +19,14 @@ def main() -> int:
         self_data = bytes.fromhex("4f153d1d") + bytes(64)
         (root / "eboot.bin").write_bytes(self_data)
         (module_dir / "server.prx").write_bytes(self_data)
-        items = deploy.bundle(root, ["server.prx"])
-        assert [remote.as_posix() for _, remote in items] == [
+        (root / "map.ps5bsp").write_bytes(b"checked-map")
+        items = deploy.bundle(root, ["server.prx"], ["map.ps5bsp"])
+        assert [remote.as_posix() for _, remote, _ in items] == [
             "/data/homebrew/PPSA99996/eboot.bin",
             "/data/homebrew/PPSA99996/sce_module/server.prx",
+            "/data/homebrew/PPSA99996/map.ps5bsp",
         ]
+        assert [is_self for _, _, is_self in items] == [True, True, False]
         for modules in (["server.prx", "server.prx"], ["../server.prx"]):
             try:
                 deploy.bundle(root, modules)
@@ -37,6 +40,14 @@ def main() -> int:
             pass
         else:
             raise AssertionError("accepted missing module")
+        for assets in (["map.ps5bsp", "map.ps5bsp"], ["../map.ps5bsp"],
+                       ["valve/maps/c1a0.bsp"]):
+            try:
+                deploy.bundle(root, [], assets)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"accepted unsafe asset set: {assets}")
     print("engine bundle deployment tests passed")
     return 0
 
