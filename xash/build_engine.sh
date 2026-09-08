@@ -38,6 +38,8 @@
 #                          generation-tagged GPU resource contract (default 0)
 #   XASH_THREAD_TIME_GATE  exercise the engine's pthread surface, monotonic
 #                          clock and measured nanosleep/usleep timing (default 0)
+#   XASH_LIBC_SHIM_GATE    exercise project-owned assert formatting, fixed
+#                          identity and the dladdr fallback (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -59,6 +61,7 @@ audio_gate_frames=${XASH_AUDIO_GATE_FRAMES:-0}
 audio=${XASH_AUDIO:-0}
 memory_gate=${XASH_MEMORY_GATE:-0}
 thread_time_gate=${XASH_THREAD_TIME_GATE:-0}
+libc_shim_gate=${XASH_LIBC_SHIM_GATE:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -69,6 +72,7 @@ ref_name=${XASH_REF:-soft}
 [[ $audio == 0 || $audio == 1 ]] || { echo "XASH_AUDIO must be 0 or 1" >&2; exit 2; }
 [[ $memory_gate == 0 || $memory_gate == 1 ]] || { echo "XASH_MEMORY_GATE must be 0 or 1" >&2; exit 2; }
 [[ $thread_time_gate == 0 || $thread_time_gate == 1 ]] || { echo "XASH_THREAD_TIME_GATE must be 0 or 1" >&2; exit 2; }
+[[ $libc_shim_gate == 0 || $libc_shim_gate == 1 ]] || { echo "XASH_LIBC_SHIM_GATE must be 0 or 1" >&2; exit 2; }
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -183,6 +187,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_AUDIO_GATE_FRAMES $audio_gate_frames
 #define PS5_XASH_MEMORY_GATE $memory_gate
 #define PS5_XASH_THREAD_TIME_GATE $thread_time_gate
+#define PS5_XASH_LIBC_SHIM_GATE $libc_shim_gate
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -310,6 +315,7 @@ engine_sources=$(
     echo "$xash/engine/platform/misc/lib_static.c"
     echo "$xash/3rdparty/library_suffix/src/library_suffix.c"
     echo "$root/xash/platform_ps5/sys_ps5.c"
+    echo "$root/xash/platform_ps5/libc_shims_ps5.c"
     echo "$root/xash/platform_ps5/fs_ps5.c"
     echo "$root/xash/platform_ps5/mem_ps5.c"
 	echo "$root/xash/platform_ps5/memory_arena_ps5.c"
@@ -652,6 +658,29 @@ if [[ $libc_smoke == 1 ]]; then
         fi
     done
 fi
+if [[ $libc_shim_gate == 1 ]]; then
+    for symbol in __assert getpwuid dladdr; do
+        if grep -Eq "UND[[:space:]]+$symbol([@[:space:]]|$)" "$build/dynamic-symbols.txt"; then
+            echo "XASH_LIBC_SHIM_GATE=1 leaked dynamic import $symbol" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --syms "$build/llvm-pie.elf" > "$build/all-symbols.txt"
+    for symbol in __assert getpwuid dladdr; do
+        if ! grep -Eq "[[:space:]][0-9]+[[:space:]]+$symbol$" "$build/all-symbols.txt"; then
+            echo "XASH_LIBC_SHIM_GATE=1 did not retain project definition $symbol" >&2
+            exit 1
+        fi
+    done
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_LIBC_SHIM_BEGIN XASH_LIBC_SHIM_RESULT \
+        XASH_LIBC_SHIM_END XASH_ASSERT_FAILURE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_LIBC_SHIM_GATE=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -697,4 +726,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate"

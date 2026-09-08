@@ -294,6 +294,24 @@ latencies. Ownership remains `fence+exact-videoout-event`. Acceptance also
 requires the integrated Phase 4 completion and a gap-free
 `BYE reason=gpu-flip-timing-soak-complete`.
 
+## Phase 5 libc-shim evidence
+
+The engine artifact announces `libc_shim_gate=1` in `XASH_BOOT`.
+`XASH_LIBC_SHIM_BEGIN` fixes the exact symbol set to
+`__assert,getpwuid,dladdr`. Exactly three `XASH_LIBC_SHIM_RESULT` records then
+prove the project-owned assertion formatter/reporter contract, the fixed `ps5`
+identity for the requested uid, and the zeroed `dladdr` result that selects
+whereami's `argv[0]` fallback. `XASH_LIBC_SHIM_END pass=1` closes the probe.
+
+Acceptance additionally requires that the dynamic symbol table contain none
+of those three names, while the full symbol table retains their local project
+definitions. `XASH_EXIT` must carry `libc_shim_gate=1 libc_shim_pass=1`, the
+ordinary engine workload must succeed and the immutable transcript must end
+with a gap-free `BYE reason=xash-engine-boot-complete`. The clean probe checks
+assert formatting and reporter selection without deliberately terminating the
+hardware run; host tests and the retained `noreturn` implementation cover the
+termination path.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a
