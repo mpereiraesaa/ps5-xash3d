@@ -16,11 +16,14 @@ callbacks below are always the project-owned AGC implementation.
 #include <string.h>
 #include <time.h>
 
+#include "ref_agc_live_frame.h"
+
 /* Reuse the upstream ABI-complete callback skeleton without modifying the
  * pinned submodule.  Its public entry point is renamed and wrapped below. */
 #define GetRefAPI PS5_RefAgcNullGetRefAPI
 #include "../../third_party/xash3d-fwgs/ref/null/r_context.c"
 #undef GetRefAPI
+#include "ref_params.h"
 
 int ps5_ref_agc_native_main(void);
 
@@ -47,6 +50,41 @@ static volatile uint64_t ref_agc_end_calls;
 static volatile uint64_t ref_agc_newmap_calls;
 static pthread_t ref_agc_thread;
 static int ref_agc_thread_created;
+static RefAgcLiveStore ref_agc_live;
+static int ref_agc_live_initialized;
+
+static void RefAgcCopy3(float out[3], const float in[3])
+{
+	memcpy( out, in, 3u * sizeof(float) );
+}
+
+static void RefAgcCaptureWorld(void)
+{
+	const ref_client_t *client;
+	const model_t *model;
+	RefAgcLiveWorld world;
+	if( !ref_agc_live_initialized || !ref_agc_engine.EngineGetParm )
+		return;
+	client = (const ref_client_t *)ref_agc_engine.EngineGetParm(
+		PARM_GET_CLIENT_PTR, 0 );
+	model = client ? client->models[1] : NULL;
+	if( !model )
+		return;
+	memset( &world, 0, sizeof(world) );
+	strncpy( world.model_name, model->name, sizeof(world.model_name) - 1u );
+	world.model_type = model->type;
+	world.model_flags = (uint32_t)model->flags;
+	world.surfaces = model->numsurfaces > 0 ? (uint32_t)model->numsurfaces : 0u;
+	world.vertices = model->numvertexes > 0 ? (uint32_t)model->numvertexes : 0u;
+	world.edges = model->numedges > 0 ? (uint32_t)model->numedges : 0u;
+	world.textures = model->numtextures > 0 ? (uint32_t)model->numtextures : 0u;
+	world.leafs = model->numleafs > 0 ? (uint32_t)model->numleafs : 0u;
+	world.has_visibility = model->visdata != NULL;
+	world.has_lightdata = model->lightdata != NULL;
+	RefAgcCopy3( world.mins, model->mins );
+	RefAgcCopy3( world.maxs, model->maxs );
+	ref_agc_live_set_world( &ref_agc_live, &world );
+}
 
 void PS5_RefAgcRuntimeReady(void)
 {
@@ -99,11 +137,22 @@ static qboolean RefAgcInit(void)
 			ref_agc_runtime_state == REF_AGC_COMPLETE;
 	if( !ref_agc_engine.R_Init_Video( REF_SOFTWARE ))
 		return false;
+	if( !ref_agc_live_initialized )
+	{
+		if( ref_agc_live_store_init( &ref_agc_live ) != 0 )
+		{
+			ref_agc_engine.R_Free_Video();
+			return false;
+		}
+		ref_agc_live_initialized = 1;
+	}
 	ref_agc_runtime_state = REF_AGC_STARTING;
 	if( pthread_create( &ref_agc_thread, NULL, RefAgcRuntimeThread, NULL ) != 0 )
 	{
 		ref_agc_runtime_state = REF_AGC_FAILED;
 		ref_agc_runtime_result = -2;
+		ref_agc_live_store_destroy( &ref_agc_live );
+		ref_agc_live_initialized = 0;
 		ref_agc_engine.R_Free_Video();
 		return false;
 	}
@@ -129,6 +178,11 @@ static void RefAgcShutdown(void)
 		if( ref_agc_runtime_state == REF_AGC_COMPLETE )
 			ref_agc_runtime_state = REF_AGC_JOINED;
 	}
+	if( ref_agc_live_initialized )
+	{
+		ref_agc_live_store_destroy( &ref_agc_live );
+		ref_agc_live_initialized = 0;
+	}
 	ref_agc_engine.R_Free_Video();
 }
 
@@ -139,8 +193,9 @@ static const char *RefAgcConfigName(void)
 
 static void RefAgcBeginFrame(qboolean clear_scene)
 {
-	(void)clear_scene;
 	++ref_agc_begin_calls;
+	ref_agc_live_begin_frame( &ref_agc_live, clear_scene,
+		ref_agc_begin_calls );
 }
 
 static void RefAgcRenderScene(void)
@@ -150,18 +205,108 @@ static void RefAgcRenderScene(void)
 
 static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 {
-	(void)view;
+	RefAgcLiveView live;
 	++ref_agc_scene_calls;
+	if( !view )
+		return;
+	memset( &live, 0, sizeof(live) );
+	memcpy( live.viewport, view->viewport, sizeof(live.viewport) );
+	RefAgcCopy3( live.origin, view->vieworigin );
+	RefAgcCopy3( live.angles, view->viewangles );
+	live.fov_x = view->fov_x;
+	live.fov_y = view->fov_y;
+	live.view_entity = view->viewentity;
+	live.flags = (uint32_t)view->flags;
+	ref_agc_live_set_view( &ref_agc_live, &live, ref_agc_scene_calls );
 }
 
 static void RefAgcEndFrame(void)
 {
 	++ref_agc_end_calls;
+	(void)ref_agc_live_publish( &ref_agc_live, ref_agc_end_calls );
 }
 
 static void RefAgcNewMap(void)
 {
 	++ref_agc_newmap_calls;
+	RefAgcCaptureWorld();
+}
+
+static void RefAgcClearScene(void)
+{
+	ref_agc_live_clear_scene( &ref_agc_live );
+}
+
+static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
+{
+	RefAgcLiveEntity live;
+	if( !entity )
+		return false;
+	memset( &live, 0, sizeof(live) );
+	live.index = entity->index;
+	live.entity_type = type;
+	live.model_type = entity->model ? entity->model->type : mod_bad;
+	live.model_index = entity->curstate.modelindex;
+	live.sequence = entity->curstate.sequence;
+	live.body = entity->curstate.body;
+	live.skin = entity->curstate.skin;
+	live.render_mode = entity->curstate.rendermode;
+	live.render_amount = entity->curstate.renderamt;
+	live.render_fx = entity->curstate.renderfx;
+	live.effects = (uint32_t)entity->curstate.effects;
+	live.render_color[0] = entity->curstate.rendercolor.r;
+	live.render_color[1] = entity->curstate.rendercolor.g;
+	live.render_color[2] = entity->curstate.rendercolor.b;
+	live.render_color[3] = (uint8_t)(entity->curstate.renderamt < 0 ? 0 :
+		entity->curstate.renderamt > 255 ? 255 : entity->curstate.renderamt);
+	RefAgcCopy3( live.origin, entity->origin );
+	RefAgcCopy3( live.angles, entity->angles );
+	live.scale = entity->curstate.scale;
+	live.frame = entity->curstate.frame;
+	if( entity->model )
+		strncpy( live.model_name, entity->model->name,
+			sizeof(live.model_name) - 1u );
+	return ref_agc_live_add_entity( &ref_agc_live, &live ) == 0;
+}
+
+static void RefAgcSet2DMode(qboolean enable)
+{
+	RefAgcLive2DCommand command;
+	memset( &command, 0, sizeof(command) );
+	command.type = REF_AGC_LIVE_2D_MODE;
+	command.enabled = enable != false;
+	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
+}
+
+static void RefAgcDrawStretchPic(float x, float y, float w, float h,
+	float s1, float t1, float s2, float t2, int texture)
+{
+	RefAgcLive2DCommand command;
+	memset( &command, 0, sizeof(command) );
+	command.type = REF_AGC_LIVE_2D_STRETCH_PIC;
+	command.texture = texture;
+	command.x = x; command.y = y; command.width = w; command.height = h;
+	command.s1 = s1; command.t1 = t1; command.s2 = s2; command.t2 = t2;
+	memset( command.color, 255, sizeof(command.color) );
+	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
+}
+
+static void RefAgcFillRGBA(int render_mode, float x, float y, float w,
+	float h, byte r, byte g, byte b, byte a)
+{
+	RefAgcLive2DCommand command;
+	memset( &command, 0, sizeof(command) );
+	command.type = REF_AGC_LIVE_2D_FILL_RGBA;
+	command.render_mode = render_mode;
+	command.x = x; command.y = y; command.width = w; command.height = h;
+	command.color[0] = r; command.color[1] = g;
+	command.color[2] = b; command.color[3] = a;
+	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
+}
+
+int PS5_RefAgcTakeLiveFrame(uint64_t after_serial, RefAgcLiveFrame *out)
+{
+	return ref_agc_live_take_latest( &ref_agc_live, after_serial, out );
 }
 
 int PS5_RefAgcPrxRuntimeState(void) { return ref_agc_runtime_state; }
@@ -205,5 +350,10 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_EndFrame = RefAgcEndFrame;
 	funcs->R_NewMap = RefAgcNewMap;
 	funcs->GL_RenderFrame = RefAgcRenderFrame;
+	funcs->R_ClearScene = RefAgcClearScene;
+	funcs->R_AddEntity = RefAgcAddEntity;
+	funcs->R_Set2DMode = RefAgcSet2DMode;
+	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
+	funcs->FillRGBA = RefAgcFillRGBA;
 	return REF_API_VERSION;
 }
