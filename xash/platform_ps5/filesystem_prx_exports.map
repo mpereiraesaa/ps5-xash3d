@@ -1,0 +1,13 @@
+{
+	global:
+		GetFSAPI;
+		CreateInterface;
+		PS5_FilesystemPrxIndexCount;
+		PS5_FilesystemPrxAllocatorContractResult;
+		PS5_FilesystemPrxListingRefusedCount;
+		filesystem_stdio_prx_exports;
+		module_start;
+		module_stop;
+	local:
+		*;
+};

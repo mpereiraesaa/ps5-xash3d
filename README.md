@@ -22,7 +22,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 3 — Texture path | Complete | Dynamic lightmap, deterministic mip chains with trilinear/anisotropic filtering, alpha test, sky pass, exact accounting, final 60,000-frame soak with zero errors |
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
-| 6 — Engine integration | In progress | The application-owned PRX loader passed load/resolve/call/unload on FW 12.02; converting filesystem, server, menu, client and `ref_agc` remains |
+| 6 — Engine integration | In progress | The loader and dynamic `filesystem_stdio` gates passed on FW 12.02 with the complete 4,823-entry tree, large/mixed-case reads and exact unload; server, menu, client and `ref_agc` remain |
 | 7 — Playable and release | Later | Gameplay, performance and level-transition soaks, reproducible release |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
@@ -101,6 +101,19 @@ XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
 
 Its descriptor ABI, rollback ownership and accepted FW 12.02 evidence are in
 [`docs/PRX_LOADER_PHASE6.md`](docs/PRX_LOADER_PHASE6.md).
+
+Build the second Phase 6 gate, which moves only `filesystem_stdio` into an
+application-owned PRX and retains the static server rollback point:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  XASH_REF=none XASH_GATE_SECONDS=15 \
+  make engine-filesystem-prx-native-release
+```
+
+The module ABI, shared-libc allocator contract, complete-tree workload and
+accepted evidence are in
+[`docs/FILESYSTEM_PRX_PHASE6.md`](docs/FILESYSTEM_PRX_PHASE6.md).
 
 Build the ScePad gate on the same dedicated host. The foreground DualSense
 must exercise movement, look, jump, crouch, use and fire before the bounded
@@ -206,6 +219,7 @@ Useful references:
 - [`docs/GPU_FLIP_TIMING_PHASE5.md`](docs/GPU_FLIP_TIMING_PHASE5.md) — GPU end-of-pipe timestamps and exact VideoOut flip latency
 - [`docs/LIBC_SHIMS_PHASE5.md`](docs/LIBC_SHIMS_PHASE5.md) — project-owned assert, identity and address-fallback shims
 - [`docs/PRX_LOADER_PHASE6.md`](docs/PRX_LOADER_PHASE6.md) — application-owned PRX loader, descriptor ABI and hardware evidence
+- [`docs/FILESYSTEM_PRX_PHASE6.md`](docs/FILESYSTEM_PRX_PHASE6.md) — dynamic filesystem module, allocator ABI and complete-tree hardware evidence
 - [`docs/GOLDSRC_RENDER_STATES_PHASE4.md`](docs/GOLDSRC_RENDER_STATES_PHASE4.md) — Phase 4 state space, gate order and current checkpoint
 - [`docs/BACKEND_PROVENANCE.md`](docs/BACKEND_PROVENANCE.md) — source provenance boundary
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — hardware evidence

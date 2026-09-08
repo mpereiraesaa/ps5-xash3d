@@ -41,6 +41,8 @@
 #                          identity and the dladdr fallback (default 0)
 #   XASH_PRX_GATE          load/call/unload a minimal application-owned PRX
 #                          through the engine COM_* API (default 0)
+#   XASH_FILESYSTEM_PRX   package filesystem_stdio as the first real dynamic
+#                         engine module; server remains static (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -64,6 +66,7 @@ memory_gate=${XASH_MEMORY_GATE:-0}
 thread_time_gate=${XASH_THREAD_TIME_GATE:-0}
 libc_shim_gate=${XASH_LIBC_SHIM_GATE:-0}
 prx_gate=${XASH_PRX_GATE:-0}
+filesystem_prx=${XASH_FILESYSTEM_PRX:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -76,6 +79,7 @@ ref_name=${XASH_REF:-soft}
 [[ $thread_time_gate == 0 || $thread_time_gate == 1 ]] || { echo "XASH_THREAD_TIME_GATE must be 0 or 1" >&2; exit 2; }
 [[ $libc_shim_gate == 0 || $libc_shim_gate == 1 ]] || { echo "XASH_LIBC_SHIM_GATE must be 0 or 1" >&2; exit 2; }
 [[ $prx_gate == 0 || $prx_gate == 1 ]] || { echo "XASH_PRX_GATE must be 0 or 1" >&2; exit 2; }
+[[ $filesystem_prx == 0 || $filesystem_prx == 1 ]] || { echo "XASH_FILESYSTEM_PRX must be 0 or 1" >&2; exit 2; }
 [[ $audio_user == system || $audio_user == foreground ]] || {
     echo "XASH_AUDIO_USER must be system or foreground" >&2; exit 2; }
 [[ $audio_gate_frames =~ ^[0-9]+$ ]] || {
@@ -194,13 +198,17 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_THREAD_TIME_GATE $thread_time_gate
 #define PS5_XASH_LIBC_SHIM_GATE $libc_shim_gate
 #define PS5_XASH_PRX_GATE $prx_gate
+#define PS5_XASH_FILESYSTEM_PRX $filesystem_prx
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
 # generated_library_tables.h lists the module names (mode-dependent) and is
 # compiled into the static half of lib_ps5.c; per-module export tables are generated later into
 # $gen/helpers once each relocatable is known.
-table_specs=(filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" server="$root/xash/exports/server.txt")
+table_specs=(server="$root/xash/exports/server.txt")
+if [[ $filesystem_prx == 0 ]]; then
+    table_specs=(filesystem_stdio="$root/xash/exports/filesystem_stdio.txt" "${table_specs[@]}")
+fi
 if [[ $mode == client ]]; then
     table_specs+=(menu="$root/xash/exports/menu.txt" client="$root/xash/exports/client.txt"
         ref_null="$root/xash/exports/ref.txt" ref_soft="$root/xash/exports/ref.txt")
@@ -407,23 +415,48 @@ build_module() {
 }
 
 echo "== filesystem_stdio module"
+fs_helper=()
+if [[ $filesystem_prx == 0 ]]; then
+    fs_helper=("$gen/link_helper_filesystem_stdio.c")
+fi
 if [[ $fs_trace == 1 ]]; then
     fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c' \
         ! -name 'io.c' ! -name 'searchpath.c'; \
         echo "$gen/fs_trace/io.c"; echo "$gen/fs_trace/searchpath.c"; \
-        echo "$gen/link_helper_filesystem_stdio.c")
+        printf '%s\n' "${fs_helper[@]}")
 else
-    fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c'; echo "$gen/link_helper_filesystem_stdio.c")
+    fs_sources=$(find "$xash/filesystem" -maxdepth 1 -name '*.c'; printf '%s\n' "${fs_helper[@]}")
+fi
+if [[ $filesystem_prx == 1 ]]; then
+    fs_sources=$(printf '%s\n' "$fs_sources" | grep -vE '/(dll|searchpath)\.c$')
+fi
+fs_module_cflags=("${module_cflags[@]}")
+if [[ $filesystem_prx == 1 ]]; then
+    fs_module_cflags+=(-fPIC)
 fi
 printf '%s\n' "$fs_sources" | sort -u |
-    compile_set "$build/filesystem.objects" "$build/obj/filesystem" -std=gnu11 "${module_cflags[@]}" \
+    compile_set "$build/filesystem.objects" "$build/obj/filesystem" -std=gnu11 "${fs_module_cflags[@]}" \
         "${engine_defines[@]}" "${engine_includes[@]}"
 mapfile -t fs_objects < "$build/filesystem.objects"
-"${cc[@]}" -std=gnu++11 "${module_cflags[@]}" -fno-exceptions -fno-rtti \
+"${cc[@]}" -std=gnu++11 "${fs_module_cflags[@]}" -fno-exceptions -fno-rtti \
     "${engine_defines[@]}" "${engine_includes[@]}" \
     -c "$xash/filesystem/VFileSystem009.cpp" -o "$build/obj/filesystem/VFileSystem009.o"
 fs_objects+=("$build/obj/filesystem/VFileSystem009.o")
-build_module filesystem_stdio "${fs_objects[@]}"
+if [[ $filesystem_prx == 0 ]]; then
+    build_module filesystem_stdio "${fs_objects[@]}"
+else
+    "${cc[@]}" -std=gnu11 "${fs_module_cflags[@]}" \
+        "${engine_defines[@]}" "${engine_includes[@]}" \
+        -DFS_InitStdio=PS5_FilesystemPrxOriginalInitStdio \
+        -DFS_LoadGameInfo=PS5_FilesystemPrxOriginalLoadGameInfo \
+        -c "$xash/filesystem/searchpath.c" -o "$build/obj/filesystem/searchpath-prx.o"
+    "${cc[@]}" -std=gnu11 "${fs_module_cflags[@]}" \
+        "${engine_defines[@]}" "${engine_includes[@]}" \
+        -DFS_InitStdio=PS5_FilesystemPrxInitStdio \
+        -DFS_LoadGameInfo=PS5_FilesystemPrxLoadGameInfo \
+        -c "$xash/filesystem/dll.c" -o "$build/obj/filesystem/dll-prx.o"
+    fs_objects+=("$build/obj/filesystem/searchpath-prx.o" "$build/obj/filesystem/dll-prx.o")
+fi
 
 echo "== server module (hlsdk-portable)"
 server_defines=(-DCLIENT_WEAPONS -DNO_VOICEGAMEMGR -Dstricmp=strcasecmp
@@ -490,7 +523,10 @@ print(f"{name} exports: {len(kept)} of {len(names)} listed names are defined")
 PY
 }
 
-module_names=(filesystem_stdio server)
+module_names=(server)
+if [[ $filesystem_prx == 0 ]]; then
+    module_names=(filesystem_stdio "${module_names[@]}")
+fi
 if [[ $mode == client ]]; then
     llvm_nm=${LLVM_NM:-$(command -v llvm-nm-18 || command -v llvm-nm)}
     cxx_flags=("${module_cflags[@]}" -fno-exceptions -fno-rtti)
@@ -558,10 +594,47 @@ if [[ $mode == client ]]; then
         "${cc[@]}" -std=gnu11 "${module_cflags[@]}" -c "$gen/helpers/link_helper_$m.c" -o "$build/obj/link_helper_$m.o"
         build_module "$m" "$build/$m.stage1.o" "$build/obj/link_helper_$m.o"
     done
-    module_names=(filesystem_stdio server menu client ref_null ref_soft)
+    module_names=(server menu client ref_null ref_soft)
+    if [[ $filesystem_prx == 0 ]]; then
+        module_names=(filesystem_stdio "${module_names[@]}")
+    fi
 fi
 module_objects=()
 for m in "${module_names[@]}"; do module_objects+=("$build/$m.o"); done
+
+if [[ $filesystem_prx == 1 ]]; then
+    echo "== Phase 6 filesystem_stdio PRX"
+    mkdir -p "$build/prx/filesystem"
+    fs_prx_support=(
+        "$xash/public/crtlib.c"
+        "$xash/public/crclib.c"
+        "$xash/public/miniz.c"
+        "$xash/public/build_vcs.c"
+        "$xash/3rdparty/library_suffix/src/library_suffix.c"
+        "$root/xash/platform_ps5/fs_ps5.c"
+        "$root/xash/platform_ps5/filesystem_prx_module.c"
+    )
+    printf '%s\n' "${fs_prx_support[@]}" |
+        compile_set "$build/filesystem-prx-support.objects" "$build/prx/filesystem" -std=gnu11 \
+            "${cflags[@]}" -fPIC \
+            "${engine_defines[@]}" "${engine_includes[@]}"
+    mapfile -t fs_prx_support_objects < "$build/filesystem-prx-support.objects"
+    "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
+        -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+        -o "$build/prx/filesystem/app_cpp_runtime.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$root/xash/platform_ps5/filesystem_prx_exports.map" \
+        -soname filesystem_stdio.prx -o "$build/prx/filesystem_stdio.shared.elf" \
+        "${fs_objects[@]}" "${fs_prx_support_objects[@]}" \
+        "$build/prx/filesystem/app_cpp_runtime.o" --as-needed "$sdk"/target/lib/*.so
+    "$tool" link --module --in "$build/prx/filesystem_stdio.shared.elf" \
+        --out "$build/prx/filesystem_stdio.elf" --stub-dir "$sdk/target/lib" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name filesystem_stdio.prx
+    "$tool" self --sign --in "$build/prx/filesystem_stdio.elf" \
+        --out "$dist/sce_module/filesystem_stdio.prx"
+    "$tool" self --inspect --file "$dist/sce_module/filesystem_stdio.prx"
+fi
 
 if [[ $prx_gate == 1 ]]; then
     echo "== Phase 6 PRX loader probe module"
@@ -730,6 +803,58 @@ if [[ $prx_gate == 1 ]]; then
     [[ -s $dist/sce_module/xash_prx_probe.prx ]] || {
         echo "XASH_PRX_GATE=1 did not package xash_prx_probe.prx" >&2; exit 1; }
 fi
+if [[ $filesystem_prx == 1 ]]; then
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_FS_PRX_READY XASH_FS_PRX_STATE XASH_FS_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_FILESYSTEM_PRX=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    [[ -s $dist/sce_module/filesystem_stdio.prx ]] || {
+        echo "XASH_FILESYSTEM_PRX=1 did not package filesystem_stdio.prx" >&2; exit 1; }
+    strings "$build/prx/filesystem_stdio.shared.elf" > "$build/filesystem-prx-strings.txt"
+    for marker in XASH_FS_PRX_PROBE GfX/PaLeTtE.LmP maps/c1a0.bsp; do
+        if ! grep -Fq "$marker" "$build/filesystem-prx-strings.txt"; then
+            echo "filesystem_stdio.prx did not retain workload marker $marker" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/filesystem_stdio.shared.elf" \
+        > "$build/filesystem-prx-shared-symbols.txt"
+    for symbol in GetFSAPI CreateInterface PS5_FilesystemPrxIndexCount \
+        PS5_FilesystemPrxAllocatorContractResult \
+        PS5_FilesystemPrxListingRefusedCount filesystem_stdio_prx_exports \
+        module_start module_stop; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/filesystem-prx-shared-symbols.txt"; then
+            echo "filesystem_stdio.prx did not export $symbol" >&2
+            exit 1
+        fi
+    done
+    for symbol in malloc free; do
+        if ! grep -Eq "UND[[:space:]]+$symbol$" \
+            "$build/filesystem-prx-shared-symbols.txt"; then
+            echo "filesystem_stdio.prx lost its shared-libc $symbol contract" >&2
+            exit 1
+        fi
+    done
+    if grep -Eq '[[:space:]]__wrap_(malloc|free)$' \
+        "$build/filesystem-prx-shared-symbols.txt"; then
+        echo "filesystem_stdio.prx retained a private allocator wrapper" >&2
+        exit 1
+    fi
+    "$readelf" --dyn-syms "$build/prx/filesystem_stdio.elf" \
+        > "$build/filesystem-prx-dynamic-symbols.txt"
+    if grep -Eq 'UND[[:space:]]+(GetFSAPI|CreateInterface|COM_|Q_|FS_)' \
+        "$build/filesystem-prx-dynamic-symbols.txt"; then
+        echo "filesystem_stdio.prx leaked an application-owned dynamic import" >&2
+        exit 1
+    fi
+    python3 "$root/xash/tools/audit_dyn_imports.py" "$build/prx/filesystem_stdio.elf" \
+        --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+        --stub-dir "$sdk/target/lib" \
+        --output "$build/PS5_FILESYSTEM_PRX_DYNAMIC_IMPORT_AUDIT.md"
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -775,4 +900,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx"

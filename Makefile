@@ -8,6 +8,7 @@ STUDIO_SEQUENCE ?= fire
 	engine-audio-native-release engine-audio-client-link \
 	engine-memory-native-release engine-thread-time-native-release \
 	engine-prx-loader-native-release \
+	engine-filesystem-prx-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -308,6 +309,11 @@ engine-libc-shims-native-release:
 # through the engine's COM_* library API. Existing engine modules stay static.
 engine-prx-loader-native-release:
 	XASH_PRX_GATE=1 bash xash/build_engine.sh
+
+# Phase 6 gate 2: load filesystem_stdio from an application-owned PRX while
+# preserving the static server rollback point.
+engine-filesystem-prx-native-release:
+	XASH_FILESYSTEM_PRX=1 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
