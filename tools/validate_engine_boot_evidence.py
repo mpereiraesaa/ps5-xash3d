@@ -364,6 +364,50 @@ def validate_thread_time_gate(messages: list[str]) -> dict[str, str]:
     return complete
 
 
+def validate_libc_shim_gate(messages: list[str]) -> dict[str, str]:
+    """Validate the three project-owned libc compatibility shims."""
+    begin = one(messages, "XASH_LIBC_SHIM_BEGIN")
+    end = one(messages, "XASH_LIBC_SHIM_END")
+    results = [parse_fields(message) for message in messages
+               if message.startswith("XASH_LIBC_SHIM_RESULT ")]
+
+    if begin.get("schema") != "1" \
+            or begin.get("symbols") != "__assert,getpwuid,dladdr":
+        fail("libc shim workload contract mismatch")
+    if len(results) != 3:
+        fail(f"expected 3 libc shim results, found {len(results)}")
+    by_symbol = {result.get("symbol", ""): result for result in results}
+    if set(by_symbol) != {"__assert", "getpwuid", "dladdr"}:
+        fail("libc shim result symbol set mismatch")
+
+    assertion = by_symbol["__assert"]
+    expected_assert = {
+        "implementation": "project-owned", "reporter": "ps5log",
+        "abort": "noreturn", "format_pass": "1",
+    }
+    if any(assertion.get(key) != value for key, value in expected_assert.items()):
+        fail("project-owned __assert contract failed")
+
+    identity = by_symbol["getpwuid"]
+    expected_identity = {
+        "implementation": "project-owned", "requested_uid": "0xff",
+        "returned_uid": "0xff", "username": "ps5", "pass": "1",
+    }
+    if any(identity.get(key) != value for key, value in expected_identity.items()):
+        fail("fixed getpwuid identity contract failed")
+
+    address = by_symbol["dladdr"]
+    expected_address = {
+        "implementation": "project-owned", "result": "0",
+        "fallback": "argv0", "info": "zeroed", "pass": "1",
+    }
+    if any(address.get(key) != value for key, value in expected_address.items()):
+        fail("deterministic dladdr fallback contract failed")
+    if end.get("pass") != "1":
+        fail("libc shim completion contract failed")
+    return end
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -375,6 +419,7 @@ def validate(
     audio_gate: bool = False,
     memory_gate: bool = False,
     thread_time_gate: bool = False,
+    libc_shim_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -463,6 +508,8 @@ def validate(
         fail("direct-memory gate was not enabled in the artifact")
     if thread_time_gate and boot.get("thread_time_gate") != "1":
         fail("thread/time gate was not enabled in the artifact")
+    if libc_shim_gate and boot.get("libc_shim_gate") != "1":
+        fail("libc shim gate was not enabled in the artifact")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -473,6 +520,9 @@ def validate(
     if thread_time_gate and (exit_fields.get("thread_time_gate") != "1" or
                              exit_fields.get("thread_time_pass") != "1"):
         fail("thread/time result was not successful")
+    if libc_shim_gate and (exit_fields.get("libc_shim_gate") != "1" or
+                           exit_fields.get("libc_shim_pass") != "1"):
+        fail("libc shim result was not successful")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -511,6 +561,10 @@ def validate(
     thread_time_complete: dict[str, str] | None = None
     if thread_time_gate:
         thread_time_complete = validate_thread_time_gate(messages)
+
+    libc_shim_complete: dict[str, str] | None = None
+    if libc_shim_gate:
+        libc_shim_complete = validate_libc_shim_gate(messages)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -602,6 +656,8 @@ def validate(
         if thread_time_complete else 0,
         "thread_time_counter": int(thread_time_complete["counter"], 10)
         if thread_time_complete else 0,
+        "libc_shim_gate": libc_shim_gate,
+        "libc_shim_pass": libc_shim_complete is not None,
     }
 
 
@@ -616,6 +672,7 @@ def main() -> int:
     parser.add_argument("--audio-gate", action="store_true")
     parser.add_argument("--memory-gate", action="store_true")
     parser.add_argument("--thread-time-gate", action="store_true")
+    parser.add_argument("--libc-shim-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -631,6 +688,7 @@ def main() -> int:
             audio_gate=args.audio_gate,
             memory_gate=args.memory_gate,
             thread_time_gate=args.thread_time_gate,
+            libc_shim_gate=args.libc_shim_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

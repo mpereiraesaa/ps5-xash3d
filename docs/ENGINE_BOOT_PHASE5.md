@@ -179,7 +179,7 @@ escapes gluing a structured record to a console line, and finally a
 `PS5_XASH_GATE_SECONDS` definition that had not reached the backend. Each
 answer is a shim or a build step above; the engine sources are untouched.
 
-## Remaining Phase 5 gates
+## Phase 5 gate closure
 
 The authoritative phase boundary is `docs/XASH3D_PS5_PLAN.html` in the lab
 repository.  Client mode, `mainui`, the hlsdk client and renderer loading are
@@ -213,9 +213,13 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
 6. **GPU/flip timing complete.** The Phase 4 backend passed 60,000 correlated
    EOP timestamp, fence and exact VideoOut-event records on FW 12.02. See
    `GPU_FLIP_TIMING_PHASE5.md`.
-7. **Next:** Project-owned `__assert`, fixed/SceUserService identity instead of
-   `getpwuid`, and logging that does not require `dladdr`.
+7. **Libc shims complete.** Project-owned `__assert`, fixed non-security
+   identity and deterministic `dladdr` fallback passed the host suite, the
+   no-import ELF audit and FW 12.02 run
+   `20260907T235551519Z_PPSA99996_xash3d-engine_0xd12e2a9238fb`. See
+   `LIBC_SHIMS_PHASE5.md`.
 
-The application-owned PRX conversion and `ref_agc` remain Phase 6.  The
+This closes Phase 5. The application-owned PRX conversion and `ref_agc` remain
+Phase 6. The
 accepted dedicated run above stays immutable evidence for the first engine
 bring-up; later gates add evidence rather than rewriting it.

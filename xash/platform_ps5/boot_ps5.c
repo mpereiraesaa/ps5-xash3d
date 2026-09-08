@@ -35,6 +35,7 @@ the exit the shell accepts without an error dialog.
 #include "in_ps5.h"
 #include "audio_ps5.h"
 #include "mem_ps5.h"
+#include "libc_shims_ps5.h"
 
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
@@ -122,6 +123,31 @@ static int probe_optional_libc( void )
 		n, cat, n == 11 && strcmp( cat, "gfx/palette" ) == 0 );
 	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_END pass=%d", passed );
 	return passed;
+}
+#endif
+
+#if PS5_XASH_LIBC_SHIM_GATE
+static int probe_project_libc_shims( void )
+{
+	Ps5LibcShimProbe probe;
+	const int rc = PS5_LibcShimProbe( 0xffu, &probe );
+	(void)ps5log_line( PS5LOG_MARK,
+		"XASH_LIBC_SHIM_BEGIN schema=1 symbols=__assert,getpwuid,dladdr" );
+	(void)ps5log_printf( probe.assert_format_pass ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_LIBC_SHIM_RESULT symbol=__assert implementation=project-owned "
+		"reporter=ps5log abort=noreturn format_pass=%u",
+		probe.assert_format_pass );
+	(void)ps5log_printf( probe.identity_pass ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_LIBC_SHIM_RESULT symbol=getpwuid implementation=project-owned "
+		"requested_uid=0x%x returned_uid=0x%x username=%s pass=%u",
+		(unsigned)probe.requested_uid, (unsigned)probe.returned_uid,
+		probe.username, probe.identity_pass );
+	(void)ps5log_printf( probe.dladdr_pass ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_LIBC_SHIM_RESULT symbol=dladdr implementation=project-owned "
+		"result=0 fallback=argv0 info=zeroed pass=%u", probe.dladdr_pass );
+	(void)ps5log_printf( rc == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_LIBC_SHIM_END pass=%d", rc == 0 );
+	return rc;
 }
 #endif
 
@@ -268,6 +294,7 @@ int main( int argc, char **argv )
 	int memory_gate_result;
 #endif
 	int thread_time_pass = 1;
+	int libc_shim_pass = 1;
 	int memory_pass = 1;
 	int memory_shutdown_result;
 	struct stat st;
@@ -310,6 +337,11 @@ int main( int argc, char **argv )
 		ps5log_close( "xash-libc-smoke-failed" );
 		_exit( 2 );
 	}
+#endif
+
+#if PS5_XASH_LIBC_SHIM_GATE
+	if( probe_project_libc_shims( ) != 0 )
+		libc_shim_pass = 0;
 #endif
 
 #if PS5_XASH_AUDIO_GATE
@@ -355,13 +387,14 @@ int main( int argc, char **argv )
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_BOOT schema=1 slice=engine-boot mode=%s ref=%s fw=12.02 "
 		"engine=%s hlsdk=%s rodir=%s basedir=%s gamedir=%s map=%s gate_seconds=%d pad_gate=%d "
-		"audio_gate=%d memory_gate=%d thread_time_gate=%d "
+		"audio_gate=%d memory_gate=%d thread_time_gate=%d libc_shim_gate=%d "
 		"rodir_present=%d",
 		PS5_XASH_MODE, PS5_XASH_MODE_CLIENT ? PS5_XASH_REF : "none",
 		PS5_XASH_ENGINE_COMMIT, PS5_XASH_HLSDK_COMMIT, rwdir ? PS5_XASH_RODIR : "none", basedir,
 		PS5_XASH_GAMEDIR, PS5_XASH_BOOT_MAP,
 		PS5_XASH_GATE_SECONDS, PS5_XASH_PAD_GATE, PS5_XASH_AUDIO_GATE,
 		PS5_XASH_MEMORY_GATE, PS5_XASH_THREAD_TIME_GATE,
+		PS5_XASH_LIBC_SHIM_GATE,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
 
 	engine_argv[engine_argc++] = "eboot.bin";
@@ -454,16 +487,17 @@ int main( int argc, char **argv )
 			"XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu "
 			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
 			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d "
-			"thread_time_gate=%d thread_time_pass=%d",
+			"thread_time_gate=%d thread_time_pass=%d libc_shim_gate=%d libc_shim_pass=%d",
 			result, PS5_ListingRefusedCount( ), arena.live_bytes,
 			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
 			(unsigned long long)arena.failures,
 			(unsigned long long)root.foreign_calls,
 			(unsigned long long)root.foreign_bytes, PS5_XASH_PAD_GATE,
 			PS5_XASH_MEMORY_GATE, memory_pass, PS5_XASH_THREAD_TIME_GATE,
-			thread_time_pass );
+			thread_time_pass, PS5_XASH_LIBC_SHIM_GATE, libc_shim_pass );
 	}
-	ps5log_close( memory_pass && thread_time_pass ? "xash-engine-boot-complete" :
-		thread_time_pass ? "xash-memory-gate-failed" : "xash-thread-time-gate-failed" );
-	_exit( memory_pass && thread_time_pass ? 0 : 2 );
+	ps5log_close( memory_pass && thread_time_pass && libc_shim_pass ?
+		"xash-engine-boot-complete" : !memory_pass ? "xash-memory-gate-failed" :
+		!thread_time_pass ? "xash-thread-time-gate-failed" : "xash-libc-shim-gate-failed" );
+	_exit( memory_pass && thread_time_pass && libc_shim_pass ? 0 : 2 );
 }

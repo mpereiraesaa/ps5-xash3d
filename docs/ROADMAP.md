@@ -152,7 +152,8 @@
 - [x] Add GPU end-of-pipe timestamps and exact VideoOut-event latency to the
   Phase 4 backend; pass 60,000 correlated records with strict raw-clock
   progress, zero gaps/regressions and exact ownership on FW 12.02.
-- [ ] Close the remaining `__assert`, identity-without-`getpwuid` and
-  logging-without-`dladdr` platform shims with host and FW 12.02 evidence.
+- [x] Close project-owned `__assert`, fixed identity and deterministic
+  `dladdr` fallback shims with host tests, a no-import ELF audit and clean FW
+  12.02 engine evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

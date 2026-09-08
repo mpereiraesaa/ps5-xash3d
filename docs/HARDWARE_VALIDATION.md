@@ -914,6 +914,35 @@ frames of pipeline residence and is therefore about twice the roughly
 16.81 ms interval between consecutive retirements. The gate replaces the old
 deadline interpretation with these explicit, separately named measurements.
 
+## Phase 5 project-owned libc-shim gate
+
+- Run: `20260907T235551519Z_PPSA99996_xash3d-engine_0xd12e2a9238fb`
+- Linked ELF SHA-256:
+  `b87e61fc52230d2503290f92942fe2ab4b7d58730929bd30765aaaa926f957d0`
+- Signed fSELF SHA-256:
+  `14c7c9e13d668ed782a2d98a19ada2e21f2003a8d8e7dccf52085a291096e569`
+- Transcript / manifest SHA-256:
+  `f4f4c9ac51c122dc36f45e5645d75c37d3676992234279691e1a7ef3674c8961`
+  / `fdc1aef7159312a3173e09114dc8dad7879a56e01bde74d242ffa23d728fe4b2`
+- Engine/hlsdk commits: `9aa39ad` / `e277ffa`; map `c1a0`; 30 seconds
+- Symbol boundary: `__assert`, `getpwuid` and `dladdr` absent from the dynamic
+  undefined symbols and retained as local definitions in the full ELF table
+- Runtime probes: exact assert message formatting with `ps5log` reporter and
+  `noreturn` abort policy; uid `0xff` returned as fixed identity `ps5`;
+  `dladdr` returned zero with a cleared result for the `argv[0]` fallback
+- Engine workload: complete 4,823-entry index, `c1a0` loaded, `Host_Main`
+  result 0, no refused listing or allocation failure
+- Transport/closure: 30 structured records, 40 raw console lines, no gaps or
+  errors, clean `BYE reason=xash-engine-boot-complete`; no BigApp or temporary
+  deployment file remained
+
+The immutable validator accepted the manifest with `--libc-shim-gate`. The
+hardware probe intentionally does not trigger a fatal assertion; it verifies
+the same formatter plus the reporter/termination policy embedded in the local
+definition, while the host test exercises normal and truncating formatter
+paths. Existing crash logging uses the kernel module-list APIs and therefore
+does not rely on `dladdr`.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

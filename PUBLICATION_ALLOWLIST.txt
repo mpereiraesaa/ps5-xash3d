@@ -332,3 +332,7 @@ tests/test_thread_time_ps5.c
 xash/platform_ps5/thread_time_gate_ps5.c
 xash/platform_ps5/thread_time_ps5.c
 xash/platform_ps5/thread_time_ps5.h
+xash/platform_ps5/libc_shims_ps5.c
+xash/platform_ps5/libc_shims_ps5.h
+tests/test_libc_shims_ps5.c
+docs/LIBC_SHIMS_PHASE5.md

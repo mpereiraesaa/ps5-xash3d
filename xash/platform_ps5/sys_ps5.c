@@ -13,9 +13,8 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 Replaces engine/platform/posix/sys_posix.c on PS5. Timing and sleeping use the
-POSIX clocks that libkernel exports. The three libc symbols the SDK does not
-provide (__assert, getpwuid, and the C++ __dso_handle anchor) are defined here
-so the engine and the statically linked modules link without patches.
+POSIX clocks that libkernel exports. The C++ __dso_handle anchor remains here;
+the project-owned libc compatibility surface lives in libc_shims_ps5.c.
 
 The boot gate is bounded: PS5_XASH_GATE_SECONDS after the first Platform_Sleep
 call the backend queues "quit" once, so a hardware run ends with the engine's
@@ -28,7 +27,6 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include "ps5_xash_build.h"
 #include "in_ps5.h"
 #include <arpa/inet.h>
-#include <dlfcn.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -41,7 +39,6 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include <signal.h>
 #include <stdarg.h>
 #include <pthread.h>
-#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,28 +51,6 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 
 /* Anchor for __cxa_atexit registrations made by the C++ server module. */
 void *__dso_handle = &__dso_handle;
-
-/* FreeBSD libc assert() destination; libSceLibcInternal does not export it. */
-void __assert( const char *func, const char *file, int line, const char *expr )
-{
-	fprintf( stderr, "Assertion failed: (%s), function %s, file %s, line %d.\n",
-		expr, func ? func : "?", file, line );
-	fflush( stderr );
-	abort( );
-}
-
-/* id_posix.c only uses pw_name to salt the machine identifier. */
-struct passwd *getpwuid( uid_t uid )
-{
-	static struct passwd pw;
-	static char name[] = "ps5";
-	memset( &pw, 0, sizeof( pw ));
-	pw.pw_name = name;
-	pw.pw_dir = name;
-	pw.pw_shell = name;
-	pw.pw_uid = uid;
-	return &pw;
-}
 
 /*
 Console sink. The sandbox refuses dup2() onto descriptors 0-2 (EPERM) and
@@ -262,15 +237,6 @@ int getaddrinfo( const char *node, const char *service, const struct addrinfo *h
 void freeaddrinfo( struct addrinfo *ai )
 {
 	free( ai );
-}
-
-/* whereami.c probes dladdr for the executable path; there is no dynamic
-   symbol table to consult on this firmware, so it falls back to argv[0]. */
-int dladdr( const void *addr, Dl_info *info )
-{
-	(void)addr;
-	(void)info;
-	return 0;
 }
 
 /*

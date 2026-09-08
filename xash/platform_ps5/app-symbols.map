@@ -18,6 +18,9 @@
         gethostname;
         getaddrinfo;
         freeaddrinfo;
+        __assert;
+        getpwuid;
+        dladdr;
         getcwd;
         chdir;
         realpath;
