@@ -9,6 +9,7 @@ STUDIO_SEQUENCE ?= fire
 	engine-memory-native-release engine-thread-time-native-release \
 	engine-prx-loader-native-release \
 	engine-filesystem-prx-native-release \
+	engine-server-prx-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -158,6 +159,8 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_phase4_final_evidence.py
 	python3 tests/test_validate_gpu_flip_timing_evidence.py
 	python3 tests/test_generate_static_library_tables.py
+	python3 tests/test_generate_prx_descriptor.py
+	python3 tests/test_deploy_engine_bundle.py
 	python3 tests/test_instrument_fs_trace.py
 	python3 tests/test_deploy_game_data.py
 	python3 tests/test_audit_dyn_imports.py
@@ -314,6 +317,11 @@ engine-prx-loader-native-release:
 # preserving the static server rollback point.
 engine-filesystem-prx-native-release:
 	XASH_FILESYSTEM_PRX=1 bash xash/build_engine.sh
+
+# Phase 6 gate 3: load both the proven filesystem and the HLSDK server from
+# application-owned PRXs, spawn the map and release server before filesystem.
+engine-server-prx-native-release:
+	XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

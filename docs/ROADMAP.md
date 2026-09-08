@@ -160,8 +160,11 @@
   calls and exact unload on FW 12.02 without regressing the static engine.
 - [x] Convert `filesystem_stdio` to the application-owned PRX ABI and prove
   complete retail-tree lookup/read/case behavior through the dynamic module.
-- [ ] Convert the server, menu and client modules incrementally, preserving an
-  independently bootable rollback point after each module boundary.
+- [x] Convert the HLSDK server to an application-owned PRX, run its C++
+  initializer/finalizer arrays explicitly, spawn `c1a0` through the dynamic
+  callback ABI and unload it exactly before the filesystem module.
+- [ ] Convert the menu and client modules incrementally, preserving this
+  independently bootable filesystem/server rollback point after each boundary.
 - [ ] Bind `ref_agc` as the final engine module and replace the diagnostic
   renderer path with the Phase 4 backend.
 - [x] Require pull requests on `main`; require the host CI check after this PR
