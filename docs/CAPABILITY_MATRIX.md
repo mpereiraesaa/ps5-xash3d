@@ -3,8 +3,8 @@
 This document separates missing public imports from missing renderer contracts.
 It preserves the pre-Phase-1 capability analysis that led to the native Gears
 and GoldSrc renderer. All renderer gates through Phase 4 have since passed on
-FW 12.02; the current integration boundary is `client.prx`, followed by
-`ref_agc`.
+FW 12.02; `client.prx` has now passed and the current integration boundary is
+the independent `ref_agc` conversion.
 
 ## Hardware-proven core
 

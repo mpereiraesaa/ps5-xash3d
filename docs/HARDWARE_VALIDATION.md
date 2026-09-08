@@ -1073,6 +1073,39 @@ The fail-closed validator accepted it with `--mode client
 --filesystem-prx-gate --menu-prx-gate`. The optional legacy VGUI1 probe is
 recorded separately as a bounded warning and is not MainUI.
 
+## Phase 6 dynamic GoldSrc client PRX gate
+
+- Accepted run:
+  `20260908T130114060Z_PPSA99996_xash3d-engine_0xfc0996a1effb`
+- Host ELF / signed fSELF SHA-256:
+  `d461cdecc461f0b5472b082b2580b2748f1161e65aa66cba0b0b6c8e26a0d736` /
+  `9d215b914097a007f5f8b6f69ab8f92481c8341e5090bb5ccc64e81adeb854ef`
+- Client PRX ELF / signed fSELF SHA-256:
+  `70b54c8628eab934d1cef3d3cb0c2baa177a3a2ddde5e2cf01daddb81e045ba4` /
+  `9600971dcc1dcf4b6e5d1f90b05b54bc3dabd4cfb50eb8a4a5f2b89a3abd321a`
+- Transcript / manifest SHA-256:
+  `95ce0a78d96f4f12a72097553d47329a98d35bd4ebf3b40e252d6964e0bd2524` /
+  `3e92238bad943b6dc824b6e4d2001ab4a83e8cbf31f8ab43ea4f393ab129a366`
+- Dynamic boundary: four client mappings, 48 descriptor entries, 42 actual
+  exports, explicit start result zero and 42 imports with zero denied imports.
+- Callback ABI: interface 7, engine mask 63, module mask 15 and both
+  non-mutating PRX-to-engine callback smokes passed.
+- Engine workload: filesystem mixed-case/large reads passed, the Half-Life
+  DLL loaded, `c1a0` spawned and the client performed one video init, 4,916
+  frame calls and 4,907 successful HUD redraws.
+- Presentation: 4,800 non-black software frames, final hash
+  `3af6afa7ee47ec93`; this does not claim native AGC display.
+- Teardown: server, menu, client and filesystem stopped/unloaded in order with
+  active counts 3, 2, 1 and 0. The bounded run has 89 structured records, 115
+  raw lines, zero errors/gaps/oversized records, result zero and a clean BYE.
+
+The validator accepted the immutable manifest with `--mode client
+--filesystem-prx-gate --menu-prx-gate --client-prx-gate`. Rejected run
+`20260908T125432929Z_PPSA99996_xash3d-engine_0xfbac31b2bacd` is retained only
+as a diagnostic: it proved client load, interface and teardown but the
+menu-only workload never invoked client video init/redraw. The accepted gate
+enters `c1a0`; the prior standalone menu gate remains the visible-UI authority.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

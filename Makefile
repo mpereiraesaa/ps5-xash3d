@@ -330,6 +330,12 @@ engine-menu-prx-native-release:
 	XASH_MODE=client XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 bash xash/build_engine.sh
 
+# Phase 6 gate 5: move the GoldSrc/HLSDK client behind client.prx while the
+# accepted filesystem, server and menu PRXs remain the rollback point.
+engine-client-prx-native-release:
+	XASH_MODE=client XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
+		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 bash xash/build_engine.sh
+
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh
 

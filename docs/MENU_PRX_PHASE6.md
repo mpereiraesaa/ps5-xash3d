@@ -71,5 +71,5 @@ part of this gate.
   lines, no errors, gaps or oversized records, and a clean BYE.
 
 Validate the immutable run with `--mode client --filesystem-prx-gate
---menu-prx-gate`. The next rollback point converts the client module while
-retaining this accepted filesystem/server/menu bundle.
+--menu-prx-gate`. The subsequent `client.prx` gate passed and is documented in
+`CLIENT_PRX_PHASE6.md`; this standalone menu run remains the visible-UI proof.

@@ -6,6 +6,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "platform/platform.h"
 #include "common.h"
+#include "cdll_int.h"
 #include "library.h"
 #include "menu_int.h"
 #include "lib_ps5.h"
@@ -51,6 +52,20 @@ static unsigned ps5_menu_redraw_calls;
 static unsigned ps5_menu_active_calls;
 static int ps5_menu_api_pass;
 static int ps5_menu_ext_api_pass;
+static int ( *ps5_client_initialize )( cl_enginefunc_t *, int );
+static void ( *ps5_client_init )( void );
+static int ( *ps5_client_vid_init )( void );
+static void ( *ps5_client_frame )( double );
+static int ( *ps5_client_redraw )( float, int );
+static void ( *ps5_client_shutdown )( void );
+static unsigned ps5_client_initialize_calls;
+static unsigned ps5_client_init_calls;
+static unsigned ps5_client_vid_init_calls;
+static unsigned ps5_client_frame_calls;
+static unsigned ps5_client_redraw_calls;
+static unsigned ps5_client_shutdown_calls;
+static int ps5_client_api_pass;
+static int ps5_client_abi_pass;
 
 static unsigned PS5_MenuFunctionCount( const UI_FUNCTIONS *functions )
 {
@@ -198,6 +213,115 @@ static int PS5_MenuGetExtApiTrampoline( int version,
 	return result;
 }
 
+static int PS5_ClientInitializeTrampoline( cl_enginefunc_t *engine, int version )
+{
+	ps5_dynamic_library_t *library;
+	int ( *mask )( void ) = NULL;
+	int ( *smoke )( int ) = NULL;
+	unsigned engine_mask = 0;
+	int module_mask = -1;
+	int smoke_pass = 1;
+	int result;
+	int step;
+
+	result = ps5_client_initialize ? ps5_client_initialize( engine, version ) : 0;
+	ps5_client_initialize_calls++;
+	if( engine )
+	{
+		if( engine->pfnGetCvarPointer ) engine_mask |= 1u;
+		if( engine->pfnRegisterVariable ) engine_mask |= 2u;
+		if( engine->Con_Printf ) engine_mask |= 4u;
+		if( engine->pfnAddCommand ) engine_mask |= 8u;
+		if( engine->COM_LoadFile ) engine_mask |= 16u;
+		if( engine->pfnGetGameDirectory ) engine_mask |= 32u;
+	}
+	for( library = ps5_dynamic_libraries; library; library = library->next )
+		if( !strcmp( library->module.name, "client.prx" ))
+		{
+			mask = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+				"PS5_ClientPrxEngineTableMask" );
+			smoke = (int ( * )( int ))PS5_PrxGetProc( &library->module,
+				"PS5_ClientPrxEngineTableSmoke" );
+			break;
+		}
+	if( mask ) module_mask = mask( );
+	for( step = 1; step <= 2; ++step )
+	{
+		int smoke_result = smoke ? smoke( step ) : 0;
+		if( smoke_result != 1 ) smoke_pass = 0;
+		(void)ps5log_printf( smoke_result == 1 ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_CLIENT_PRX_ABI_SMOKE step=%d result=%d pass=%d",
+			step, smoke_result, smoke_result == 1 ? 1 : 0 );
+	}
+	ps5_client_api_pass = result == 1 && version == CLDLL_INTERFACE_VERSION &&
+		engine_mask == 63u;
+	ps5_client_abi_pass = module_mask == 15 && smoke_pass;
+	(void)ps5log_printf( ps5_client_api_pass && ps5_client_abi_pass ?
+		PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_CLIENT_PRX_API result=%d version=%d expected_version=%d "
+		"engine_mask=%u expected_mask=63 module_mask=%d expected_module_mask=15 "
+		"calls=%u pass=%d",
+		result, version, CLDLL_INTERFACE_VERSION, engine_mask, module_mask,
+		ps5_client_initialize_calls,
+		ps5_client_api_pass && ps5_client_abi_pass );
+	return result;
+}
+
+static void PS5_ClientInitTrampoline( void )
+{
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_CLIENT_PRX_INIT phase=begin call=%u", ps5_client_init_calls + 1u );
+	if( ps5_client_init ) ps5_client_init( );
+	ps5_client_init_calls++;
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_CLIENT_PRX_INIT phase=complete call=%u active_modules=%u",
+		ps5_client_init_calls, PS5_PrxLibraryActiveCount( ));
+}
+
+static int PS5_ClientVidInitTrampoline( void )
+{
+	int result = ps5_client_vid_init ? ps5_client_vid_init( ) : 0;
+	ps5_client_vid_init_calls++;
+	(void)ps5log_printf( result == 1 ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_CLIENT_PRX_VID_INIT call=%u result=%d pass=%d",
+		ps5_client_vid_init_calls, result, result == 1 ? 1 : 0 );
+	return result;
+}
+
+static void PS5_ClientFrameTrampoline( double time )
+{
+	if( ps5_client_frame ) ps5_client_frame( time );
+	ps5_client_frame_calls++;
+	if( ps5_client_frame_calls == 1u )
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_CLIENT_PRX_FRAME call=1 time_ms=%u active_modules=%u",
+			(unsigned)( time * 1000.0 ), PS5_PrxLibraryActiveCount( ));
+}
+
+static int PS5_ClientRedrawTrampoline( float time, int intermission )
+{
+	int result = ps5_client_redraw ? ps5_client_redraw( time, intermission ) : 0;
+	ps5_client_redraw_calls++;
+	if( ps5_client_redraw_calls == 1u )
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_CLIENT_PRX_REDRAW call=1 time_ms=%u intermission=%d result=%d",
+			(unsigned)( time * 1000.0f ), intermission, result );
+	return result;
+}
+
+static void PS5_ClientShutdownTrampoline( void )
+{
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_CLIENT_PRX_SHUTDOWN phase=begin call=%u frame_calls=%u redraw_calls=%u",
+		ps5_client_shutdown_calls + 1u, ps5_client_frame_calls,
+		ps5_client_redraw_calls );
+	if( ps5_client_shutdown ) ps5_client_shutdown( );
+	ps5_client_shutdown_calls++;
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_CLIENT_PRX_SHUTDOWN phase=complete call=%u",
+		ps5_client_shutdown_calls );
+}
+
 static void PS5_ServerGiveFnptrsTrampoline( void *functions, void *globals )
 {
 	ps5_dynamic_library_t *library;
@@ -244,6 +368,11 @@ static int PS5_IsServerPrx( const ps5_dynamic_library_t *library )
 static int PS5_IsMenuPrx( const ps5_dynamic_library_t *library )
 {
 	return library && !strcmp( library->module.name, "menu.prx" );
+}
+
+static int PS5_IsClientPrx( const ps5_dynamic_library_t *library )
+{
+	return library && !strcmp( library->module.name, "client.prx" );
 }
 
 static void PS5_LogFilesystemPrxState( ps5_dynamic_library_t *library,
@@ -298,6 +427,22 @@ static void PS5_LogMenuPrxState( ps5_dynamic_library_t *library,
 	(void)ps5log_printf( state && export_count && state( ) == 1 ?
 		PS5LOG_MARK : PS5LOG_ERR,
 		"%s module=menu.prx state=%d exports=%d resolver=PRXDESC1",
+		marker, state ? state( ) : -1, export_count ? export_count( ) : -1 );
+}
+
+static void PS5_LogClientPrxState( ps5_dynamic_library_t *library,
+	const char *marker )
+{
+	int ( *state )( void );
+	int ( *export_count )( void );
+	if( !PS5_IsClientPrx( library )) return;
+	state = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_ClientPrxState" );
+	export_count = (int ( * )( void ))PS5_PrxGetProc( &library->module,
+		"PS5_ClientPrxExportCount" );
+	(void)ps5log_printf( state && export_count && state( ) == 1 ?
+		PS5LOG_MARK : PS5LOG_ERR,
+		"%s module=client.prx state=%d exports=%d resolver=PRXDESC1",
 		marker, state ? state( ) : -1, export_count ? export_count( ) : -1 );
 }
 
@@ -506,6 +651,7 @@ void *COM_LoadLibrary( const char *dllname, int build_ordinals_table,
 	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_READY" );
 	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_READY" );
 	PS5_LogMenuPrxState( library, "XASH_MENU_PRX_READY" );
+	PS5_LogClientPrxState( library, "XASH_CLIENT_PRX_READY" );
 	return library;
 }
 
@@ -518,6 +664,7 @@ void COM_FreeLibrary( void *hInstance )
 	PS5_LogFilesystemPrxState( library, "XASH_FS_PRX_STATE" );
 	PS5_LogServerPrxState( library, "XASH_SERVER_PRX_STATE" );
 	PS5_LogMenuPrxState( library, "XASH_MENU_PRX_STATE" );
+	PS5_LogClientPrxState( library, "XASH_CLIENT_PRX_STATE" );
 	if( PS5_DynamicStop( library ) != 0 )
 	{
 		ps5_last_result = PS5_PRX_ERROR_UNLOAD;
@@ -540,6 +687,7 @@ void COM_FreeLibrary( void *hInstance )
 		const int filesystem = PS5_IsFilesystemPrx( library );
 		const int server = PS5_IsServerPrx( library );
 		const int menu = PS5_IsMenuPrx( library );
+		const int client = PS5_IsClientPrx( library );
 		*link = library->next;
 		free( library );
 		if( server ) ps5_server_give_fnptrs = NULL;
@@ -556,8 +704,8 @@ void COM_FreeLibrary( void *hInstance )
 		if( menu )
 		{
 			(void)ps5log_printf( ps5_menu_api_pass && ps5_menu_ext_api_pass &&
-				ps5_menu_init_calls == 1u && ps5_menu_shutdown_calls == 1u &&
-				ps5_menu_redraw_calls > 0u ? PS5LOG_MARK : PS5LOG_ERR,
+				ps5_menu_init_calls == 1u && ps5_menu_shutdown_calls == 1u ?
+				PS5LOG_MARK : PS5LOG_ERR,
 				"XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 "
 				"api_pass=%d ext_api_pass=%d init_calls=%u shutdown_calls=%u "
 				"redraw_calls=%u active_calls=%u active_modules=%u ownership=exact pass=%d",
@@ -565,8 +713,7 @@ void COM_FreeLibrary( void *hInstance )
 				ps5_menu_shutdown_calls, ps5_menu_redraw_calls, ps5_menu_active_calls,
 				PS5_PrxLibraryActiveCount( ),
 				ps5_menu_api_pass && ps5_menu_ext_api_pass &&
-				ps5_menu_init_calls == 1u && ps5_menu_shutdown_calls == 1u &&
-				ps5_menu_redraw_calls > 0u );
+				ps5_menu_init_calls == 1u && ps5_menu_shutdown_calls == 1u );
 			ps5_menu_get_api = NULL;
 			ps5_menu_get_ext_api = NULL;
 			ps5_menu_init = NULL;
@@ -577,6 +724,34 @@ void COM_FreeLibrary( void *hInstance )
 			ps5_menu_init_calls = ps5_menu_shutdown_calls = 0u;
 			ps5_menu_redraw_calls = ps5_menu_active_calls = 0u;
 			ps5_menu_api_pass = ps5_menu_ext_api_pass = 0;
+		}
+		if( client )
+		{
+			const int pass = ps5_client_api_pass && ps5_client_abi_pass &&
+				ps5_client_initialize_calls == 1u && ps5_client_init_calls == 1u &&
+				ps5_client_vid_init_calls > 0u && ps5_client_frame_calls > 0u &&
+				ps5_client_redraw_calls > 0u &&
+				ps5_client_shutdown_calls == 1u;
+			(void)ps5log_printf( pass ? PS5LOG_MARK : PS5LOG_ERR,
+				"XASH_CLIENT_PRX_COMPLETE module=client.prx stop_result=0 "
+				"api_pass=%d abi_pass=%d initialize_calls=%u init_calls=%u "
+				"vid_init_calls=%u frame_calls=%u redraw_calls=%u shutdown_calls=%u "
+				"active_modules=%u ownership=exact pass=%d",
+				ps5_client_api_pass, ps5_client_abi_pass,
+				ps5_client_initialize_calls, ps5_client_init_calls,
+				ps5_client_vid_init_calls, ps5_client_frame_calls,
+				ps5_client_redraw_calls, ps5_client_shutdown_calls,
+				PS5_PrxLibraryActiveCount( ), pass );
+			ps5_client_initialize = NULL;
+			ps5_client_init = NULL;
+			ps5_client_vid_init = NULL;
+			ps5_client_frame = NULL;
+			ps5_client_redraw = NULL;
+			ps5_client_shutdown = NULL;
+			ps5_client_initialize_calls = ps5_client_init_calls = 0u;
+			ps5_client_vid_init_calls = ps5_client_frame_calls = 0u;
+			ps5_client_redraw_calls = ps5_client_shutdown_calls = 0u;
+			ps5_client_api_pass = ps5_client_abi_pass = 0;
 		}
 	}
 }
@@ -602,6 +777,36 @@ void *COM_GetProcAddress( void *hInstance, const char *name )
 		{
 			ps5_menu_get_ext_api = (UIEXTENEDEDAPI)result;
 			return (void *)PS5_MenuGetExtApiTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "Initialize" ))
+		{
+			ps5_client_initialize = (int ( * )( cl_enginefunc_t *, int ))result;
+			return (void *)PS5_ClientInitializeTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "HUD_Init" ))
+		{
+			ps5_client_init = (void ( * )( void ))result;
+			return (void *)PS5_ClientInitTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "HUD_VidInit" ))
+		{
+			ps5_client_vid_init = (int ( * )( void ))result;
+			return (void *)PS5_ClientVidInitTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "HUD_Frame" ))
+		{
+			ps5_client_frame = (void ( * )( double ))result;
+			return (void *)PS5_ClientFrameTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "HUD_Redraw" ))
+		{
+			ps5_client_redraw = (int ( * )( float, int ))result;
+			return (void *)PS5_ClientRedrawTrampoline;
+		}
+		if( PS5_IsClientPrx( library ) && result && !strcmp( name, "HUD_Shutdown" ))
+		{
+			ps5_client_shutdown = (void ( * )( void ))result;
+			return (void *)PS5_ClientShutdownTrampoline;
 		}
 		return result;
 	}

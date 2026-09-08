@@ -224,6 +224,7 @@ diagnostic harness.  They are not a substitute for any platform-layer gate.
    `LIBC_SHIMS_PHASE5.md`.
 
 This closes Phase 5. Phase 6 has since passed the application-owned loader,
-filesystem, server and MainUI conversions; `client.prx` and `ref_agc` remain.
+filesystem, server, MainUI and GoldSrc client conversions; only `ref_agc`
+remains.
 The accepted dedicated run above stays immutable evidence for the first engine
 bring-up; later gates add evidence rather than rewriting it.

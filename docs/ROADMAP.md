@@ -166,8 +166,9 @@
 - [x] Convert MainUI to `menu.prx`; prove the 16-callback base API, 12-callback
   extended API, visible redraws into a non-black software framebuffer and exact
   server/menu/filesystem teardown on FW 12.02.
-- [ ] Convert the client module while preserving the independently bootable
-  filesystem/server/menu rollback point.
+- [x] Convert the client module while preserving the independently bootable
+  filesystem/server/menu rollback point; prove interface 7, both callback
+  masks, live video/HUD execution on `c1a0` and exact four-module teardown.
 - [ ] Bind `ref_agc` as the final engine module and replace the diagnostic
   renderer path with the Phase 4 backend.
 - [x] Require pull requests on `main`; require the host CI check after this PR

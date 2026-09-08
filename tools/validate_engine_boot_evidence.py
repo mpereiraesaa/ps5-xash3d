@@ -587,7 +587,9 @@ def validate_server_prx_gate(
     return complete
 
 
-def validate_menu_prx_gate(messages: list[str], raw: list[str]) -> dict[str, str]:
+def validate_menu_prx_gate(
+    messages: list[str], raw: list[str], client_prx_gate: bool = False
+) -> dict[str, str]:
     """Validate the dynamic mainui ABI, visible redraw and exact teardown."""
     load = one_where(messages, "XASH_PRX_LOAD", "module", "menu.prx")
     ready = one(messages, "XASH_MENU_PRX_READY")
@@ -641,7 +643,7 @@ def validate_menu_prx_gate(messages: list[str], raw: list[str]) -> dict[str, str
             or server_unload.get("result") != "0" \
             or server_unload.get("ownership") != "released" \
             or server_complete.get("stop_result") != "0" \
-            or server_complete.get("active_modules") != "2" \
+            or server_complete.get("active_modules") != ("3" if client_prx_gate else "2") \
             or server_complete.get("ownership") != "exact":
         fail("menu gate did not preserve the dynamic server checkpoint")
     server_smoke = [parse_fields(message) for message in messages
@@ -669,7 +671,8 @@ def validate_menu_prx_gate(messages: list[str], raw: list[str]) -> dict[str, str
         fail("menu PRX initialization lifecycle failed")
     redraw = [parse_fields(message) for message in messages
               if message.startswith("XASH_MENU_PRX_REDRAW ")]
-    if not redraw or not any(entry.get("visible") == "1" for entry in redraw):
+    if not client_prx_gate and (not redraw or
+            not any(entry.get("visible") == "1" for entry in redraw)):
         fail("menu PRX produced no visible redraw")
     active = [parse_fields(message) for message in messages
               if message.startswith("XASH_MENU_PRX_ACTIVE ")]
@@ -685,10 +688,12 @@ def validate_menu_prx_gate(messages: list[str], raw: list[str]) -> dict[str, str
     expected_complete = {
         "module": "menu.prx", "stop_result": "0", "api_pass": "1",
         "ext_api_pass": "1", "init_calls": "1", "shutdown_calls": "1",
-        "active_modules": "1", "ownership": "exact", "pass": "1",
+        "active_modules": "2" if client_prx_gate else "1",
+        "ownership": "exact", "pass": "1",
     }
     if any(complete.get(key) != value for key, value in expected_complete.items()) \
-            or int(complete.get("redraw_calls", "0"), 10) <= 0 \
+            or (not client_prx_gate and
+                int(complete.get("redraw_calls", "0"), 10) <= 0) \
             or int(complete.get("active_calls", "0"), 10) <= 0:
         fail("menu PRX completion contract failed")
     ordered = (
@@ -703,6 +708,93 @@ def validate_menu_prx_gate(messages: list[str], raw: list[str]) -> dict[str, str
                       if message.startswith(marker + " ")) for marker in ordered]
     if positions != sorted(positions) or len(set(positions)) != len(positions):
         fail("menu/filesystem PRX lifecycle order is invalid")
+    return complete
+
+
+def validate_client_prx_gate(
+    messages: list[str], raw: list[str]
+) -> dict[str, str]:
+    """Validate the GoldSrc callback ABI, live use and exact client unload."""
+    load = one_where(messages, "XASH_PRX_LOAD", "module", "client.prx")
+    ready = one(messages, "XASH_CLIENT_PRX_READY")
+    api = one(messages, "XASH_CLIENT_PRX_API")
+    state = one(messages, "XASH_CLIENT_PRX_STATE")
+    unload = one_where(messages, "XASH_PRX_UNLOAD", "module", "client.prx")
+    complete = one(messages, "XASH_CLIENT_PRX_COMPLETE")
+
+    if load.get("path") != "/app0/sce_module/client.prx" \
+            or load.get("result") != "0" or load.get("init_result") != "0" \
+            or load.get("exports") != "48" \
+            or not 1 <= int(load.get("segments", "0"), 10) <= 4:
+        fail("client PRX load contract failed")
+    for marker, fields in (("ready", ready), ("state", state)):
+        if fields.get("module") != "client.prx" or fields.get("state") != "1" \
+                or fields.get("exports") != "42" \
+                or fields.get("resolver") != "PRXDESC1":
+            fail(f"client PRX {marker} contract failed")
+    expected_api = {
+        "result": "1", "version": "7", "expected_version": "7",
+        "engine_mask": "63", "expected_mask": "63", "module_mask": "15",
+        "expected_module_mask": "15", "calls": "1", "pass": "1",
+    }
+    if any(api.get(key) != value for key, value in expected_api.items()):
+        fail("client PRX API contract failed")
+    smoke = [parse_fields(message) for message in messages
+             if message.startswith("XASH_CLIENT_PRX_ABI_SMOKE ")]
+    if len(smoke) != 2 or {entry.get("step") for entry in smoke} != {"1", "2"} \
+            or any(entry.get("result") != "1" or entry.get("pass") != "1"
+                   for entry in smoke):
+        fail("client PRX engine callback smoke failed")
+    init = [parse_fields(message) for message in messages
+            if message.startswith("XASH_CLIENT_PRX_INIT ")]
+    shutdown = [parse_fields(message) for message in messages
+                if message.startswith("XASH_CLIENT_PRX_SHUTDOWN ")]
+    if len(init) != 2 or {entry.get("phase") for entry in init} != {"begin", "complete"} \
+            or any(entry.get("call") != "1" for entry in init) \
+            or init[-1].get("active_modules") != "4":
+        fail("client PRX initialization lifecycle failed")
+    if len(shutdown) != 2 \
+            or {entry.get("phase") for entry in shutdown} != {"begin", "complete"} \
+            or any(entry.get("call") != "1" for entry in shutdown):
+        fail("client PRX shutdown lifecycle failed")
+    vid_init = one(messages, "XASH_CLIENT_PRX_VID_INIT")
+    frame = one(messages, "XASH_CLIENT_PRX_FRAME")
+    redraw = one(messages, "XASH_CLIENT_PRX_REDRAW")
+    if vid_init.get("result") != "1" or vid_init.get("pass") != "1" \
+            or int(vid_init.get("call", "0"), 10) <= 0:
+        fail("client PRX video initialization failed")
+    if frame.get("call") != "1" or frame.get("active_modules") != "4":
+        fail("client PRX produced no live frame callback")
+    if redraw.get("call") != "1" or redraw.get("result") != "1":
+        fail("client PRX produced no successful HUD redraw")
+    console = "\n".join(raw)
+    if "Spawn Server: c1a0" not in console or \
+            'Dll loaded for game "Half-Life"' not in console:
+        fail("client PRX workload did not enter the Half-Life map")
+    if unload.get("result") != "0" or unload.get("stop_result") != "0" \
+            or unload.get("ownership") != "released":
+        fail("client PRX unload did not release ownership")
+    expected_complete = {
+        "module": "client.prx", "stop_result": "0", "api_pass": "1",
+        "abi_pass": "1", "initialize_calls": "1", "init_calls": "1",
+        "shutdown_calls": "1", "active_modules": "1", "ownership": "exact",
+        "pass": "1",
+    }
+    if any(complete.get(key) != value for key, value in expected_complete.items()) \
+            or int(complete.get("vid_init_calls", "0"), 10) <= 0 \
+            or int(complete.get("frame_calls", "0"), 10) <= 0 \
+            or int(complete.get("redraw_calls", "0"), 10) <= 0:
+        fail("client PRX completion contract failed")
+    ordered = (
+        "XASH_CLIENT_PRX_READY", "XASH_CLIENT_PRX_ABI_SMOKE",
+        "XASH_CLIENT_PRX_API", "XASH_CLIENT_PRX_INIT", "XASH_CLIENT_PRX_FRAME",
+        "XASH_CLIENT_PRX_SHUTDOWN", "XASH_CLIENT_PRX_STATE",
+        "XASH_CLIENT_PRX_COMPLETE", "XASH_FS_PRX_STATE",
+    )
+    positions = [next(i for i, message in enumerate(messages)
+                      if message.startswith(marker + " ")) for marker in ordered]
+    if positions != sorted(positions) or len(set(positions)) != len(positions):
+        fail("client/filesystem PRX lifecycle order is invalid")
     return complete
 
 
@@ -722,6 +814,7 @@ def validate(
     filesystem_prx_gate: bool = False,
     server_prx_gate: bool = False,
     menu_prx_gate: bool = False,
+    client_prx_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -823,6 +916,11 @@ def validate(
                           boot.get("server_prx") != "1" or
                           boot.get("filesystem_prx") != "1"):
         fail("menu PRX gate was not enabled on the client filesystem/server checkpoint")
+    if client_prx_gate and (mode != "client" or boot.get("client_prx") != "1" or
+                            boot.get("menu_prx") != "1" or
+                            boot.get("server_prx") != "1" or
+                            boot.get("filesystem_prx") != "1"):
+        fail("client PRX gate was not enabled on the filesystem/server/menu checkpoint")
 
     exit_fields = one(messages, "XASH_EXIT")
     if exit_fields.get("result") != "0":
@@ -845,6 +943,8 @@ def validate(
         fail("server PRX result was not retained at exit")
     if menu_prx_gate and exit_fields.get("menu_prx") != "1":
         fail("menu PRX result was not retained at exit")
+    if client_prx_gate and exit_fields.get("client_prx") != "1":
+        fail("client PRX result was not retained at exit")
 
     console = "\n".join(raw)
     for needle in FATAL_CONSOLE:
@@ -855,7 +955,7 @@ def validate(
         "bounded_quit": "XASH_PAD_GATE_PASS action=quit" if pad_gate
         else f"PS5_XASH_GATE_TIMEOUT seconds={gate_seconds} action=quit",
     }
-    if not menu_prx_gate:
+    if not menu_prx_gate or client_prx_gate:
         proofs["spawn"] = f"Spawn Server: {boot_map}"
     frames: list[dict[str, str]] = []
     if mode == "client":
@@ -910,7 +1010,11 @@ def validate(
 
     menu_prx_complete: dict[str, str] | None = None
     if menu_prx_gate:
-        menu_prx_complete = validate_menu_prx_gate(messages, raw)
+        menu_prx_complete = validate_menu_prx_gate(messages, raw, client_prx_gate)
+
+    client_prx_complete: dict[str, str] | None = None
+    if client_prx_gate:
+        client_prx_complete = validate_client_prx_gate(messages, raw)
 
     pad_summary: dict[str, str] | None = None
     if pad_gate:
@@ -1015,6 +1119,9 @@ def validate(
         "menu_prx_gate": menu_prx_gate,
         "menu_prx_redraw_calls": int(menu_prx_complete["redraw_calls"], 10)
         if menu_prx_complete else 0,
+        "client_prx_gate": client_prx_gate,
+        "client_prx_frame_calls": int(client_prx_complete["frame_calls"], 10)
+        if client_prx_complete else 0,
     }
 
 
@@ -1034,6 +1141,7 @@ def main() -> int:
     parser.add_argument("--filesystem-prx-gate", action="store_true")
     parser.add_argument("--server-prx-gate", action="store_true")
     parser.add_argument("--menu-prx-gate", action="store_true")
+    parser.add_argument("--client-prx-gate", action="store_true")
     args = parser.parse_args()
     for value in (args.engine_commit, args.hlsdk_commit):
         if not HEX7.fullmatch(value):
@@ -1054,6 +1162,7 @@ def main() -> int:
             filesystem_prx_gate=args.filesystem_prx_gate,
             server_prx_gate=args.server_prx_gate,
             menu_prx_gate=args.menu_prx_gate,
+            client_prx_gate=args.client_prx_gate,
         )
     except EvidenceError as exc:
         raise SystemExit(f"engine boot evidence validation failed: {exc}") from exc

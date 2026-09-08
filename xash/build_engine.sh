@@ -48,6 +48,9 @@
 #   XASH_MENU_PRX         package mainui as a dynamic module in client mode on
 #                         top of the filesystem/server rollback point; boot to
 #                         the menu instead of queuing a map (default 0)
+#   XASH_CLIENT_PRX       package the GoldSrc/HLSDK client as a dynamic module
+#                         on top of the filesystem/server/menu rollback point
+#                         (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -74,6 +77,7 @@ prx_gate=${XASH_PRX_GATE:-0}
 filesystem_prx=${XASH_FILESYSTEM_PRX:-0}
 server_prx=${XASH_SERVER_PRX:-0}
 menu_prx=${XASH_MENU_PRX:-0}
+client_prx=${XASH_CLIENT_PRX:-0}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -89,12 +93,17 @@ ref_name=${XASH_REF:-soft}
 [[ $filesystem_prx == 0 || $filesystem_prx == 1 ]] || { echo "XASH_FILESYSTEM_PRX must be 0 or 1" >&2; exit 2; }
 [[ $server_prx == 0 || $server_prx == 1 ]] || { echo "XASH_SERVER_PRX must be 0 or 1" >&2; exit 2; }
 [[ $menu_prx == 0 || $menu_prx == 1 ]] || { echo "XASH_MENU_PRX must be 0 or 1" >&2; exit 2; }
+[[ $client_prx == 0 || $client_prx == 1 ]] || { echo "XASH_CLIENT_PRX must be 0 or 1" >&2; exit 2; }
 if [[ $server_prx == 1 && $filesystem_prx != 1 ]]; then
     echo "XASH_SERVER_PRX=1 requires the proven XASH_FILESYSTEM_PRX=1 checkpoint" >&2
     exit 2
 fi
 if [[ $menu_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 ) ]]; then
     echo "XASH_MENU_PRX=1 requires XASH_MODE=client plus the proven filesystem/server PRX checkpoint" >&2
+    exit 2
+fi
+if [[ $client_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 || $menu_prx != 1 ) ]]; then
+    echo "XASH_CLIENT_PRX=1 requires XASH_MODE=client plus the proven filesystem/server/menu PRX checkpoint" >&2
     exit 2
 fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
@@ -218,6 +227,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_FILESYSTEM_PRX $filesystem_prx
 #define PS5_XASH_SERVER_PRX $server_prx
 #define PS5_XASH_MENU_PRX $menu_prx
+#define PS5_XASH_CLIENT_PRX $client_prx
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -235,8 +245,10 @@ if [[ $mode == client ]]; then
     if [[ $menu_prx == 0 ]]; then
         table_specs+=(menu="$root/xash/exports/menu.txt")
     fi
-    table_specs+=(client="$root/xash/exports/client.txt"
-        ref_null="$root/xash/exports/ref.txt" ref_soft="$root/xash/exports/ref.txt")
+    if [[ $client_prx == 0 ]]; then
+        table_specs+=(client="$root/xash/exports/client.txt")
+    fi
+    table_specs+=(ref_null="$root/xash/exports/ref.txt" ref_soft="$root/xash/exports/ref.txt")
 fi
 mkdir -p "$gen/helpers"
 python3 "$root/xash/tools/generate_static_library_tables.py" "$gen" "${table_specs[@]}"
@@ -598,11 +610,17 @@ if [[ $mode == client ]]; then
     client_c=$(find "$hlsdk/pm_shared" -name '*.c'; echo "$hlsdk/public/safe_snprintf.c"
         echo "$hlsdk/external/openbsd/strlcpy.c"; echo "$hlsdk/external/openbsd/strlcat.c"
         echo "$gen/vcs_info_client.c")
+    client_cxx_flags=("${cxx_flags[@]}")
+    client_c_flags=("${module_cflags[@]}")
+    if [[ $client_prx == 1 ]]; then
+        client_cxx_flags+=(-fPIC)
+        client_c_flags+=(-fPIC)
+    fi
     printf '%s\n' "$client_cxx" | sort -u |
-        compile_set "$build/client-cxx.objects" "$build/obj/client" -std=gnu++11 "${cxx_flags[@]}" \
+        compile_set "$build/client-cxx.objects" "$build/obj/client" -std=gnu++11 "${client_cxx_flags[@]}" \
             "${client_defines[@]}" "${client_includes[@]}"
     printf '%s\n' "$client_c" | sort -u |
-        compile_set "$build/client-c.objects" "$build/obj/client" -std=gnu11 "${module_cflags[@]}" \
+        compile_set "$build/client-c.objects" "$build/obj/client" -std=gnu11 "${client_c_flags[@]}" \
             "${client_defines[@]}" "${client_includes[@]}"
     mapfile -t client_objects < "$build/client-cxx.objects"
     mapfile -t client_c_objects < "$build/client-c.objects"
@@ -625,9 +643,12 @@ if [[ $mode == client ]]; then
     "$ld_reloc" -r -o "$build/ref_soft.stage1.o" "${ref_soft_objects[@]}"
     export_intersect ref_soft "$root/xash/exports/ref.txt" "$build/ref_soft.stage1.o" "$gen/ref_soft_exports.txt"
 
-    client_table_specs=(client="$gen/client_exports.txt" \
-        ref_null="$gen/ref_null_exports.txt" ref_soft="$gen/ref_soft_exports.txt")
-    client_static_modules=(client ref_null ref_soft)
+    client_table_specs=(ref_null="$gen/ref_null_exports.txt" ref_soft="$gen/ref_soft_exports.txt")
+    client_static_modules=(ref_null ref_soft)
+    if [[ $client_prx == 0 ]]; then
+        client_table_specs=(client="$gen/client_exports.txt" "${client_table_specs[@]}")
+        client_static_modules=(client "${client_static_modules[@]}")
+    fi
     if [[ $menu_prx == 0 ]]; then
         client_table_specs=(menu="$gen/menu_exports.txt" "${client_table_specs[@]}")
         client_static_modules=(menu "${client_static_modules[@]}")
@@ -742,6 +763,40 @@ if [[ $menu_prx == 1 ]]; then
     "$tool" self --sign --in "$build/prx/menu.elf" \
         --out "$dist/sce_module/menu.prx"
     "$tool" self --inspect --file "$dist/sce_module/menu.prx"
+fi
+
+if [[ $client_prx == 1 ]]; then
+    echo "== Phase 6 GoldSrc client PRX"
+    mkdir -p "$build/prx/client"
+    python3 "$root/xash/tools/generate_prx_descriptor.py" \
+        --module client --exports "$gen/client_exports.txt" \
+        --extra PS5_ClientPrxEngineTableMask \
+        --extra PS5_ClientPrxEngineTableSmoke \
+        --source "$gen/client_prx_descriptor.c" \
+        --version-script "$gen/client_prx_exports.map"
+    "${cc[@]}" -std=gnu11 "${cflags[@]}" -fPIC \
+        -I"$root/xash/platform_ps5" -c "$gen/client_prx_descriptor.c" \
+        -o "$build/prx/client/client_prx_descriptor.o"
+    "${cc[@]}" -std=gnu++11 "${client_cxx_flags[@]}" \
+        "${client_defines[@]}" "${client_includes[@]}" \
+        -c "$root/xash/platform_ps5/client_prx_module.cpp" \
+        -o "$build/prx/client/client_prx_module.o"
+    "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
+        -ffunction-sections -fdata-sections -c "$native/app_cpp_runtime.cpp" \
+        -o "$build/prx/client/app_cpp_runtime.o"
+    "$lld" --shared -Bsymbolic -T "$native/ps5-pie.ld" --eh-frame-hdr \
+        --version-script "$gen/client_prx_exports.map" \
+        -soname client.prx -o "$build/prx/client.shared.elf" \
+        "$build/client.stage1.o" "$build/prx/client/client_prx_descriptor.o" \
+        "$build/prx/client/client_prx_module.o" \
+        "$build/prx/client/app_cpp_runtime.o" --as-needed "$sdk"/target/lib/*.so
+    "$tool" link --module --in "$build/prx/client.shared.elf" \
+        --out "$build/prx/client.elf" --stub-dir "$sdk/target/lib" \
+        --module-sdk 0x02000009 --companion-sdk 0x08050001 \
+        --file-name client.prx
+    "$tool" self --sign --in "$build/prx/client.elf" \
+        --out "$dist/sce_module/client.prx"
+    "$tool" self --inspect --file "$dist/sce_module/client.prx"
 fi
 
 if [[ $prx_gate == 1 ]]; then
@@ -1058,6 +1113,56 @@ if [[ $menu_prx == 1 ]]; then
         --stub-dir "$sdk/target/lib" \
         --output "$build/PS5_MENU_PRX_DYNAMIC_IMPORT_AUDIT.md"
 fi
+if [[ $client_prx == 1 ]]; then
+    [[ -s $dist/sce_module/client.prx ]] || {
+        echo "XASH_CLIENT_PRX=1 did not package client.prx" >&2; exit 1; }
+    strings "$build/llvm-pie.elf" > "$build/embedded-strings.txt"
+    for marker in XASH_CLIENT_PRX_READY XASH_CLIENT_PRX_API \
+        XASH_CLIENT_PRX_ABI_SMOKE XASH_CLIENT_PRX_INIT XASH_CLIENT_PRX_VID_INIT \
+        XASH_CLIENT_PRX_FRAME XASH_CLIENT_PRX_REDRAW XASH_CLIENT_PRX_SHUTDOWN \
+        XASH_CLIENT_PRX_STATE XASH_CLIENT_PRX_COMPLETE; do
+        if ! grep -qw "$marker" "$build/embedded-strings.txt"; then
+            echo "XASH_CLIENT_PRX=1 did not retain marker $marker" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/client.shared.elf" \
+        > "$build/client-prx-shared-symbols.txt"
+    "$readelf" --symbols "$build/prx/client.shared.elf" \
+        > "$build/client-prx-all-symbols.txt"
+    for symbol in __init_array_start __init_array_end \
+        __fini_array_start __fini_array_end; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/client-prx-all-symbols.txt"; then
+            echo "client.prx did not retain lifecycle boundary $symbol" >&2
+            exit 1
+        fi
+    done
+    if ! "$readelf" --dynamic "$build/prx/client.shared.elf" |
+        grep -Eq 'INIT_ARRAYSZ.*[1-9][0-9]* \(bytes\)'; then
+        echo "client.prx did not retain a non-empty C++ initializer array" >&2
+        exit 1
+    fi
+    for symbol in Initialize HUD_Init HUD_VidInit HUD_Frame HUD_Redraw HUD_Shutdown \
+        PS5_ClientPrxEngineTableMask PS5_ClientPrxEngineTableSmoke \
+        PS5_ClientPrxState PS5_ClientPrxExportCount client_prx_exports \
+        module_start module_stop; do
+        if ! grep -Eq "[[:space:]]$symbol$" "$build/client-prx-shared-symbols.txt"; then
+            echo "client.prx did not export $symbol" >&2
+            exit 1
+        fi
+    done
+    "$readelf" --dyn-syms "$build/prx/client.elf" \
+        > "$build/client-prx-dynamic-symbols.txt"
+    if grep -Eq 'UND[[:space:]]+(Initialize|HUD_Init|HUD_VidInit|HUD_Frame|HUD_Redraw|HUD_Shutdown|PS5_ClientPrx)' \
+        "$build/client-prx-dynamic-symbols.txt"; then
+        echo "client.prx leaked an application-owned dynamic import" >&2
+        exit 1
+    fi
+    python3 "$root/xash/tools/audit_dyn_imports.py" "$build/prx/client.elf" \
+        --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
+        --stub-dir "$sdk/target/lib" \
+        --output "$build/PS5_CLIENT_PRX_DYNAMIC_IMPORT_AUDIT.md"
+fi
 python3 "$root/xash/tools/audit_dyn_imports.py" "$build/llvm-pie.elf" \
     --readelf "$readelf" --evidence "$root/xash/ps5_import_evidence.json" \
     --stub-dir "$sdk/target/lib" \
@@ -1103,4 +1208,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx menu_prx=$menu_prx"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx menu_prx=$menu_prx client_prx=$client_prx"
