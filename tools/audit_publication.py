@@ -17,11 +17,11 @@ TEXT_SUFFIXES = {
 }
 PINNED_BINARY_SHA256 = {
     "assets/branding/icon-master.png":
-        "50accc91e38822a8b11cb6eed916d968184edb8306a1099fc3d2aa0a72b402b0",
+        "4a66332b800fa0653645d95c627697f72ca4e26cf19fbeb2d9184ec39d089837",
     "assets/screenshots/ps5-agc-gears-hardware.png":
         "484e6830835386eee439df6ecec46fa18fa3d8b08780ad56b8aa0b5245f06905",
     "sce_sys/icon0.png":
-        "cc40f50deb429e8bcf07eb43be5a3176c4f8445a88e045e830b066202b66efb8",
+        "244c67fd7147267425ce66b5dcf6031bdc9e2f373a04d958758fae847955bde5",
 }
 GENERATED_ROOTS = {".deps", "build", "dist", "release"}
 FORBIDDEN_PARTS = {"captures", "dumps", "ghidra", "sessions"}
