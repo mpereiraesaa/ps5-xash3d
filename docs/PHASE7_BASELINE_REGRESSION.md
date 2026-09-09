@@ -562,3 +562,35 @@ The code now emits the mixed descriptor family, and the validator accepts only
 the explicit legacy/new budget-family pairs and also bounds peak residency by
 arena size. Host tests preserve the legacy case, accept the new case and reject
 an invalid budget. A fresh natural-exit run is required for the corrected marker.
+
+### Final resource acceptance (2026-09-09)
+
+That fresh run passed the paired validator: engine
+`20260909T113637960Z_PPSA99996_xash3d-engine_0x1460005826042`, renderer
+`20260909T113638013Z_PPSA99996_ps5-xash3d_0x14600097ae176` (53 ms apart).
+Normal rendering, probe disabled, five-second menu and 180 active-map seconds
+completed 10,997 frames, with 18 brush entities, 10,770 Studio pose changes,
+164/164 world textures resolved, zero errors and nine exact resource reclaims.
+Peak texture residency was 67,717,120 of 83,886,080 bytes. Both logs have clean
+BYEs; all five PRXs unload, ScePad closes and terminates its owned user service,
+and the engine root reports mapped=0, allocated=0, live_bytes=0, ownership=exact.
+Post-run status independently found no BigApp and four healthy services.
+
+Artifact SHA-256:
+
+- Engine ELF: `878232f31299066486c1e3b4d8678c3f20d54a286bad2f7acc1e2a65f9724de2`
+- SELF: `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`
+- Renderer ELF: `dbda4c6f5b9ae7030269d316e50ba3379a318fdbbe1d8f60db4e803de968044d`
+- Renderer PRX: `192ec1ffd401720ecc6f108c58f5844b00c146a92c9ddb3ca87f856a4bd4b9d2`
+- Engine JSON: `15599edfa0c9e1efec391e38e63c06633cc635f07cb00de10f8e34586d411632`
+- Renderer JSON: `9da1a6959ba1e9755a0e483c5b2d156448ca4f0a5c435f6af5caf67218d6d556`
+
+The accepted validator requires live lightmaps, 2D, menu, brush and Studio,
+plus the existing exact engine/HLSdk and BSP/Studio bundle identities.
+An initial invocation incorrectly added the special-surfaces requirement;
+it correctly rejected this scene's zero sky/turbulent draws. Removing that
+inapplicable requirement does not accept new sky/water evidence or replace
+the earlier dedicated gate. Raw logs and validator contracts remain unchanged.
+Canonical nine-file deployment used exact raw FTP SHA-256 verification.
+No additional operator QA, Remote Play or recording was needed for this
+resource-only closure. Audio and title transparency remain pending as above.
