@@ -203,17 +203,28 @@ int main(void)
     assert(frame.batches[5].blend == GOLDSRC_BLEND_SCREEN_MODULATE_MASKED);
 
     /* FillRGBA's mode argument is not GL_SetRenderMode: only TransAdd adds. */
-    for (unsigned i = 0; i < 8u; ++i) {
+    for (unsigned i = 0; i < 16u; ++i) {
         assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);
         assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
         RefAgcLiveFrame filled = {0};
         filled.commands_2d[filled.command_2d_count++] = mode(1u);
-        filled.commands_2d[filled.command_2d_count++] = fill(10.0f, modes[i]);
+        filled.commands_2d[filled.command_2d_count++] = fill(10.0f, modes[i % 8u]);
+        filled.commands_2d[1].enabled = i / 8u;
         assert(ref_agc_live_2d_frame_build(
             &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
             &filled, &textures) == REF_AGC_LIVE_2D_OK);
-        assert(frame.batches[0].blend == (modes[i] == 5 ?
-            GOLDSRC_BLEND_ADDITIVE : GOLDSRC_BLEND_ALPHA));
+        const GoldSrcBlendMode expected = i < 8u ?
+            (modes[i % 8u] == 5 ? GOLDSRC_BLEND_ADDITIVE : GOLDSRC_BLEND_ALPHA) :
+            (modes[i % 8u] == 5 ? GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED :
+                                 GOLDSRC_BLEND_SCREEN_ALPHA_MASKED);
+        assert(frame.batches[0].blend == expected);
+        assert(frame.masked_batches == i / 8u);
+        const size_t checkpoint = ring.slots[0].used;
+        filled.commands_2d[1].enabled = 2u;
+        assert(ref_agc_live_2d_frame_build(
+            &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
+            &filled, &textures) == REF_AGC_LIVE_2D_SEQUENCE_INVALID);
+        assert(ring.slots[0].used == checkpoint);
     }
 
     assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);

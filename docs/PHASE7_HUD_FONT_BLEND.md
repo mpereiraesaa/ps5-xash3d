@@ -106,6 +106,31 @@ This is not hardware or visual acceptance. Next: paired hardware QA with
 the operator, followed by documentation/HTML and green PR integration.
 No console deployment or launch has been made for this HUD build yet.
 
+## Operator QA handoff (pending)
+
+Do not interpret a timer, draw count or clean exit as visual acceptance.
+Confirm operator availability before the launch; use the existing 5-second
+menu / 180-second map-relative build. Do not require another movement test
+to prove already accepted controller functionality.
+
+- During MainUI: fullscreen layout, intact background/buttons and readable
+  lettering; no newly opaque rectangles around previously transparent art.
+- At c1a0 chapter title: lettering visible over the actual scene, without the
+  reported solid black rectangle; note appearance, fade-in and fade-out.
+- After title disappearance: no leftover panel, color tint or darkened scene;
+  existing world/brush/NPC presentation remains intact.
+- Record exactly what was observed with the paired run IDs and artifact
+  hashes. A missed title is unobserved, not a pass; do not automatically
+  relaunch while the operator is using the console.
+- A normal chapter-title run does not prove every font setting or the
+  engine-only multiplicative fade. Those need a separate controlled exercise
+  if not emitted in the observed run. Host mode/shader tests cover translation,
+  not the resulting hardware pixels.
+
+The live 2D host suite also exercises all fill modes with alpha test enabled
+and disabled, and rejects non-boolean flags without consuming transient
+storage. The complete live compositor test passes AddressSanitizer and UBSan.
+
 ## Required closure
 
 1. Correct GPU translation for alpha test and multiplicative fades, preserving
