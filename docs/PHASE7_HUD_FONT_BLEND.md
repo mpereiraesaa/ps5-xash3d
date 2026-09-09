@@ -132,6 +132,24 @@ rectangle's offending draw. Next diagnostic should record those values in
 a bounded window around title disappearance and compare command state with
 the bound GPU state; do not infer an alpha/color root cause from shape alone.
 
+`XASH_HUD_TRACE=1` now enables that diagnostic in the renderer (default 0;
+other values are rejected). `REF_AGC_HUD_BATCH` records serial/time, batch,
+texture handle/fill, index span, selected pipeline key/shader/blend register,
+vertex RGBA ranges, screen bounds, first-quad UVs and a hash of all batch
+vertices. It runs only for valid map views at engine time 0..30 seconds and
+stops after 4,096 records, emitting `REF_AGC_HUD_TRACE_LIMIT` on truncation.
+This is batch-level evidence, not a screenshot or a per-glyph dump; mixed
+vertex colors may require a narrower second probe. Synchronous logging can
+affect timing, so this build is not performance acceptance.
+
+The diagnostic native build and full host suite pass. Both trace markers were
+verified in the ELF with `strings`. Diagnostic renderer ELF SHA-256:
+`26bb8b6246d82dfa0445cc669672e28b444ae368028997136cb8d8f7b3d223f2`;
+diagnostic PRX SHA-256:
+`96e2c9c1eda3f5d65db958af81e8f0de17a70274afea57b11dd00a10156bfc50`.
+This artifact has not yet been deployed or run; the preceding operator
+observation belongs only to the non-trace PRX identified above.
+
 ## Operator QA handoff (pending)
 
 Do not interpret a timer, draw count or clean exit as visual acceptance.

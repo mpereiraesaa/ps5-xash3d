@@ -505,6 +505,7 @@ struct native_renderer {
     uint64_t live_2d_indices;
     uint64_t live_2d_frames_with_draws;
     uint64_t live_2d_command_hash;
+    uint32_t live_hud_trace_records;
     uint32_t live_2d_peak_batches;
     uint64_t live_menu_frames;
     uint64_t live_menu_quads;
@@ -2648,6 +2649,57 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                 state, &cursor, end, &screen_state, frame->buffer,
                 &screen_binding);
         state->live_compose_stage = "live-screen-2d-draw";
+#if PS5_REF_AGC_HUD_TRACE
+        /* Opt-in diagnostics, not performance evidence. Bound both time and
+         * records, and expose truncation rather than silently losing it. */
+        if (result == 0 && state->live_frame.map_serial != 0u &&
+            state->live_frame.view.valid &&
+            state->live_frame.view.time_seconds >= 0.0 &&
+            state->live_frame.view.time_seconds <= 30.0 &&
+            state->live_hud_trace_records < 4096u) {
+            const uint32_t first_vertex = batch->first_index / 6u * 4u;
+            const uint32_t vertices = batch->index_count / 6u * 4u;
+            const GoldSrc2DVertex *v = live_2d->vertices + first_vertex;
+            float lo[4], hi[4];
+            float xy_lo[2] = {v[0].position[0], v[0].position[1]};
+            float xy_hi[2] = {xy_lo[0], xy_lo[1]};
+            memcpy(lo, v[0].color, sizeof(lo));
+            memcpy(hi, lo, sizeof(hi));
+            for (uint32_t j = 0; j < vertices; ++j) {
+                for (unsigned c = 0; c < 4; ++c) {
+                    if (v[j].color[c] < lo[c]) lo[c] = v[j].color[c];
+                    if (v[j].color[c] > hi[c]) hi[c] = v[j].color[c];
+                }
+                for (unsigned c = 0; c < 2; ++c) {
+                    if (v[j].position[c] < xy_lo[c]) xy_lo[c] = v[j].position[c];
+                    if (v[j].position[c] > xy_hi[c]) xy_hi[c] = v[j].position[c];
+                }
+            }
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_HUD_BATCH schema=1 serial=%llu time_ms=%llu batch=%u "
+                "texture=%u fill=%u first_index=%u indices=%u key=%u shader=%u "
+                "blend_reg=%08x rgba_min=%u,%u,%u,%u rgba_max=%u,%u,%u,%u "
+                "bounds=%d,%d,%d,%d first_uv_milli=%d,%d,%d,%d "
+                "vertex_hash=%016llx diagnostic=1",
+                (unsigned long long)state->live_frame.serial,
+                (unsigned long long)(state->live_frame.view.time_seconds * 1000.0),
+                batch_index, batch->texture_handle, batch->fill,
+                batch->first_index, batch->index_count,
+                screen_binding.permutation->key, screen_binding.permutation->shader,
+                screen_binding.dynamic_cx[0].value,
+                (unsigned)(lo[0]*255.0f+0.5f), (unsigned)(lo[1]*255.0f+0.5f),
+                (unsigned)(lo[2]*255.0f+0.5f), (unsigned)(lo[3]*255.0f+0.5f),
+                (unsigned)(hi[0]*255.0f+0.5f), (unsigned)(hi[1]*255.0f+0.5f),
+                (unsigned)(hi[2]*255.0f+0.5f), (unsigned)(hi[3]*255.0f+0.5f),
+                (int)xy_lo[0], (int)xy_lo[1], (int)xy_hi[0], (int)xy_hi[1],
+                (int)(v[0].uv[0]*1000.0f), (int)(v[0].uv[1]*1000.0f),
+                (int)(v[2].uv[0]*1000.0f), (int)(v[2].uv[1]*1000.0f),
+                (unsigned long long)readback_hash(v, vertices*sizeof(*v)));
+            if (++state->live_hud_trace_records == 4096u)
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "REF_AGC_HUD_TRACE_LIMIT records=4096 truncated=1 diagnostic=1");
+        }
+#endif
         if (result == 0)
             result = ref_agc_live_2d_compose_batch(
                 &cursor, end, live_2d, batch_index,

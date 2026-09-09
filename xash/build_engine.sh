@@ -70,6 +70,7 @@ gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
 texture_memory_probe=${XASH_TEXTURE_MEMORY_PROBE:-0}
+hud_trace=${XASH_HUD_TRACE:-0}
 texture_mib=${XASH_TEXTURE_MIB:-0}
 texture_reserve_mib=${XASH_TEXTURE_RESERVE_MIB:-512}
 texture_auto_percent=${XASH_TEXTURE_AUTO_PERCENT:-10}
@@ -82,6 +83,7 @@ done
     echo "XASH_TEXTURE_AUTO_PERCENT must be 1..100" >&2; exit 2;
 }
 [[ $texture_memory_probe =~ ^[01]$ ]] || { echo "XASH_TEXTURE_MEMORY_PROBE must be 0 or 1" >&2; exit 2; }
+[[ $hud_trace =~ ^[01]$ ]] || { echo "XASH_HUD_TRACE must be 0 or 1" >&2; exit 2; }
 [[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
@@ -915,6 +917,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
         -DPS5_REF_AGC_TEXTURE_MEMORY_PROBE=$texture_memory_probe
+        -DPS5_REF_AGC_HUD_TRACE=$hud_trace
         -DPS5_TEXTURE_MIB=$texture_mib
         -DPS5_TEXTURE_RESERVE_MIB=$texture_reserve_mib
         -DPS5_TEXTURE_AUTO_PERCENT=$texture_auto_percent
