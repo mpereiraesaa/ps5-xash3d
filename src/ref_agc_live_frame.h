@@ -9,6 +9,8 @@ enum {
     REF_AGC_LIVE_MAX_2D_COMMANDS = 4096,
     REF_AGC_LIVE_MODEL_NAME = 64,
     REF_AGC_LIVE_SKY_SIDES = 6,
+    REF_AGC_LIVE_MAX_STUDIO_POSES = 32,
+    REF_AGC_LIVE_MAX_STUDIO_BONES = 128,
     REF_AGC_LIVE_RF_DRAW_WORLD = 1u << 0,
     REF_AGC_LIVE_ENTITY_NORMAL = 0,
     REF_AGC_LIVE_MODEL_BRUSH = 0,
@@ -66,6 +68,7 @@ typedef struct RefAgcLiveEntity {
     int32_t model_type;
     int32_t model_index;
     uint32_t studio_handle;
+    uint32_t studio_pose; /* one-based owned pose index; zero means absent */
     int32_t sequence;
     int32_t body;
     int32_t skin;
@@ -85,6 +88,12 @@ typedef struct RefAgcLiveEntity {
     float radius;
     char model_name[REF_AGC_LIVE_MODEL_NAME];
 } RefAgcLiveEntity;
+
+typedef struct RefAgcLiveStudioPose {
+    uint32_t bones;
+    float frame;
+    float matrices[REF_AGC_LIVE_MAX_STUDIO_BONES][3][4];
+} RefAgcLiveStudioPose;
 
 typedef struct RefAgcLive2DCommand {
     uint32_t type;
@@ -115,6 +124,8 @@ typedef struct RefAgcLiveFrame {
     RefAgcLiveView view;
     RefAgcLiveEntity viewmodel;
     RefAgcLiveEntity entities[REF_AGC_LIVE_MAX_ENTITIES];
+    RefAgcLiveStudioPose studio_poses[REF_AGC_LIVE_MAX_STUDIO_POSES];
+    uint32_t studio_pose_count;
     RefAgcLive2DCommand commands_2d[REF_AGC_LIVE_MAX_2D_COMMANDS];
     uint32_t entity_count;
     uint32_t command_2d_count;

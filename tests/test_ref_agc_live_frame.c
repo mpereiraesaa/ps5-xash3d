@@ -94,6 +94,10 @@ int main(void)
     /* Xash calls CL_EmitEntities (ClearScene/AddEntity) before V_PreRender
      * calls BeginFrame. The frame reset must preserve that staged scene. */
     ref_agc_live_clear_scene(&store);
+    store.building.studio_pose_count = 1;
+    store.building.studio_poses[0].bones = 1;
+    store.building.studio_poses[0].matrices[0][0][3] = 123.0f;
+    entity.studio_pose = 1;
     assert(ref_agc_live_add_entity(&store, &entity) == 0);
     ref_agc_live_begin_frame(&store, 1, 41);
     ref_agc_live_set_canvas(&store, 1920u, 1080u);
@@ -103,6 +107,9 @@ int main(void)
     assert(ref_agc_live_publish(&store, 43) == 0);
     assert(ref_agc_live_take_latest(&store, 0, &frame) == 0);
     assert(frame.serial == 1 && frame.map_serial == 1);
+    assert(frame.studio_pose_count == 1 && frame.entities[0].studio_pose == 1);
+    store.building.studio_poses[0].matrices[0][0][3] = 999.0f;
+    assert(frame.studio_poses[0].matrices[0][0][3] == 123.0f);
     assert(frame.begin_calls == 41 && frame.scene_calls == 42 &&
            frame.end_calls == 43);
     assert(frame.canvas_width == 1920u && frame.canvas_height == 1080u);

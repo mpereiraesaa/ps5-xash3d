@@ -1335,6 +1335,95 @@ static void RefAgcClearScene(void)
 	ref_agc_live_clear_scene( &ref_agc_live );
 }
 
+/* Evaluate on the engine thread: external sequence groups remain engine-owned.
+ * Only finished world-space matrices cross the immutable frame boundary. */
+static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
+{
+	studiohdr_t *h = entity->model->cache.data;
+	RefAgcLiveFrame *f = &ref_agc_live.building;
+	if( !h || !live->studio_handle || h->numbones < 1 ||
+		h->numbones > REF_AGC_LIVE_MAX_STUDIO_BONES ||
+		f->studio_pose_count >= REF_AGC_LIVE_MAX_STUDIO_POSES ||
+		live->sequence < 0 || live->sequence >= h->numseq ||
+		h->boneindex < 0 || h->seqindex < 0 ||
+		(size_t)h->boneindex + h->numbones * sizeof(mstudiobone_t) > (size_t)h->length ||
+		(size_t)h->seqindex + h->numseq * sizeof(mstudioseqdesc_t) > (size_t)h->length ||
+		!ref_agc_engine.R_StudioGetAnim || !ref_agc_engine.EngineGetParm )
+		return -1;
+	mstudioseqdesc_t *seq = (void *)((byte *)h + h->seqindex);
+	seq += live->sequence;
+	if( seq->numframes < 1 || (seq->numblends != 1 && seq->numblends != 2 && seq->numblends != 4) )
+		return -2;
+	mstudioanim_t *anim = ref_agc_engine.R_StudioGetAnim(h, entity->model, seq);
+	const ref_client_t *client = (void *)ref_agc_engine.EngineGetParm(PARM_GET_CLIENT_PTR, 0);
+	if( !anim || !client ) return -3;
+	/* GoldSrc normalized network frame plus local elapsed animation time.
+	 * The null renderer's estimate callback returns zero and is not usable. */
+	float frame = seq->numframes > 1 ? entity->curstate.frame * (seq->numframes-1) / 256.0f : 0;
+	if( !client->paused && client->time >= entity->curstate.animtime )
+		frame += (client->time-entity->curstate.animtime) * entity->curstate.framerate * seq->fps;
+	if( (seq->flags & STUDIO_LOOPING) && seq->numframes > 1 ) {
+		frame = fmodf(frame, (float)(seq->numframes-1));
+		if( frame < 0 ) frame += seq->numframes-1;
+	} else frame = bound(0.0f, frame, fmaxf(0.0f, seq->numframes-1.001f));
+	if( !isfinite(frame) ) return -4;
+	frame = bound(0.0f, frame, (float)(seq->numframes - 1));
+	float adj[MAXSTUDIOCONTROLLERS] = {0};
+	if( h->numbonecontrollers < 0 || h->numbonecontrollers > MAXSTUDIOCONTROLLERS ||
+		h->bonecontrollerindex < 0 || (size_t)h->bonecontrollerindex +
+		h->numbonecontrollers * sizeof(mstudiobonecontroller_t) > (size_t)h->length ) return -5;
+	mstudiobonecontroller_t *controls = (void *)((byte *)h + h->bonecontrollerindex);
+	for( int i = 0; i < h->numbonecontrollers; ++i ) {
+		int k = controls[i].index;
+		float value;
+		if( k == STUDIO_MOUTH ) {
+			float t = bound(0.0f, entity->mouth.mouthopen / 64.0f, 1.0f);
+			value = controls[i].start + t * (controls[i].end - controls[i].start);
+		} else if( k >= 0 && k < 4 ) {
+			value = controls[i].type & STUDIO_RLOOP ?
+				entity->curstate.controller[k] * (360.0f/256.0f) + controls[i].start :
+				controls[i].start + entity->curstate.controller[k] / 255.0f *
+				(controls[i].end - controls[i].start);
+		} else return -6;
+		adj[i] = controls[i].type & (STUDIO_XR|STUDIO_YR|STUDIO_ZR) ? DEG2RAD(value) : value;
+	}
+	vec3_t positions[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
+	vec4_t rotations[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
+	mstudiobone_t *bones = (void *)((byte *)h + h->boneindex);
+	for( int b = 0; b < seq->numblends; ++b ) {
+		for( int i = 0; i < h->numbones; ++i ) {
+			if( bones[i].parent < -1 || bones[i].parent >= i ) return -7;
+			for( int j = 0; j < 6; ++j )
+				if( bones[i].bonecontroller[j] < -1 || bones[i].bonecontroller[j] >= h->numbonecontrollers ) return -8;
+			R_StudioCalcBones((int)frame, frame-(int)frame, &bones[i],
+				&anim[b*h->numbones+i], adj, positions[b][i], rotations[b][i]);
+		}
+		if( seq->motionbone >= 0 && seq->motionbone < h->numbones )
+			for( int axis = 0; axis < 3; ++axis )
+				if( seq->motiontype & (1 << axis) ) positions[b][seq->motionbone][axis] = 0;
+	}
+	if( seq->numblends >= 2 )
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[1], positions[1], entity->curstate.blending[0]/255.0f);
+	if( seq->numblends == 4 ) {
+		R_StudioSlerpBones(h->numbones, rotations[2], positions[2], rotations[3], positions[3], entity->curstate.blending[0]/255.0f);
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[2], positions[2], entity->curstate.blending[1]/255.0f);
+	}
+	RefAgcLiveStudioPose *pose = &f->studio_poses[f->studio_pose_count];
+	matrix3x4 model;
+	Matrix3x4_CreateFromEntity(model, live->angles, live->origin, live->scale > 0 ? live->scale : 1.0f);
+	for( int i = 0; i < h->numbones; ++i ) {
+		matrix3x4 local;
+		Matrix3x4_FromOriginQuat(local, rotations[0][i], positions[0][i]);
+		Matrix3x4_ConcatTransforms(pose->matrices[i], bones[i].parent < 0 ? model : pose->matrices[bones[i].parent], local);
+		for( int r = 0; r < 3; ++r ) for( int c = 0; c < 4; ++c )
+			if( !isfinite(pose->matrices[i][r][c]) ) return -9;
+	}
+	pose->bones = h->numbones;
+	pose->frame = frame;
+	live->studio_pose = ++f->studio_pose_count;
+	return 0;
+}
+
 static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 {
 	RefAgcLiveEntity live;
@@ -1375,6 +1464,11 @@ static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 		live.radius = entity->model->radius;
 		strncpy( live.model_name, entity->model->name,
 			sizeof(live.model_name) - 1u );
+	}
+	if( live.model_type == mod_studio ) {
+		int result = RefAgcCaptureStudioPose(entity, &live);
+		if( result && ref_agc_engine.Con_Printf )
+			ref_agc_engine.Con_Printf("REF_AGC_STUDIO_POSE_FAILURE model=%s sequence=%d result=%d\n", live.model_name, live.sequence, result);
 	}
 	return ref_agc_live_add_entity( &ref_agc_live, &live ) == 0;
 }

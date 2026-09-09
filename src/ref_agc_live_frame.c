@@ -119,6 +119,7 @@ void ref_agc_live_clear_scene(RefAgcLiveStore *store)
     if (!store || !store->initialized)
         return;
     store->building.entity_count = 0;
+    store->building.studio_pose_count = 0;
     store->building.dropped_entities = 0;
     store->scene_serial++;
     store->building.scene_clears++;

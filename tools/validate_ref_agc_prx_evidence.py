@@ -123,6 +123,41 @@ def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
             "moving_entities": [list(k) for k in sorted(moved)]}
 
 
+def validate_live_studio(messages: list[str], views: int) -> dict:
+    complete = one(messages, "REF_AGC_LIVE_STUDIO_COMPLETE")
+    samples = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_FRAME ")]
+    entities = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_ENTITY ")]
+    if not exact(complete, {"schema": "1", "errors": "0", "lighting": "unlit",
+                           "ownership": "fence+videoout+ack"}) or not samples:
+        fail("missing live Studio completion/samples")
+    frames = int(complete["frames"])
+    if not 0 < frames <= views or any(int(complete[k]) <= 0 for k in ("draws", "indices", "pose_changes")) \
+            or complete.get("pose_hash") in (None, "0000000000000000"):
+        fail("invalid live Studio totals/pose changes")
+    if int(complete["indices"]) % 3 or int(complete["pose_changes"]) >= frames:
+        fail("invalid live Studio triangles/animation accounting")
+    observed = set()
+    for sample in samples:
+        selected = [e for e in entities if e.get("serial") == sample.get("serial")]
+        if sample.get("ownership") != "transient-slot" or sample.get("lighting") != "unlit" \
+                or len(selected) != int(sample["entities"]) or not selected \
+                or len({e["index"] for e in selected}) != len(selected) \
+                or any(int(sample[k]) <= 0 for k in ("draws", "vertices", "indices")) \
+                or int(sample["indices"]) % 3:
+            fail("invalid live Studio sample accounting")
+        for entity in selected:
+            if not 0 < int(entity["bones"]) <= 128 or int(entity["sequence"]) < 0 \
+                    or int(entity["frame_milli"]) < 0 or not entity["model"].endswith(".mdl"):
+                fail("invalid live Studio entity pose")
+            observed.add(entity["model"])
+    for key in ("draws", "indices"):
+        if sum(int(s[key]) for s in samples) > int(complete[key]):
+            fail("live Studio samples exceed completion")
+    return {"frames": frames, "draws": int(complete["draws"]),
+            "indices": int(complete["indices"]), "pose_changes": int(complete["pose_changes"]),
+            "models": sorted(observed), "lighting": "unlit"}
+
+
 def validate_renderer(
     manifest_path: Path, *, bundle_sha256: str, bundle_bytes: int,
     studio_sha256: str, studio_bytes: int,
@@ -131,6 +166,7 @@ def validate_renderer(
     require_live_2d: bool = False,
     require_live_menu: bool = False,
     require_live_brush: bool = False,
+    require_live_studio: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -537,6 +573,7 @@ def validate_renderer(
             if world is None:
                 fail("live brush requires a live world cache")
             brush_summary = validate_live_brush(messages, views, int(world["draws"]))
+        studio_summary = validate_live_studio(messages, views) if require_live_studio else None
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -560,6 +597,7 @@ def validate_renderer(
             "live_2d": live_2d_summary,
             "live_menu": live_menu_summary,
             "live_brush": brush_summary,
+            "live_studio": studio_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -696,6 +734,7 @@ def main() -> int:
     parser.add_argument("--require-live-2d", action="store_true")
     parser.add_argument("--require-live-menu", action="store_true")
     parser.add_argument("--require-live-brush", action="store_true")
+    parser.add_argument("--require-live-studio", action="store_true")
     parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
@@ -715,6 +754,7 @@ def main() -> int:
             require_live_2d=args.require_live_2d,
             require_live_menu=args.require_live_menu,
             require_live_brush=args.require_live_brush,
+            require_live_studio=args.require_live_studio,
         )
         engine_menu = validate_engine_menu(
             args.engine_manifest, boot_map=args.map,
@@ -792,6 +832,7 @@ def main() -> int:
             "live_2d": renderer.get("live_2d"),
             "live_menu": renderer.get("live_menu"),
             "live_brush": renderer.get("live_brush"),
+            "live_studio": renderer.get("live_studio"),
             "engine_menu": engine_menu,
             "ownership": "exact",
             "pass": True,

@@ -99,6 +99,8 @@ src/gears_rt_clear.h
 src/ref_agc_live_frame.c
 src/ref_agc_live_brush.c
 src/ref_agc_live_brush.h
+src/ref_agc_live_studio.c
+src/ref_agc_live_studio.h
 src/ref_agc_studio_store.c
 src/ref_agc_studio_store.h
 src/ref_agc_gpu_studio_cache.c
@@ -261,6 +263,7 @@ tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
 tests/test_ref_agc_live_brush.c
+tests/test_ref_agc_live_studio.c
 tests/test_ref_agc_studio_store.c
 tests/test_ref_agc_gpu_studio_cache.c
 tests/test_ref_agc_live_2d.c

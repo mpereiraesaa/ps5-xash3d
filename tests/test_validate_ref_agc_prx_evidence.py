@@ -17,7 +17,26 @@ BUNDLE = "1" * 64
 STUDIO = "2" * 64
 
 sys.path.insert(0, str(ROOT / "tools"))
-from validate_ref_agc_prx_evidence import validate_live_brush, EvidenceError
+from validate_ref_agc_prx_evidence import validate_live_brush, validate_live_studio, EvidenceError
+
+
+def test_studio_validation():
+    valid = [
+        "REF_AGC_LIVE_STUDIO_FRAME schema=1 serial=10 entities=1 draws=2 vertices=4 indices=6 ownership=transient-slot lighting=unlit",
+        "REF_AGC_LIVE_STUDIO_ENTITY serial=10 index=4 model=models/test.mdl sequence=1 bones=24 frame_milli=2500",
+        "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=10 draws=20 indices=60 pose_hash=123456789abcdef0 pose_changes=9 ownership=fence+videoout+ack lighting=unlit errors=0",
+    ]
+    assert validate_live_studio(valid, 10)["models"] == ["models/test.mdl"]
+    for bad in (valid[:-1], [m.replace("bones=24", "bones=129") for m in valid],
+                [m.replace("pose_changes=9", "pose_changes=0") for m in valid],
+                [m.replace("entities=1", "entities=2") for m in valid],
+                [m.replace("indices=60", "indices=59") for m in valid]):
+        try:
+            validate_live_studio(bad, 10)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid Studio evidence accepted")
 
 
 def test_brush_validation():
@@ -677,5 +696,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    test_studio_validation()
     test_brush_validation()
     main()

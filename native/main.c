@@ -93,6 +93,7 @@
 #include "ref_agc_live_frame.h"
 #include "ref_agc_live_2d.h"
 #include "ref_agc_live_brush.h"
+#include "ref_agc_live_studio.h"
 #include "ref_agc_gpu_studio_cache.h"
 #include "ref_agc_gpu_texture_cache.h"
 #include "ref_agc_gpu_world_cache.h"
@@ -515,6 +516,9 @@ struct native_renderer {
     uint64_t live_brush_transform_hash;
     RefAgcSkyboxFrame live_sky_frames[2];
     RefAgcLiveBrushFrame live_brush_frames[2];
+    RefAgcLiveStudioFrame live_studio_frames[2];
+    uint64_t live_studio_draw_frames, live_studio_draws, live_studio_indices;
+    uint64_t live_studio_pose_hash, live_studio_pose_changes;
     RefAgcLive2DFrame live_2d_frames[2];
     Ps5CpuToGpuPlan live_texture_cache_plan;
     Ps5CpuToGpuPlan live_world_cache_plan;
@@ -1554,6 +1558,26 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     }
     state->resource_frames[resource_slot].transient_bytes =
         state->transient_ring.slots[resource_slot].used;
+    state->live_compose_stage = "live-studio-frame";
+    memset(&state->live_studio_frames[resource_slot], 0,
+           sizeof(state->live_studio_frames[resource_slot]));
+    if (live_world_frame_ready) {
+        int studio_result = ref_agc_live_studio_build(
+            &state->live_studio_frames[resource_slot], &state->live_frame,
+            &state->live_studio_cache, &state->live_texture_cache,
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap, state->resources->resource_heap_bytes,
+            state->noclip.position, state->noclip.forward, state->live_aspect_ratio);
+        if (studio_result) {
+            (void)ps5log_printf(PS5LOG_ERR,
+                "REF_AGC_LIVE_STUDIO_FAILURE serial=%llu entity=%d result=%d used=%llu capacity=%llu",
+                (unsigned long long)state->live_frame.serial,
+                state->live_studio_frames[resource_slot].failed_entity, studio_result,
+                (unsigned long long)state->transient_ring.slots[resource_slot].used,
+                (unsigned long long)state->transient_ring.slots[resource_slot].bytes);
+            return resource_compose_fail(state, resource_slot, -9);
+        }
+    }
     state->live_compose_stage = "screen-2d-frame";
     const int live_2d_build_result = ref_agc_live_2d_frame_build(
             &state->live_2d_frames[resource_slot],
@@ -2406,6 +2430,48 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                     (int)(entity->origin[0]*1000), (int)(entity->origin[1]*1000),
                     (int)(entity->origin[2]*1000), (int)(entity->angles[0]*1000),
                     (int)(entity->angles[1]*1000), (int)(entity->angles[2]*1000));
+            }
+        }
+    }
+    RefAgcLiveStudioFrame *studio = &state->live_studio_frames[resource_slot];
+    for (uint32_t i = 0; result == 0 && i < studio->count; ++i) {
+        RefAgcLiveStudioDraw *draw = &studio->draws[i];
+        GoldSrcRenderMode mode = (GoldSrcRenderMode)state->live_frame.entities[draw->entity].render_mode;
+        if (mode == GOLDSRC_RENDER_NORMAL && (draw->flags & 0x40u))
+            mode = GOLDSRC_RENDER_TRANS_ALPHA;
+        if (draw->flags & 0x20u) mode = GOLDSRC_RENDER_TRANS_ADD;
+        GoldSrcRenderState render_state;
+        Ps5GoldSrcPipelineBinding binding;
+        state->live_compose_stage = "live-studio-pipeline";
+        if (goldsrc_render_state_from_mode(mode, GOLDSRC_CULL_NONE, 0, 0, &render_state) ||
+            bind_goldsrc_pipeline(state, &cursor, end, &render_state, frame->buffer, &binding))
+            result = -5;
+        state->live_compose_stage = "live-studio-draw";
+        if (!result) result = ref_agc_live_studio_compose(&cursor, end, draw,
+            state->resources->resource_heap, state->resources->resource_heap_bytes,
+            binding.draw_modifier, ps5_native_set_sh_direct, ps5_native_draw_index);
+    }
+    if (!result && studio->count) {
+        ++state->live_studio_draw_frames;
+        state->live_studio_draws += studio->count;
+        state->live_studio_indices += studio->indices;
+        if (state->live_studio_pose_hash && state->live_studio_pose_hash != studio->pose_hash)
+            ++state->live_studio_pose_changes;
+        state->live_studio_pose_hash = studio->pose_hash;
+        if (state->live_studio_draw_frames == 1 || frame->frame_index % 600 == 0) {
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_LIVE_STUDIO_FRAME schema=1 serial=%llu entities=%u draws=%u vertices=%u indices=%u pose_hash=%016llx ownership=transient-slot lighting=unlit",
+                (unsigned long long)state->live_frame.serial, studio->entities,
+                studio->count, studio->vertices, studio->indices, (unsigned long long)studio->pose_hash);
+            for (uint32_t i = 0; i < state->live_frame.entity_count; ++i) {
+                const RefAgcLiveEntity *e = &state->live_frame.entities[i];
+                if (e->model_type == REF_AGC_LIVE_MODEL_STUDIO)
+                    (void)ps5log_printf(PS5LOG_MARK,
+                        "REF_AGC_LIVE_STUDIO_ENTITY serial=%llu index=%d model=%s sequence=%d body=%d skin=%d bones=%u frame_milli=%d",
+                        (unsigned long long)state->live_frame.serial, e->index, e->model_name,
+                        e->sequence, e->body, e->skin,
+                        state->live_frame.studio_poses[e->studio_pose-1].bones,
+                        (int)(state->live_frame.studio_poses[e->studio_pose-1].frame*1000));
             }
         }
     }
@@ -6074,6 +6140,13 @@ int main(void)
         (unsigned long long)live_studio_stats.source_bytes_copied,
         (unsigned long long)live_studio_stats.flushes,
         REF_AGC_GPU_STUDIO_ARENA_BYTES);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=%llu draws=%llu indices=%llu pose_hash=%016llx pose_changes=%llu ownership=fence+videoout+ack lighting=unlit errors=0",
+        (unsigned long long)renderer.live_studio_draw_frames,
+        (unsigned long long)renderer.live_studio_draws,
+        (unsigned long long)renderer.live_studio_indices,
+        (unsigned long long)renderer.live_studio_pose_hash,
+        (unsigned long long)renderer.live_studio_pose_changes);
     ref_agc_gpu_studio_cache_destroy(&renderer.live_studio_cache);
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_GPU_WORLD_COMPLETE revision=%llu publishes=%llu "

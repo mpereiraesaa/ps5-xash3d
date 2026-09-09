@@ -93,6 +93,7 @@ $(eval $(call test_rule,test_goldsrc_render_state,tests/test_goldsrc_render_stat
 $(eval $(call test_rule,test_goldsrc_state_matrix,tests/test_goldsrc_state_matrix.c src/goldsrc_state_matrix.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_ref_agc_live_2d,tests/test_ref_agc_live_2d.c src/ref_agc_live_2d.c src/ref_agc_gpu_texture_cache.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc))
+$(eval $(call test_rule,test_ref_agc_live_studio,tests/test_ref_agc_live_studio.c src/ref_agc_live_studio.c src/ref_agc_gpu_studio_cache.c src/ref_agc_gpu_texture_cache.c src/bsp_flat_scene.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc -lm))
 $(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
 $(eval $(call test_rule,test_goldsrc_sprite_particles,tests/test_goldsrc_sprite_particles.c src/goldsrc_sprite_particles.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
 $(eval $(call test_rule,test_goldsrc_studio_bundle,tests/test_goldsrc_studio_bundle.c src/goldsrc_studio_bundle.c,))
@@ -143,7 +144,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
-	test_ref_agc_live_brush test_ref_agc_studio_store \
+	test_ref_agc_live_brush test_ref_agc_live_studio test_ref_agc_studio_store \
 	test_ref_agc_gpu_studio_cache \
 	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache \
 	test_ref_agc_world_store test_ref_agc_lightmap_atlas \

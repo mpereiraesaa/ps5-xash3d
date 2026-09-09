@@ -119,3 +119,53 @@ Still unvalidated here: additive/transcolor brush blending, turbulent/water
 brushes and their ordering. No such coverage may be inferred from the generic
 `alpha` counter. Studio cache residency is also not Studio draw evidence;
 that is the next separate rendering checkpoint.
+
+## Studio first-draw candidate: awaiting hardware/operator validation
+
+The first live Studio drawing candidate is implemented and deployed, but **not
+yet launched or accepted**. Do not promote this section to a completed gate
+without its correlated runtime logs and the operator's visual observation.
+
+The producer uses the engine's `R_StudioGetAnim` callback (including external
+sequence groups) and statically compiled upstream `R_StudioCalcBones`, quaternion
+blending and matrix functions. It evaluates the current network frame plus
+elapsed animation time, current controllers/mouth and 1/2/4 sequence blends.
+It publishes up to 32 owned poses with 128 world-space bone matrices each;
+no engine animation pointers cross the acknowledged frame boundary. Scene
+clearing resets the pose count; BeginFrame preserves the already staged poses.
+
+The native consumer reads the cached engine-decoded Studio v10 geometry,
+selects bodygroups and skin families, expands triangle strips/fans, skins
+vertices with the published matrices and resolves the engine's texture handles.
+Geometry, indices and descriptors belong to the existing transient slot and
+retire under its GPU fence, VideoOut token and engine acknowledgment. Invalid
+poses, ranges, bones or missing textures fail before submission; this is not
+a baked-model substitution.
+
+Scope of this first visual test: complete textured bodies and changing poses
+in c1a0. Lighting is explicitly `unlit`. Directional/ambient Studio lighting,
+chrome UV generation, previous-sequence transitions, latched controller/blend
+interpolation, follow-entity bone merging, render FX and viewmodel semantics
+are not accepted by this candidate. Current entity transforms and ordinary
+sequence interpolation must not be described as full upstream Studio parity.
+
+Preflight results: `make all` passes (405 publication entries); the new geometry
+test also passes ASan/UBSan. Tests cover coordinate conversion, strips/fans,
+pose changes, missing poses, invalid bone/command bounds and transient rollback.
+The frame test proves poses survive BeginFrame and are copied, not aliased.
+The opt-in paired validator `--require-live-studio` requires positive draw
+totals, sampled model/bone evidence, changing poses and exact final ownership.
+
+- Candidate ref_agc ELF: `342bfddc4035bce178008d53158cd4fd107279e3f6fc12229bea6eceb06af132`.
+- Candidate ref_agc PRX: `5a3438175d3d9089a8dd3bd63867f9cf86df3f6596e038a355412e4ceaec0b02`.
+- Completion/frame markers verified inside the ELF. No undefined Studio math,
+  matrix or `strcasestr` imports; upstream math is linked into the module.
+- Canonical nine-file transaction read-back verified and promoted at
+  10:07:49 UTC. Private journal: `research/xash3d/phase7-studio-deploy-20260909.jsonl`.
+- Engine SELF and both support assets retain the accepted recovery hashes.
+
+Operator workflow: no Remote Play and no recordings by default. Coordinate
+presence before launching the bounded 25-second menu-to-c1a0 test. Ask whether
+the guard at reception and scientists appear with complete bodies, correct
+textures and visible animation after the airlock opens. Record that answer as
+operator-reported visual evidence separately from the automatic log checks.
