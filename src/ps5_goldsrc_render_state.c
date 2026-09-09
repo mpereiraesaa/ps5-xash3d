@@ -5,6 +5,8 @@
 enum {
     PS5_BLEND_ZERO = 0,
     PS5_BLEND_ONE = 1,
+    /* AMD PAL gfx9_plus_merged_enum.h: BlendOp::BLEND_SRC_COLOR. */
+    PS5_BLEND_SRC_COLOR = 2,
     PS5_BLEND_SRC_ALPHA = 4,
     PS5_BLEND_ONE_MINUS_SRC_ALPHA = 5,
     PS5_BLEND_COLOR_DEST_SHIFT = 8,
@@ -22,6 +24,12 @@ enum {
 
 static uint32_t blend_control(GoldSrcBlendMode blend)
 {
+    if (blend == GOLDSRC_BLEND_SCREEN_MODULATE) {
+        /* glBlendFunc(GL_ZERO, GL_SRC_COLOR): dst *= source, including A. */
+        return PS5_BLEND_ENABLE | PS5_BLEND_SEPARATE_ALPHA |
+               (PS5_BLEND_SRC_COLOR << PS5_BLEND_COLOR_DEST_SHIFT) |
+               (PS5_BLEND_SRC_ALPHA << PS5_BLEND_ALPHA_DEST_SHIFT);
+    }
     if (blend == GOLDSRC_BLEND_ALPHA) {
         return PS5_BLEND_ENABLE | PS5_BLEND_SEPARATE_ALPHA |
                PS5_BLEND_SRC_ALPHA |

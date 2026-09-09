@@ -25,7 +25,7 @@ int main(void)
     assert_mode(GOLDSRC_RENDER_TRANS_ALPHA, GOLDSRC_BLEND_ALPHA_TEST, 1u);
     assert_mode(GOLDSRC_RENDER_TRANS_ADD, GOLDSRC_BLEND_ADDITIVE, 0u);
 
-    uint8_t keys[256];
+    uint8_t keys[512];
     memset(keys, 0, sizeof(keys));
     unsigned key_count = 0u;
     for (unsigned blend = 0u; blend < GOLDSRC_BLEND_MODE_COUNT; ++blend)
@@ -46,6 +46,28 @@ int main(void)
                         ++key_count;
                     }
     assert(key_count == 96u);
+
+    /* Extend only screen space; all old 3D keys stay byte-for-byte stable. */
+    const GoldSrcBlendMode screen_blends[] = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_BLEND_ALPHA,
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_BLEND_ALPHA_TEST,
+        GOLDSRC_BLEND_SCREEN_MODULATE,
+    };
+    const uint32_t screen_keys[] = {128u, 129u, 130u, 131u, 384u};
+    for (unsigned i = 0u; i < 5u; ++i) {
+        GoldSrcRenderState screen;
+        uint32_t key;
+        assert(goldsrc_render_state_2d(screen_blends[i], &screen) == 0);
+        assert(goldsrc_render_state_key(&screen, &key) == 0);
+        assert(key == screen_keys[i] && keys[key] == 0u);
+        keys[key] = 1u;
+        screen.depth_write = 1u;
+        assert(goldsrc_render_state_validate(&screen) == -2);
+        screen.depth_write = 0u;
+        screen.screen_space = 0u;
+        if (screen_blends[i] == GOLDSRC_BLEND_SCREEN_MODULATE)
+            assert(goldsrc_render_state_validate(&screen) == -1);
+    }
 
     GoldSrcRenderState state;
     GoldSrcRenderPass pass;
@@ -72,7 +94,9 @@ int main(void)
     assert(goldsrc_render_state_requires_back_to_front(&state, &sorted) == 0);
     assert(sorted == 0);
 
-    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA_TEST, &state) == -1);
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA_TEST, &state) == 0);
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_MODE_COUNT, &state) == -1);
+    assert(goldsrc_render_state_2d((GoldSrcBlendMode)-1, &state) == -1);
     assert(goldsrc_render_state_from_mode(
         GOLDSRC_RENDER_MODE_COUNT, GOLDSRC_CULL_BACK, 0, 0,
         &state) == -1);
@@ -86,7 +110,9 @@ int main(void)
         GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE,
         0u, 0u, 0u, 1u
     };
-    assert(goldsrc_render_state_validate(&state) == -2);
+    assert(goldsrc_render_state_validate(&state) == 0);
+    state.blend = (GoldSrcBlendMode)-1;
+    assert(goldsrc_render_state_validate(&state) == -1);
     assert(goldsrc_render_state_key(&state, 0) == -1);
     return 0;
 }

@@ -20,6 +20,8 @@ typedef enum GoldSrcBlendMode {
     GOLDSRC_BLEND_ADDITIVE = 2,
     GOLDSRC_BLEND_ALPHA_TEST = 3,
     GOLDSRC_BLEND_MODE_COUNT = 4,
+    /* Screen-only extension: do not expand the contiguous 3D permutations. */
+    GOLDSRC_BLEND_SCREEN_MODULATE = 0x1000,
 } GoldSrcBlendMode;
 
 typedef enum GoldSrcCullMode {
@@ -53,6 +55,7 @@ enum {
     GOLDSRC_RENDER_KEY_FOG_SHIFT = 5,
     GOLDSRC_RENDER_KEY_LIGHTMAP_SHIFT = 6,
     GOLDSRC_RENDER_KEY_SCREEN_SPACE_SHIFT = 7,
+    GOLDSRC_RENDER_KEY_SCREEN_MODULATE = (1u << 8) | (1u << 7),
 };
 
 int goldsrc_render_state_validate(const GoldSrcRenderState *state);

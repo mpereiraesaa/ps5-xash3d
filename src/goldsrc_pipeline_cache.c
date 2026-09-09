@@ -9,6 +9,10 @@ int goldsrc_pipeline_shader_variant(const GoldSrcRenderState *state,
     if (!out_variant || goldsrc_render_state_validate(state) != 0)
         return -1;
     if (state->screen_space) {
+        /* Until the dedicated screen discard shader is registered, fail
+         * explicitly rather than rendering alpha-tested text as opaque. */
+        if (state->blend == GOLDSRC_BLEND_ALPHA_TEST)
+            return -1;
         *out_variant = GOLDSRC_SHADER_SCREEN_2D;
         return 0;
     }

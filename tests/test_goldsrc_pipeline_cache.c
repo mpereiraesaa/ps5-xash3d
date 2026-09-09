@@ -43,6 +43,12 @@ int main(void)
     assert(shader_counts[GOLDSRC_SHADER_SCREEN_2D] == 3u);
 
     GoldSrcRenderState query;
+    GoldSrcShaderVariant shader;
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA_TEST, &query) == 0);
+    assert(goldsrc_pipeline_shader_variant(&query, &shader) == -1);
+    assert(goldsrc_pipeline_cache_find(&cache, &query) == NULL);
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_SCREEN_MODULATE, &query) == 0);
+    assert(goldsrc_pipeline_cache_find(&cache, &query) == NULL);
     assert(goldsrc_render_state_from_mode(
         GOLDSRC_RENDER_TRANS_TEXTURE, GOLDSRC_CULL_FRONT,
         1, 1, &query) == 0);

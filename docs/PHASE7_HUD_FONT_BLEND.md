@@ -17,6 +17,10 @@ not change audio, Studio, asset packs or the accepted memory policy.
   screen-space render-state validation rejects alpha test, and the existing
   screen shader has no discard. Merely replacing the callback cannot close
   the full gate.
+- Pinned `ref/gl/gl_local.h` defines `DEFAULT_ALPHATEST` as **0.0f**;
+  `gl_opengl.c` initializes `GL_GREATER`. Screen fonts must discard alpha
+  zero after texture/color multiplication, not inherit the surface shader's
+  0.5 cutoff. Use a dedicated screen shader with the existing vertex ABI.
 - `ref/gl/gl_context.c:CL_FillRGBA` blends additive only for TransAdd,
   otherwise alpha, then disables blending. Its color and state side effects
   must be considered alongside R_Set2DMode's alpha-test/color setup.
@@ -34,6 +38,22 @@ Tests cover ordered normal/alpha/additive/reset/masked/modulate sequences and
 invalid-mode fallback. The existing full host suite passes, but this does not
 prove missing GPU modes or visual correctness. No console launch or Remote
 Play was performed for this partial change.
+
+The render-state layer now accepts masked 2D and a screen-only modulate
+extension. Existing 96 3D permutations and numeric keys remain unchanged;
+the five screen keys are 128, 129, 130, 131 and 384. Invalid/negative blends
+and modulate in 3D are rejected. Register tests cover depth/cull disabled
+for masked and modulate screen draws. Modulate encodes ZERO/SRC_COLOR for
+RGB and ZERO/SRC_ALPHA for alpha (`0x64000200`); SRC_COLOR=2 was checked
+against AMD PAL's `gfx9_plus_merged_enum.h`.
+
+This remains preparation: the pipeline cache still contains its baseline
+99 entries. Neither new screen state is registered there yet, and shader
+selection explicitly rejects masked screen state until its discard shader
+exists. Do not deploy this checkpoint or claim GPU/visual acceptance from
+the register tests. Next: generate and compile the dedicated screen masked
+shader, register both new screen pipelines, then update live translation,
+batch accounting and fill side effects before the paired hardware run.
 
 ## Required closure
 
