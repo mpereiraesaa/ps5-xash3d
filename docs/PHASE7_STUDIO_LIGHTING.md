@@ -1,7 +1,9 @@
-# Phase 7 Studio lighting and viewmodel — in progress
+# Phase 7 Studio lighting and viewmodel — integration checkpoint
 
 Baseline: hardware-accepted HUD PR #27, merged as `4726bd3`, with the normal
-non-probe build installed. This task precedes live game audio and `valve_hd`.
+non-probe build installed. Live game audio and the optional `valve_hd` mount
+now have first hardware acceptance; this document retains their precise
+evidence boundaries below.
 Accepted NPC STEP interpolation, poses, mip filtering and HUD state ownership
 must remain intact. Historical candidate entries below preserve their original
 evidence boundary; the current status here supersedes their pending statements.
@@ -38,7 +40,21 @@ are historical. Phase 7 and broader Studio/effects parity remain open.
   R1 secondary and immediate D-pad cycling. See [controller guide](SCEPAD_PHASE5.md)
   for deployment hashes, run IDs, controls and remaining button QA.
 - Diagnostic weapon grants and Studio A/B remain opt-in, default off. Graphics
-  evidence uses audio disabled. Live game audio and valve_hd are still pending.
+  evidence uses audio disabled; live-game audio and the optional `valve_hd`
+  mount have separate first-run acceptance. Six startup underruns and
+  four-blend console coverage remain open polish/coverage items.
+
+## Latest cross-feature hardware checkpoint — 2026-09-09
+
+The combined Studio QA run accepted controller interpolation, crossfade,
+two-blend routing and glowshell visually. Mode 4 found no visible four-blend
+sequence, so that path is not hardware-accepted. The subsequent live-game
+audio run was audible to the operator and closed with exact ownership; the HD
+run mounted `valve_hd` and was visually accepted. Their complete run IDs,
+hashes, underrun note and rollback boundaries are documented in
+`SCEAUDIOOUT_PHASE5.md` and the lower combined-candidate record. The top UI
+diagnostic text is still a presentation cleanup task; external `ps5log/1`
+telemetry remains enabled.
 
 Do not mark Phase 7 complete based on this incremental integration.
 
@@ -952,5 +968,8 @@ Renderer is unchanged from the accepted candidate (`d7003f1c…` PRX).
 DualSense v5, sprite lighting and reversible `ps5_blood_amount` default 1.5
 are retained; `ps5_blood_amount 1` restores original blood presentation.
 
-Next: transition-aware evidence and inactive-world Host_Error hardware recovery,
-then remaining Studio coverage, live game audio, HD-pack and release gates.
+Next: close the presentation-overlay cleanup, investigate startup audio
+underruns and (if desired) supply a real four-blend model for console coverage;
+then proceed to fixed-camera comparison, gameplay/performance soaks and the
+release package. Audio and HD are accepted first passes, not full release
+coverage (map-transition audio and long-session HD performance remain open).
