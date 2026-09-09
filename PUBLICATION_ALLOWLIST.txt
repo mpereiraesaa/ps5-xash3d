@@ -6,6 +6,7 @@ NOTICE.md
 PUBLICATION_ALLOWLIST.txt
 README.md
 docs/PHASE7_HUD_FONT_BLEND.md
+docs/PHASE7_STUDIO_LIGHTING.md
 src/ref_agc_2d_state.h
 tests/test_ref_agc_2d_state.c
 docs/PHASE7_TEXTURE_MEMORY_POLICY.md

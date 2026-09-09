@@ -2641,6 +2641,10 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         state->live_studio_pose_hash = studio->pose_hash;
         if (state->live_studio_draw_frames == 1 || frame->frame_index % 600 == 0) {
             (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_STUDIO_NORMALS schema=1 serial=%llu normals=%u normal_hash=%016llx source=mdl-normal-bones space=engine-world lighting=not-applied",
+                (unsigned long long)state->live_frame.serial, studio->normals,
+                (unsigned long long)studio->normal_hash);
+            (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_LIVE_STUDIO_FRAME schema=1 serial=%llu entities=%u draws=%u vertices=%u indices=%u pose_hash=%016llx ownership=transient-slot lighting=unlit",
                 (unsigned long long)state->live_frame.serial, studio->entities,
                 studio->count, studio->vertices, studio->indices, (unsigned long long)studio->pose_hash);

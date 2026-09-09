@@ -41,6 +41,7 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
     float projection[16];
     if(bsp_flat_camera_matrix(projection,camera,forward,aspect)) return -1;
     out->pose_hash=UINT64_C(14695981039346656037);
+    out->normal_hash=UINT64_C(14695981039346656037);
     for(uint32_t ei=0;ei<live->entity_count;++ei) {
         const RefAgcLiveEntity *e=&live->entities[ei];
         if(e->model_type!=REF_AGC_LIVE_MODEL_STUDIO) continue;
@@ -70,11 +71,12 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
             size_t sub=(size_t)model_at+((e->body/base)%count)*112;
             int meshes=i32(&m,sub+72), mesh_at=i32(&m,sub+76);
             int nv=i32(&m,sub+80), bone_at=i32(&m,sub+84), vertex_at=i32(&m,sub+88);
-            int nn=i32(&m,sub+92);
+            int nn=i32(&m,sub+92), normal_bone_at=i32(&m,sub+96), normal_at=i32(&m,sub+100);
             if(meshes==0) continue; /* empty bodygroup */
             if(meshes<0||meshes>128||nv<1||nv>65535||nn<1||nn>65535||
                !span(&m,mesh_at,(size_t)meshes*20)||!span(&m,bone_at,nv)||
-               !span(&m,vertex_at,(size_t)nv*12)) goto failed;
+               !span(&m,vertex_at,(size_t)nv*12)||!span(&m,normal_bone_at,nn)||
+               !span(&m,normal_at,(size_t)nn*12)) goto failed;
             for(int mesh=0;mesh<meshes;++mesh) {
                 size_t me=(size_t)mesh_at+mesh*20;
                 int triangles=i32(&m,me), tri_at=i32(&m,me+4), skin=i32(&m,me+8);
@@ -123,7 +125,24 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                         int source=i16(&m,cursor), normal=i16(&m,cursor+2);
                         if(source<0||source>=nv||normal<0||normal>=nn||vi>=vertices) goto failed;
                         unsigned bone=data[(size_t)bone_at+source];
-                        if(bone>=pose->bones) goto failed;
+                        unsigned normal_bone=data[(size_t)normal_bone_at+normal];
+                        if(bone>=pose->bones||normal_bone>=pose->bones) goto failed;
+                        /* Studio stores a separate bone index for each normal.
+                         * Preserve model-space magnitude for the upstream
+                         * lighting formula; translation must never enter a
+                         * direction. Pose matrices are the engine's rigid-bone
+                         * transforms, not a general inverse-transpose API. */
+                        float model_normal[3], world_normal[3]={0};
+                        for(int k=0;k<3;++k)
+                            model_normal[k]=f32(&m,(size_t)normal_at+normal*12+k*4);
+                        for(int k=0;k<3;++k) {
+                            for(int l=0;l<3;++l)
+                                world_normal[k]+=pose->matrices[normal_bone][k][l]*model_normal[l];
+                            if(!isfinite(world_normal[k])) goto failed;
+                        }
+                        if(m.bad) goto failed;
+                        out->normal_hash=hash(out->normal_hash,world_normal,sizeof(world_normal));
+                        ++out->normals;
                         float p[3],world[3];
                         for(int k=0;k<3;++k) p[k]=f32(&m,(size_t)vertex_at+source*12+k*4);
                         for(int k=0;k<3;++k) {
@@ -154,6 +173,8 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
 failed:
     ring->slots[slot].used=checkpoint;
     out->count=0;
+    out->normals=0;
+    out->normal_hash=0;
     return rc;
 }
 
