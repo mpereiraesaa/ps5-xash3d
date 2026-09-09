@@ -95,6 +95,22 @@ ps5_bsp_sky_ps_start:
 .global ps5_bsp_sky_ps_end
 ps5_bsp_sky_ps_end:
 
+.section .rodata.ps5_bsp_turbulent_shaders,"a",@progbits
+
+.balign 256
+.global ps5_bsp_turbulent_gs_start
+ps5_bsp_turbulent_gs_start:
+.incbin "build/shaders/bsp_turbulent.gs.bin"
+.global ps5_bsp_turbulent_gs_end
+ps5_bsp_turbulent_gs_end:
+
+.balign 256
+.global ps5_bsp_turbulent_ps_start
+ps5_bsp_turbulent_ps_start:
+.incbin "build/shaders/bsp_turbulent.ps.bin"
+.global ps5_bsp_turbulent_ps_end
+ps5_bsp_turbulent_ps_end:
+
 .section .rodata.ps5_bsp_overlay_shaders,"a",@progbits
 
 .balign 256

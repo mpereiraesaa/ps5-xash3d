@@ -46,6 +46,7 @@ shaders/bsp_textured.pipe
 shaders/bsp_resource.pipe
 shaders/bsp_alpha_test.pipe
 shaders/bsp_sky.pipe
+shaders/bsp_turbulent.pipe
 shaders/bsp_overlay.pipe
 shaders/goldsrc_screen_2d.pipe
 shaders/goldsrc_surface.template.pipe
@@ -96,6 +97,8 @@ src/gears_rt_clear.c
 src/gears_rt_clear.h
 src/ref_agc_live_frame.c
 src/ref_agc_live_frame.h
+src/ref_agc_skybox.c
+src/ref_agc_skybox.h
 src/ref_agc_lightmap_atlas.c
 src/ref_agc_lightmap_atlas.h
 src/ref_agc_gpu_texture_cache.c
@@ -248,6 +251,7 @@ tests/test_mem_ps5.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
+tests/test_ref_agc_skybox.c
 tests/test_ref_agc_lightmap_atlas.c
 tests/test_ref_agc_gpu_texture_cache.c
 tests/test_ref_agc_gpu_world_cache.c

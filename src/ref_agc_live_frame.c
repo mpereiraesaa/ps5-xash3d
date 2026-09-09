@@ -58,6 +58,30 @@ void ref_agc_live_set_world(RefAgcLiveStore *store,
     store->building.map_serial = store->current_world.serial;
 }
 
+void ref_agc_live_set_sky(
+    RefAgcLiveStore *store,
+    const uint32_t texture_handles[REF_AGC_LIVE_SKY_SIDES])
+{
+    if (!store || !store->initialized)
+        return;
+    if (texture_handles)
+        for (uint32_t side = 0u; side < REF_AGC_LIVE_SKY_SIDES; ++side)
+            if (texture_handles[side] == 0u)
+                return;
+    memset(store->current_sky.texture_handles, 0,
+           sizeof(store->current_sky.texture_handles));
+    store->current_sky.active = 0u;
+    if (texture_handles) {
+        for (uint32_t side = 0u; side < REF_AGC_LIVE_SKY_SIDES; ++side) {
+            store->current_sky.texture_handles[side] =
+                texture_handles[side];
+        }
+        store->current_sky.active = 1u;
+    }
+    ++store->current_sky.revision;
+    store->building.sky = store->current_sky;
+}
+
 void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
                               uint64_t begin_calls)
 {
@@ -65,6 +89,7 @@ void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
         return;
     store->building.serial = 0;
     store->building.world = store->current_world;
+    store->building.sky = store->current_sky;
     store->building.map_serial = store->current_world.serial;
     memset(&store->building.view, 0, sizeof(store->building.view));
     store->building.command_2d_count = 0;

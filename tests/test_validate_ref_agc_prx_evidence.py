@@ -50,7 +50,8 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
 
 def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
                     live: bool = True, consumer: bool = False,
-                    resources: bool = False) -> list[str]:
+                    resources: bool = False,
+                    boot_map: str = "c1a0") -> list[str]:
     complete = [
         "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 active_modules=4 ownership=exact",
         "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 active_modules=3 ownership=exact pass=1",
@@ -87,7 +88,7 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"XASH_BOOT schema=1 slice=engine-boot mode=client ref=agc fw=12.02 engine={ENGINE} "
         f"hlsdk={HLSDK} rodir=/app0/xash3d basedir=/download0/xash3d gamedir=valve "
-        "map=c1a0 gate_seconds=20 pad_gate=0 audio_gate=0 memory_gate=0 "
+        f"map={boot_map} gate_seconds=20 pad_gate=0 audio_gate=0 memory_gate=0 "
         "thread_time_gate=0 libc_shim_gate=0 prx_gate=0 filesystem_prx=1 "
         "server_prx=1 menu_prx=1 client_prx=1 ref_agc_prx=1 rodir_present=1",
         "XASH_PRX_LOAD path=/app0/sce_module/ref_agc.prx module=ref_agc.prx handle=0xd3 "
@@ -133,9 +134,12 @@ def renderer_messages(errors: str = "0") -> list[str]:
 
 def phase7_renderer_messages(serial: int = 100, *,
                              resources: bool = False,
-                             world: bool = False) -> list[str]:
+                             world: bool = False,
+                             special: bool = False) -> list[str]:
     if world and not resources:
         raise ValueError("live world evidence requires GPU textures")
+    if special and not world:
+        raise ValueError("special-surface evidence requires the live world")
     texture = ([
         "REF_AGC_GPU_TEXTURE_COMPLETE revision=251 creates=200 updates=1 "
         "deletes=0 active=200 peak=200 resident_bytes=4194304 "
@@ -144,10 +148,14 @@ def phase7_renderer_messages(serial: int = 100, *,
         "descriptors=rgba8+bilinear memory=direct "
         "ownership=fence+videoout-before-reuse errors=0",
     ] if resources else [])
+    special_counts = (" sky_draws=158 sky_indices=948 "
+                      "turbulent_draws=35 turbulent_indices=312") \
+        if special else ""
     gpu_world = ([
         "REF_AGC_GPU_WORLD_COMPLETE revision=1 publishes=1 clears=0 "
         "vertices=17245 indices=29565 draws=3695 texture_tables=3695 "
-        "lightmapped_draws=3695 lightmap=1024x256 row_pitch=4096 "
+        f"lightmapped_draws=3695{special_counts} "
+        "lightmap=1024x256 row_pitch=4096 "
         "lightmap_bytes=1048576 lightmap_rgb_sum=66594990 "
         "lightmap_nonzero_texels=186051 lightmap_rgb_range=0..255 "
         "resident_bytes=1047584 peak_bytes=1047584 "
@@ -157,6 +165,26 @@ def phase7_renderer_messages(serial: int = 100, *,
         "gpu_indices=per-draw-u16 "
         "ownership=fence+videoout-before-reuse errors=0",
     ] if world else [])
+    special_markers = ([
+        "REF_AGC_LIVE_SPECIAL_SURFACES schema=1 frame=120 "
+        "source_sky_draws=158 source_sky_indices=948 "
+        "skybox_draws=6 skybox_indices=36 sky_active=1 sky_revision=7 "
+        "sky_geometry_hash=1122334455667788 "
+        "sky_texture_hash=8877665544332211 "
+        "turbulent_draws=35 turbulent_indices=312 "
+        "animation_time_milli=50 paused=0 "
+        "sky=engine-six-sided-camera-centred "
+        "turbulent=engine-time-classic-warp ownership=transient-slot",
+        "REF_AGC_LIVE_SPECIAL_SURFACES schema=1 frame=240 "
+        "source_sky_draws=158 source_sky_indices=948 "
+        "skybox_draws=6 skybox_indices=36 sky_active=1 sky_revision=7 "
+        "sky_geometry_hash=1122334455667788 "
+        "sky_texture_hash=8877665544332211 "
+        "turbulent_draws=35 turbulent_indices=312 "
+        "animation_time_milli=2050 paused=0 "
+        "sky=engine-six-sided-camera-centred "
+        "turbulent=engine-time-classic-warp ownership=transient-slot",
+    ] if special else [])
     studio = "" if world else \
         f" studio_sha256={STUDIO} studio_bytes=200"
     geometry = "live-refapi" if world else "baked-c1a0"
@@ -181,6 +209,7 @@ def phase7_renderer_messages(serial: int = 100, *,
         "entities=0 draw2d=1 ack=exact drops=zero",
         *texture,
         *gpu_world,
+        *special_markers,
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
@@ -193,15 +222,20 @@ def phase7_renderer_messages(serial: int = 100, *,
 
 
 def run(engine: Path, renderer: Path, *,
-        require_live_lightmaps: bool = False) -> subprocess.CompletedProcess[str]:
+        require_live_lightmaps: bool = False,
+        require_live_special_surfaces: bool = False,
+        boot_map: str = "c1a0") -> subprocess.CompletedProcess[str]:
     command = [
         "python3", "-B", str(VALIDATOR), str(engine), str(renderer),
         "--engine-commit", ENGINE, "--hlsdk-commit", HLSDK,
         "--bundle-sha256", BUNDLE, "--bundle-bytes", "100",
         "--studio-sha256", STUDIO, "--studio-bytes", "200",
+        "--map", boot_map,
     ]
     if require_live_lightmaps:
         command.append("--require-live-lightmaps")
+    if require_live_special_surfaces:
+        command.append("--require-live-special-surfaces")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -273,6 +307,41 @@ def main() -> None:
         world_summary = json.loads(world_valid.stdout)
         assert world_summary["gpu_world"]["draws"] == "3695"
         assert world_summary["gpu_world"]["vertices"] == "17245"
+
+        special_engine = write_run(
+            directory, "special-engine", "xash3d-engine",
+            engine_messages(consumer=True, resources=True,
+                            boot_map="c1a0e"),
+            raw=[line.replace("c1a0", "c1a0e") for line in raw],
+            started="2026-09-08T19:13:27.933+00:00")
+        special_renderer = write_run(
+            directory, "special-renderer", "ps5-xash3d",
+            phase7_renderer_messages(resources=True, world=True,
+                                     special=True),
+            started="2026-09-08T19:13:27.984+00:00")
+        special_valid = run(
+            special_engine, special_renderer, require_live_lightmaps=True,
+            require_live_special_surfaces=True, boot_map="c1a0e")
+        assert special_valid.returncode == 0, special_valid.stderr
+        special_summary = json.loads(special_valid.stdout)[
+            "special_surfaces"]
+        assert special_summary["sky_draws"] == 158
+        assert special_summary["turbulent_draws"] == 35
+        assert special_summary["animation_time_milli"] == [50, 2050]
+
+        stalled_special_messages = [message.replace(
+            "animation_time_milli=2050", "animation_time_milli=50")
+            for message in phase7_renderer_messages(
+                resources=True, world=True, special=True)]
+        stalled_special_renderer = write_run(
+            directory, "stalled-special-renderer", "ps5-xash3d",
+            stalled_special_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(
+            special_engine, stalled_special_renderer,
+            require_live_special_surfaces=True, boot_map="c1a0e")
+        assert rejected.returncode != 0 \
+            and "engine time did not advance" in rejected.stderr
 
         bad_lightmap_messages = [message.replace(
             "lightmap_nonzero_texels=186051", "lightmap_nonzero_texels=0")

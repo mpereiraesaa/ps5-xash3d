@@ -52,7 +52,9 @@ int main(void)
     const uint32_t indices[9] = {0, 1, 2, 0, 2, 3, 4, 5, 6};
     const RefAgcWorldDraw draws[2] = {
         {0, 6, 5, 10, 0, REF_AGC_WORLD_DRAW_LIGHTMAP, {0, 0}},
-        {6, 3, 5, 11, 0, REF_AGC_WORLD_DRAW_ALPHA_TEST, {0, 0}},
+        {6, 3, 5, 11, 0,
+         REF_AGC_WORLD_DRAW_ALPHA_TEST | REF_AGC_WORLD_DRAW_TURB,
+         {0, 0}},
     };
     const RefAgcWorldView view = {
         .revision = 1, .content_hash = 0x1234,
@@ -65,6 +67,7 @@ int main(void)
         .lightmap_row_pitch = 8,
         .lightmap_pixel_bytes = sizeof(lightmap_pixels),
         .lightmapped_draw_count = 1,
+        .turbulent_draw_count = 1,
     };
     RefAgcGpuWorldStats stats;
 
@@ -83,6 +86,10 @@ int main(void)
     assert(stats.vertex_count == 7u && stats.index_count == 9u &&
            stats.draw_count == 2u && stats.texture_tables == 2u);
     assert(stats.lightmapped_draw_count == 1u &&
+           stats.sky_draw_count == 0u &&
+           stats.turbulent_draw_count == 1u &&
+           stats.sky_index_count == 0u &&
+           stats.turbulent_index_count == 3u &&
            stats.lightmap_width == 2u && stats.lightmap_height == 2u &&
            stats.lightmap_row_pitch == 256u &&
            stats.lightmap_bytes == 512u);

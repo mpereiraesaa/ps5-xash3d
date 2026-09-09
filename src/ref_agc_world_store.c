@@ -98,6 +98,8 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     size_t vertex_bytes, index_bytes, draw_bytes, resident_bytes;
     size_t lightmap_bytes = 0u;
     uint32_t lightmapped_draws = 0u;
+    uint32_t sky_draws = 0u;
+    uint32_t turbulent_draws = 0u;
     uint64_t hash = UINT64_C(14695981039346656037);
     char model_name[REF_AGC_WORLD_NAME_MAX];
     if (!store || !store->initialized || !input || !input->model_name ||
@@ -135,6 +137,14 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
             return REF_AGC_WORLD_INVALID;
         if (item->draw_flags & REF_AGC_WORLD_DRAW_LIGHTMAP)
             ++lightmapped_draws;
+        if ((item->draw_flags & (REF_AGC_WORLD_DRAW_SKY |
+                                 REF_AGC_WORLD_DRAW_TURB)) ==
+            (REF_AGC_WORLD_DRAW_SKY | REF_AGC_WORLD_DRAW_TURB))
+            return REF_AGC_WORLD_INVALID;
+        if (item->draw_flags & REF_AGC_WORLD_DRAW_SKY)
+            ++sky_draws;
+        if (item->draw_flags & REF_AGC_WORLD_DRAW_TURB)
+            ++turbulent_draws;
     }
     if ((lightmapped_draws != 0u) != (lightmap_bytes != 0u))
         return REF_AGC_WORLD_INVALID;
@@ -196,6 +206,8 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     store->stats.lightmap_row_pitch = input->lightmap_row_pitch;
     store->stats.lightmap_pixel_bytes = lightmap_bytes;
     store->stats.lightmapped_draw_count = lightmapped_draws;
+    store->stats.sky_draw_count = sky_draws;
+    store->stats.turbulent_draw_count = turbulent_draws;
     store->stats.resident_bytes = resident_bytes;
     if (resident_bytes > store->stats.peak_resident_bytes)
         store->stats.peak_resident_bytes = resident_bytes;
@@ -242,6 +254,8 @@ int ref_agc_world_store_clear(RefAgcWorldStore *store,
     store->stats.lightmap_row_pitch = 0u;
     store->stats.lightmap_pixel_bytes = 0u;
     store->stats.lightmapped_draw_count = 0u;
+    store->stats.sky_draw_count = 0u;
+    store->stats.turbulent_draw_count = 0u;
     store->stats.resident_bytes = 0u;
     store->stats.active = 0;
     (void)pthread_mutex_unlock(&store->lock);
@@ -280,6 +294,8 @@ int ref_agc_world_store_visit_changed(RefAgcWorldStore *store,
         view.lightmap_row_pitch = store->stats.lightmap_row_pitch;
         view.lightmap_pixel_bytes = store->stats.lightmap_pixel_bytes;
         view.lightmapped_draw_count = store->stats.lightmapped_draw_count;
+        view.sky_draw_count = store->stats.sky_draw_count;
+        view.turbulent_draw_count = store->stats.turbulent_draw_count;
         view.active = store->stats.active;
         if (visitor(&view, user) != 0)
             result = REF_AGC_WORLD_VISITOR_FAILED;

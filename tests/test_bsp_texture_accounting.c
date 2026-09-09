@@ -48,6 +48,9 @@ int main(void)
     assert(bsp_texture_accounting_finalize(&accounting, 4u, &summary) == 0);
     assert(summary.frames == 4u);
     assert(summary.transient_bytes_per_frame == 128u);
+    assert(summary.transient_bytes_min == 128u);
+    assert(summary.transient_bytes_max == 128u);
+    assert(summary.transient_variation_frames == 0u);
     assert(summary.bounded_lightmap_bytes_per_frame == 256u);
     assert(summary.transient_bytes_total == 512u);
     assert(summary.lightmap_bytes_total == 20512u);
@@ -74,6 +77,26 @@ int main(void)
     assert(bsp_texture_accounting_record(
                &repeat, 4u, 129u, 256u, 0, &frame) != 0);
     assert(memcmp(&before, &repeat, sizeof(repeat)) == 0);
+
+    BspTextureAccounting variable;
+    assert(bsp_texture_accounting_init(&variable, &input) == 0);
+    assert(bsp_texture_accounting_record_variable(
+               &variable, 0u, 128u, 10000u, 1, &frame) == 0);
+    assert(bsp_texture_accounting_record_variable(
+               &variable, 1u, 128u, 10000u, 1, &frame) == 0);
+    assert(bsp_texture_accounting_record_variable(
+               &variable, 2u, 256u, 256u, 0, &frame) == 0);
+    assert(bsp_texture_accounting_record_variable(
+               &variable, 3u, 300u, 256u, 0, &frame) == 0);
+    assert(bsp_texture_accounting_finalize(&variable, 4u, &summary) == 0);
+    assert(summary.transient_bytes_per_frame == 128u);
+    assert(summary.transient_bytes_min == 128u);
+    assert(summary.transient_bytes_max == 300u);
+    assert(summary.transient_variation_frames == 2u);
+    before = variable;
+    assert(bsp_texture_accounting_record(
+               &variable, 4u, 300u, 256u, 0, &frame) != 0);
+    assert(memcmp(&before, &variable, sizeof(variable)) == 0);
 
     input = valid_input();
     input.pool_capacity_bytes = 100000u;

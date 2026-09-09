@@ -44,6 +44,8 @@ int main(void)
     const BspResourceGoldSrcConstants goldsrc = {
         {0.25f, 0.5f, 0.75f, 0.4f},
         {0.1f, 0.2f, 0.3f, 0.004f},
+        12.25f,
+        {128.0f, 32.0f, 64.0f},
     };
     BspResourceFrame frame;
     assert(bsp_resource_frame_build_configured(
@@ -72,7 +74,10 @@ int main(void)
                   sizeof(goldsrc.render_color)) == 0);
     assert(memcmp(map_constants->debug_values, goldsrc.fog_color_density,
                   sizeof(goldsrc.fog_color_density)) == 0);
-    assert(map_constants->debug_values[4] == 17.0f);
+    assert(map_constants->debug_values[4] == 12.25f);
+    assert(map_constants->debug_values[5] == 128.0f &&
+           map_constants->debug_values[6] == 32.0f &&
+           map_constants->debug_values[7] == 64.0f);
     assert(map_constants->debug_values[8] == 0.0f);
     const uintptr_t overlay_address =
         (uintptr_t)frame.overlay_constant_table[0] |

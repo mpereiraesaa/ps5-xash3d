@@ -82,6 +82,10 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
     size_t cursor = 0u;
     uint32_t total_vertices = 0u;
     uint32_t lightmapped_draws = 0u;
+    uint32_t sky_draws = 0u;
+    uint32_t turbulent_draws = 0u;
+    uint32_t sky_indices = 0u;
+    uint32_t turbulent_indices = 0u;
     uint32_t lightmap_gpu_row_pitch = 0u;
     uint64_t lightmap_rgb_sum = 0u;
     uint32_t lightmap_nonzero_texels = 0u;
@@ -110,6 +114,10 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
         cache->stats.lightmap_height = 0u;
         cache->stats.lightmap_row_pitch = 0u;
         cache->stats.lightmapped_draw_count = 0u;
+        cache->stats.sky_draw_count = 0u;
+        cache->stats.turbulent_draw_count = 0u;
+        cache->stats.sky_index_count = 0u;
+        cache->stats.turbulent_index_count = 0u;
         cache->stats.lightmap_bytes = 0u;
         cache->stats.lightmap_rgb_sum = 0u;
         cache->stats.lightmap_nonzero_texels = 0u;
@@ -127,10 +135,29 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
         view->draw_count == 0u ||
         view->draw_count > REF_AGC_GPU_WORLD_MAX_DRAWS)
         return REF_AGC_GPU_WORLD_INVALID;
-    for (uint32_t i = 0u; i < view->draw_count; ++i)
+    for (uint32_t i = 0u; i < view->draw_count; ++i) {
+        if ((view->draws[i].draw_flags & (REF_AGC_WORLD_DRAW_SKY |
+                                          REF_AGC_WORLD_DRAW_TURB)) ==
+            (REF_AGC_WORLD_DRAW_SKY | REF_AGC_WORLD_DRAW_TURB))
+            return REF_AGC_GPU_WORLD_INVALID;
         if (view->draws[i].draw_flags & REF_AGC_WORLD_DRAW_LIGHTMAP)
             ++lightmapped_draws;
-    if (lightmapped_draws != view->lightmapped_draw_count)
+        if (view->draws[i].draw_flags & REF_AGC_WORLD_DRAW_SKY) {
+            ++sky_draws;
+            if (sky_indices > UINT32_MAX - view->draws[i].index_count)
+                return REF_AGC_GPU_WORLD_INVALID;
+            sky_indices += view->draws[i].index_count;
+        }
+        if (view->draws[i].draw_flags & REF_AGC_WORLD_DRAW_TURB) {
+            ++turbulent_draws;
+            if (turbulent_indices > UINT32_MAX - view->draws[i].index_count)
+                return REF_AGC_GPU_WORLD_INVALID;
+            turbulent_indices += view->draws[i].index_count;
+        }
+    }
+    if (lightmapped_draws != view->lightmapped_draw_count ||
+        sky_draws != view->sky_draw_count ||
+        turbulent_draws != view->turbulent_draw_count)
         return REF_AGC_GPU_WORLD_INVALID;
     if (view->lightmapped_draw_count) {
         size_t source_bytes, gpu_row_pitch, lightmap_bytes;
@@ -267,6 +294,10 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
     cache->stats.lightmap_height = view->lightmap_height;
     cache->stats.lightmap_row_pitch = lightmap_gpu_row_pitch;
     cache->stats.lightmapped_draw_count = lightmapped_draws;
+    cache->stats.sky_draw_count = sky_draws;
+    cache->stats.turbulent_draw_count = turbulent_draws;
+    cache->stats.sky_index_count = sky_indices;
+    cache->stats.turbulent_index_count = turbulent_indices;
     cache->stats.lightmap_bytes = (size_t)lightmap_gpu_row_pitch *
                                   view->lightmap_height;
     cache->stats.lightmap_rgb_sum = lightmap_rgb_sum;

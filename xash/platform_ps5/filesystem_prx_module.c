@@ -9,6 +9,8 @@ int PS5_LoadDirIndex( const char *image_root, const char *index_path );
 void PS5_UnloadDirIndex( void );
 int PS5_DirIndexCount( void );
 int PS5_ListingRefusedCount( void );
+void PS5_EnableRuntimeDirAllocator( void );
+void PS5_DisableRuntimeDirAllocator( void );
 extern void GetFSAPI( void );
 extern void CreateInterface( void );
 
@@ -37,8 +39,10 @@ qboolean PS5_FilesystemPrxInitStdio( qboolean unused_set_to_true,
 	const char *rootdir, const char *basedir, const char *gamedir,
 	const char *rodir )
 {
-	return PS5_FilesystemPrxOriginalInitStdio( unused_set_to_true,
+	qboolean result = PS5_FilesystemPrxOriginalInitStdio( unused_set_to_true,
 		rootdir, basedir, gamedir, rodir );
+	if( result ) PS5_EnableRuntimeDirAllocator( );
+	return result;
 }
 
 void PS5_FilesystemPrxLoadGameInfo( uint32_t flags, const char *language )
@@ -122,6 +126,7 @@ int module_start( size_t argc, const void *argv )
 int module_stop( size_t argc, const void *argv )
 {
 	(void)argc; (void)argv;
+	PS5_DisableRuntimeDirAllocator( );
 	PS5_UnloadDirIndex( );
 	filesystem_prx_index_entries = 0;
 	filesystem_prx_started = 0;

@@ -86,6 +86,39 @@ static RefAgcTextureStore ref_agc_textures;
 static int ref_agc_textures_initialized;
 static RefAgcWorldStore ref_agc_world;
 static int ref_agc_world_initialized;
+static poolhandle_t ref_agc_storage_pool;
+
+static void *RefAgcStorageAlloc(size_t bytes, void *unused)
+{
+	(void)unused;
+	return ref_agc_engine._Mem_Alloc( ref_agc_storage_pool, bytes,
+		false, __FILE__, __LINE__ );
+}
+
+static void RefAgcStorageFree(void *memory, void *unused)
+{
+	(void)unused;
+	if( memory )
+		ref_agc_engine._Mem_Free( memory, __FILE__, __LINE__ );
+}
+
+static int RefAgcStoragePoolInit(void)
+{
+	if( ref_agc_storage_pool ) return 0;
+	if( !ref_agc_engine._Mem_AllocPool || !ref_agc_engine._Mem_FreePool ||
+		!ref_agc_engine._Mem_Alloc || !ref_agc_engine._Mem_Free )
+		return -1;
+	ref_agc_storage_pool = ref_agc_engine._Mem_AllocPool(
+		"RefAGC CPU store", 0u, __FILE__, __LINE__ );
+	return ref_agc_storage_pool ? 0 : -1;
+}
+
+static void RefAgcStoragePoolDestroy(void)
+{
+	if( ref_agc_storage_pool )
+		ref_agc_engine._Mem_FreePool( &ref_agc_storage_pool,
+			__FILE__, __LINE__ );
+}
 
 static void RefAgcCopy3(float out[3], const float in[3])
 {
@@ -315,14 +348,19 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 			vertex->position[0] = position[0];
 			vertex->position[1] = position[2];
 			vertex->position[2] = -position[1];
-			vertex->base_uv[0] = (position[0] * texinfo->vecs[0][0] +
+			vertex->base_uv[0] = position[0] * texinfo->vecs[0][0] +
 				position[1] * texinfo->vecs[0][1] +
-				position[2] * texinfo->vecs[0][2] + texinfo->vecs[0][3]) /
-				(float)texture->width;
-			vertex->base_uv[1] = (position[0] * texinfo->vecs[1][0] +
+				position[2] * texinfo->vecs[0][2];
+			vertex->base_uv[1] = position[0] * texinfo->vecs[1][0] +
 				position[1] * texinfo->vecs[1][1] +
-				position[2] * texinfo->vecs[1][2] + texinfo->vecs[1][3]) /
-				(float)texture->height;
+				position[2] * texinfo->vecs[1][2];
+			if( !(surface->flags & SURF_DRAWTURB) )
+			{
+				vertex->base_uv[0] = (vertex->base_uv[0] +
+					texinfo->vecs[0][3]) / (float)texture->width;
+				vertex->base_uv[1] = (vertex->base_uv[1] +
+					texinfo->vecs[1][3]) / (float)texture->height;
+			}
 			vertex->light_uv[0] = 0.0f;
 			vertex->light_uv[1] = 0.0f;
 			if( placement->active && surface->info && sample_size > 0.0f )
@@ -540,6 +578,10 @@ static void *RefAgcRuntimeThread(void *unused)
 static qboolean RefAgcInit(void)
 {
 	struct timespec wait = { 0, 1000000L };
+	const RefAgcTextureAllocator texture_allocator = {
+		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
+	const RefAgcWorldAllocator world_allocator = {
+		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
 	unsigned attempt;
 	if( ref_agc_thread_created )
 		return ref_agc_runtime_state == REF_AGC_READY ||
@@ -555,10 +597,19 @@ static qboolean RefAgcInit(void)
 		}
 		ref_agc_live_initialized = 1;
 	}
+	if( RefAgcStoragePoolInit( ) != 0 )
+	{
+		ref_agc_live_store_destroy( &ref_agc_live );
+		ref_agc_live_initialized = 0;
+		ref_agc_engine.R_Free_Video();
+		return false;
+	}
 	if( !ref_agc_textures_initialized )
 	{
-		if( ref_agc_texture_store_init( &ref_agc_textures, NULL ) != 0 )
+		if( ref_agc_texture_store_init( &ref_agc_textures,
+			&texture_allocator ) != 0 )
 		{
+			RefAgcStoragePoolDestroy( );
 			ref_agc_live_store_destroy( &ref_agc_live );
 			ref_agc_live_initialized = 0;
 			ref_agc_engine.R_Free_Video();
@@ -568,10 +619,12 @@ static qboolean RefAgcInit(void)
 	}
 	if( !ref_agc_world_initialized )
 	{
-		if( ref_agc_world_store_init( &ref_agc_world, NULL ) != 0 )
+		if( ref_agc_world_store_init( &ref_agc_world,
+			&world_allocator ) != 0 )
 		{
 			ref_agc_texture_store_destroy( &ref_agc_textures );
 			ref_agc_textures_initialized = 0;
+			RefAgcStoragePoolDestroy( );
 			ref_agc_live_store_destroy( &ref_agc_live );
 			ref_agc_live_initialized = 0;
 			ref_agc_engine.R_Free_Video();
@@ -590,6 +643,7 @@ static qboolean RefAgcInit(void)
 		ref_agc_textures_initialized = 0;
 		ref_agc_world_store_destroy( &ref_agc_world );
 		ref_agc_world_initialized = 0;
+		RefAgcStoragePoolDestroy( );
 		ref_agc_engine.R_Free_Video();
 		return false;
 	}
@@ -644,7 +698,27 @@ static void RefAgcShutdown(void)
 		ref_agc_texture_store_destroy( &ref_agc_textures );
 		ref_agc_textures_initialized = 0;
 	}
+	RefAgcStoragePoolDestroy( );
 	ref_agc_engine.R_Free_Video();
+}
+
+static void RefAgcSkyTextureTrace(const char *stage, const char *name,
+	const rgbdata_t *image, texFlags_t flags, int result)
+{
+	(void)flags;
+	if( !name || strncmp( name, "gfx/env/", 8u ) != 0 ||
+		!ref_agc_engine.Con_Printf )
+		return;
+	ref_agc_engine.Con_Printf(
+		"REF_AGC_SKY_TEXTURE stage=%s name=%s result=%d "
+		"width=%u height=%u depth=%u type=%u size=%lu buffer=%d\n",
+		stage ? stage : "unknown", name ? name : "(null)", result,
+		image ? (unsigned)image->width : 0u,
+		image ? (unsigned)image->height : 0u,
+		image ? (unsigned)image->depth : 0u,
+		image ? (unsigned)image->type : 0u,
+		(unsigned long)(image ? image->size : 0u),
+		image && image->buffer ? 1 : 0 );
 }
 
 static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
@@ -657,17 +731,25 @@ static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
 	uint process_flags = IMAGE_FORCE_RGBA;
 	if( !ref_agc_textures_initialized || !name || !name[0] || !image ||
 		image->width == 0 || image->height == 0 || image->size == 0 )
+	{
+		RefAgcSkyTextureTrace( "invalid-input", name, image, flags, -1 );
 		return 0;
+	}
 	if( image->buffer )
 	{
 		owned = ref_agc_engine.FS_CopyImage( image );
 		if( !owned )
+		{
+			RefAgcSkyTextureTrace( "copy-failed", name, image, flags, -2 );
 			return 0;
+		}
 		if( flags & TF_MAKELUMA )
 			process_flags |= IMAGE_MAKE_LUMA;
 		if( !ref_agc_engine.Image_Process( &owned, 0, 0,
 			process_flags, 0.0f ) && owned->type != PF_RGBA_32 )
 		{
+			RefAgcSkyTextureTrace( "rgba-conversion-failed", name,
+				owned, flags, -3 );
 			ref_agc_engine.FS_FreeImage( owned );
 			return 0;
 		}
@@ -675,6 +757,8 @@ static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
 	}
 	if( source->type != PF_RGBA_32 || source->size == 0 )
 	{
+		RefAgcSkyTextureTrace( "rgba-contract-failed", name,
+			source, flags, -4 );
 		if( owned ) ref_agc_engine.FS_FreeImage( owned );
 		return 0;
 	}
@@ -692,9 +776,14 @@ static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
 	input.sampler_clamp = (flags & TF_CLAMP) != 0;
 	input.pixels = source->buffer;
 	input.pixel_bytes = source->size;
-	if( ref_agc_texture_store_upsert( &ref_agc_textures, &input,
-		update != false, &handle ) != 0 )
+	const int store_result = ref_agc_texture_store_upsert(
+		&ref_agc_textures, &input, update != false, &handle );
+	if( store_result != 0 )
+	{
+		RefAgcSkyTextureTrace( "store-failed", name, source, flags,
+			store_result );
 		handle = 0;
+	}
 	if( owned ) ref_agc_engine.FS_FreeImage( owned );
 	return (int)handle;
 }
@@ -721,7 +810,11 @@ static int RefAgcLoadTexture(const char *name, const byte *buffer,
 	ref_agc_engine.Image_SetForceFlags( image_flags );
 	image = ref_agc_engine.FS_LoadImage( name, buffer, size );
 	if( !image )
+	{
+		RefAgcSkyTextureTrace( "load-image-failed", name, NULL,
+			(texFlags_t)flags, -5 );
 		return 0;
+	}
 	handle = RefAgcStoreImage( name, image, (texFlags_t)flags, false );
 	ref_agc_engine.FS_FreeImage( image );
 	return handle;
@@ -847,6 +940,7 @@ static void RefAgcRenderScene(void)
 static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 {
 	RefAgcLiveView live;
+	const ref_client_t *client;
 	++ref_agc_scene_calls;
 	if( !view )
 		return;
@@ -858,7 +952,29 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 	live.fov_y = view->fov_y;
 	live.view_entity = view->viewentity;
 	live.flags = (uint32_t)view->flags;
+	client = ref_agc_engine.EngineGetParm ?
+		(const ref_client_t *)ref_agc_engine.EngineGetParm(
+			PARM_GET_CLIENT_PTR, 0 ) : NULL;
+	live.time_seconds = client ? client->time : 0.0;
+	live.paused = client ? (uint32_t)(client->paused != false) : 0u;
 	ref_agc_live_set_view( &ref_agc_live, &live, ref_agc_scene_calls );
+}
+
+static void RefAgcSetupSky(int *skybox_textures)
+{
+	uint32_t handles[REF_AGC_LIVE_SKY_SIDES];
+	_Static_assert(SKYBOX_MAX_SIDES == REF_AGC_LIVE_SKY_SIDES,
+		"RefAPI skybox side count");
+	if( !ref_agc_live_initialized )
+		return;
+	if( !skybox_textures )
+	{
+		ref_agc_live_set_sky( &ref_agc_live, NULL );
+		return;
+	}
+	for( unsigned side = 0u; side < REF_AGC_LIVE_SKY_SIDES; ++side )
+		handles[side] = (uint32_t)skybox_textures[side];
+	ref_agc_live_set_sky( &ref_agc_live, handles );
 }
 
 static void RefAgcEndFrame(void)
@@ -1058,6 +1174,7 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_RenderScene = RefAgcRenderScene;
 	funcs->R_EndFrame = RefAgcEndFrame;
 	funcs->R_NewMap = RefAgcNewMap;
+	funcs->R_SetupSky = RefAgcSetupSky;
 	funcs->GL_RenderFrame = RefAgcRenderFrame;
 	funcs->R_ClearScene = RefAgcClearScene;
 	funcs->R_AddEntity = RefAgcAddEntity;

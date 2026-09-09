@@ -108,14 +108,15 @@ int bsp_texture_accounting_init(BspTextureAccounting *accounting,
     return 0;
 }
 
-int bsp_texture_accounting_record(BspTextureAccounting *accounting,
-                                  uint64_t frame,
-                                  uint64_t transient_bytes,
-                                  uint64_t lightmap_bytes,
-                                  int first_upload,
-                                  BspTextureUploadFrame *out)
+static int bsp_texture_accounting_record_mode(
+    BspTextureAccounting *accounting, uint64_t frame,
+    uint64_t transient_bytes, uint64_t lightmap_bytes, int first_upload,
+    int variable_transient, BspTextureUploadFrame *out)
 {
     if (!accounting || !accounting->initialized || !out ||
+        (variable_transient != 0 && variable_transient != 1) ||
+        (accounting->upload.frames != 0u &&
+         accounting->variable_transient != (uint8_t)variable_transient) ||
         frame != accounting->upload.frames || transient_bytes == 0u ||
         lightmap_bytes == 0u || (first_upload != 0 && first_upload != 1) ||
         (first_upload != (frame < accounting->residency.dynamic_lightmap_slots)) ||
@@ -125,7 +126,8 @@ int bsp_texture_accounting_record(BspTextureAccounting *accounting,
         (!first_upload && lightmap_bytes >=
             accounting->residency.dynamic_lightmap_image_bytes /
                 accounting->residency.dynamic_lightmap_slots) ||
-        (accounting->upload.transient_bytes_per_frame != 0u &&
+        (!variable_transient &&
+         accounting->upload.transient_bytes_per_frame != 0u &&
          accounting->upload.transient_bytes_per_frame != transient_bytes) ||
         (accounting->upload.bounded_lightmap_bytes_per_frame != 0u &&
          !first_upload &&
@@ -147,7 +149,18 @@ int bsp_texture_accounting_record(BspTextureAccounting *accounting,
         return -1;
 
     BspTextureUploadSummary next = accounting->upload;
-    next.transient_bytes_per_frame = transient_bytes;
+    if (next.frames == 0u) {
+        next.transient_bytes_per_frame = transient_bytes;
+        next.transient_bytes_min = transient_bytes;
+        next.transient_bytes_max = transient_bytes;
+    } else {
+        if (transient_bytes < next.transient_bytes_min)
+            next.transient_bytes_min = transient_bytes;
+        if (transient_bytes > next.transient_bytes_max)
+            next.transient_bytes_max = transient_bytes;
+        if (transient_bytes != next.transient_bytes_per_frame)
+            ++next.transient_variation_frames;
+    }
     if (!first_upload)
         next.bounded_lightmap_bytes_per_frame = lightmap_bytes;
     next.transient_bytes_total = transient_total;
@@ -170,6 +183,7 @@ int bsp_texture_accounting_record(BspTextureAccounting *accounting,
     hash = hash_u64(hash, (uint64_t)first_upload);
     next.sequence_hash = hash;
     ++next.frames;
+    accounting->variable_transient = (uint8_t)variable_transient;
     accounting->upload = next;
     *out = (BspTextureUploadFrame){
         frame,
@@ -185,6 +199,28 @@ int bsp_texture_accounting_record(BspTextureAccounting *accounting,
     return 0;
 }
 
+int bsp_texture_accounting_record(BspTextureAccounting *accounting,
+                                  uint64_t frame,
+                                  uint64_t transient_bytes,
+                                  uint64_t lightmap_bytes,
+                                  int first_upload,
+                                  BspTextureUploadFrame *out)
+{
+    return bsp_texture_accounting_record_mode(accounting, frame,
+        transient_bytes, lightmap_bytes, first_upload, 0, out);
+}
+
+int bsp_texture_accounting_record_variable(BspTextureAccounting *accounting,
+                                           uint64_t frame,
+                                           uint64_t transient_bytes,
+                                           uint64_t lightmap_bytes,
+                                           int first_upload,
+                                           BspTextureUploadFrame *out)
+{
+    return bsp_texture_accounting_record_mode(accounting, frame,
+        transient_bytes, lightmap_bytes, first_upload, 1, out);
+}
+
 int bsp_texture_accounting_finalize(
     const BspTextureAccounting *accounting, uint64_t expected_frames,
     BspTextureUploadSummary *out)
@@ -197,6 +233,9 @@ int bsp_texture_accounting_finalize(
         accounting->upload.bounded_upload_frames !=
             expected_frames - accounting->residency.dynamic_lightmap_slots ||
         accounting->upload.transient_bytes_per_frame == 0u ||
+        accounting->upload.transient_bytes_min == 0u ||
+        accounting->upload.transient_bytes_max <
+            accounting->upload.transient_bytes_min ||
         accounting->upload.bounded_lightmap_bytes_per_frame == 0u ||
         accounting->upload.frame_bytes_min == 0u ||
         accounting->upload.frame_bytes_max <

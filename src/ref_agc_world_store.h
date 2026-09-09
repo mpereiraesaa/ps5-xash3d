@@ -83,6 +83,8 @@ typedef struct RefAgcWorldView {
     uint32_t lightmap_row_pitch;
     size_t lightmap_pixel_bytes;
     uint32_t lightmapped_draw_count;
+    uint32_t sky_draw_count;
+    uint32_t turbulent_draw_count;
     int active;
 } RefAgcWorldView;
 
@@ -99,6 +101,8 @@ typedef struct RefAgcWorldStats {
     uint32_t lightmap_row_pitch;
     size_t lightmap_pixel_bytes;
     uint32_t lightmapped_draw_count;
+    uint32_t sky_draw_count;
+    uint32_t turbulent_draw_count;
     size_t resident_bytes;
     size_t peak_resident_bytes;
     int active;

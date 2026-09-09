@@ -39,6 +39,12 @@ def main() -> None:
     ref_agc_module = (
         ROOT / "xash/platform_ps5/ref_agc_module.c"
     ).read_text(encoding="utf-8")
+    filesystem_prx_module = (
+        ROOT / "xash/platform_ps5/filesystem_prx_module.c"
+    ).read_text(encoding="utf-8")
+    filesystem_backend = (
+        ROOT / "xash/platform_ps5/fs_ps5.c"
+    ).read_text(encoding="utf-8")
     ref_agc_texture_store = (
         ROOT / "src/ref_agc_texture_store.c"
     ).read_text(encoding="utf-8")
@@ -229,7 +235,9 @@ def main() -> None:
         "PS5_RefAgcPrxTexturePeakBytes", "PS5_RefAgcPrxTexturePeakActive",
         "PS5_RefAgcPrxWorldTextureRefs", "PS5_RefAgcPrxWorldTexturesResolved",
         "R_BeginFrame", "R_EndFrame", "R_RenderScene", "GL_RenderFrame",
-        "pthread_create", "pthread_join",
+        "pthread_create", "pthread_join", "RefAgcStoragePoolInit",
+        "RefAgcStoragePoolDestroy", "RefAgcStorageAlloc",
+        "&texture_allocator", "&world_allocator",
     ):
         if item not in ref_agc_module:
             raise SystemExit(f"ref_agc module contract missing: {item}")
@@ -245,6 +253,21 @@ def main() -> None:
     if "engine-ref-agc-prx-native-release" not in makefile or \
             "XASH_REF_AGC_PRX=1" not in makefile or "XASH_REF=agc" not in makefile:
         raise SystemExit("ref_agc release target missing")
+    for item in (
+        "PS5_EnableRuntimeDirAllocator", "PS5_DisableRuntimeDirAllocator",
+        "PS5_FilesystemPrxOriginalInitStdio", "PS5_UnloadDirIndex",
+    ):
+        if item not in filesystem_prx_module:
+            raise SystemExit(f"filesystem PRX runtime allocator contract missing: {item}")
+    for item in (
+        "PS5_FILESYSTEM_PRX_BUILD", "ps5_dir_alloc", "ps5_dir_free",
+        "g_engfuncs._Mem_Alloc( fs_mempool", "g_engfuncs._Mem_Free(",
+        "object_engine_owned", "synthetic_engine_owned",
+    ):
+        if item not in filesystem_backend:
+            raise SystemExit(f"filesystem PRX directory ownership missing: {item}")
+    if "-DPS5_FILESYSTEM_PRX_BUILD=1" not in engine_builder:
+        raise SystemExit("filesystem PRX allocator build identity missing")
     for item in (
         "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
         "src/ref_agc_gpu_texture_cache.c",

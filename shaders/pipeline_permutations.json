@@ -19,7 +19,14 @@
     {
       "id": "bsp_sky",
       "pipe": "shaders/bsp_sky.pipe",
-      "purpose": "unlit GoldSrc sky portal surfaces",
+      "purpose": "camera-centred GoldSrc six-sided skybox",
+      "gs_application_words": 2,
+      "ps_application_words": 1
+    },
+    {
+      "id": "bsp_turbulent",
+      "pipe": "shaders/bsp_turbulent.pipe",
+      "purpose": "engine-time GoldSrc turbulent surface warp",
       "gs_application_words": 2,
       "ps_application_words": 1
     },

@@ -64,6 +64,7 @@
 #include "bsp_alpha_test_shader_metadata.h"
 
 #include "bsp_sky_shader_metadata.h"
+#include "bsp_turbulent_shader_metadata.h"
 #include "bsp_overlay_shader_metadata.h"
 #include "pipeline_permutations.h"
 #ifdef PS5_GOLDSRC_PHASE4
@@ -90,6 +91,7 @@
 #include "ref_agc_gpu_texture_cache.h"
 #include "ref_agc_gpu_world_cache.h"
 #include "ref_agc_gpu_world_draw.h"
+#include "ref_agc_skybox.h"
 
 void PS5_RefAgcRuntimeReady(void);
 void PS5_RefAgcRuntimeComplete(uint64_t frames, uint64_t frame_hash,
@@ -147,6 +149,10 @@ extern const uint8_t ps5_bsp_alpha_test_ps_start[];
 extern const uint8_t ps5_bsp_alpha_test_ps_end[];
 extern const uint8_t ps5_bsp_sky_gs_start[], ps5_bsp_sky_gs_end[];
 extern const uint8_t ps5_bsp_sky_ps_start[], ps5_bsp_sky_ps_end[];
+extern const uint8_t ps5_bsp_turbulent_gs_start[];
+extern const uint8_t ps5_bsp_turbulent_gs_end[];
+extern const uint8_t ps5_bsp_turbulent_ps_start[];
+extern const uint8_t ps5_bsp_turbulent_ps_end[];
 extern const uint8_t ps5_bsp_overlay_gs_start[], ps5_bsp_overlay_gs_end[];
 extern const uint8_t ps5_bsp_overlay_ps_start[], ps5_bsp_overlay_ps_end[];
 #endif
@@ -160,7 +166,7 @@ enum {
     COMMAND_SLOT_BYTES = 0x1000u,
     FENCE0_OFFSET = 0x1100u,
     FENCE1_OFFSET = 0x1200u,
-    SHADER_BYTES = 0x40000u,
+    SHADER_BYTES = 0x50000u,
     SHADER_ALIGNMENT = 0x4000u,
     GS_HEADER_OFFSET = 0x0000u,
     PS_HEADER_OFFSET = 0x0200u,
@@ -193,6 +199,13 @@ enum {
     SKY_LINKED_CX_OFFSET = 0xe000u,
     SKY_LINKED_UC_OFFSET = 0xe200u,
     SKY_PIPELINE_OFFSET = 0xf000u,
+    TURBULENT_GS_HEADER_OFFSET = 0x40000u,
+    TURBULENT_PS_HEADER_OFFSET = 0x40200u,
+    TURBULENT_GS_CODE_OFFSET = 0x41000u,
+    TURBULENT_PS_CODE_OFFSET = 0x41200u,
+    TURBULENT_LINKED_CX_OFFSET = 0x42000u,
+    TURBULENT_LINKED_UC_OFFSET = 0x42200u,
+    TURBULENT_PIPELINE_OFFSET = 0x43000u,
 #ifdef PS5_GOLDSRC_PHASE4
     GOLDSRC_SHADER_SLOTS_OFFSET = 0x10000u,
     GOLDSRC_STATE_REGISTERS_OFFSET = 0x34000u,
@@ -341,6 +354,7 @@ struct native_renderer {
     struct ps5_pipeline_registers *overlay_pipelines[2];
     struct ps5_pipeline_registers *alpha_test_pipelines[2];
     struct ps5_pipeline_registers *sky_pipelines[2];
+    struct ps5_pipeline_registers *turbulent_pipelines[2];
 #ifdef PS5_GOLDSRC_PHASE4
     Ps5ShaderPipelineSlotResult
         goldsrc_shader_slots[GOLDSRC_SHADER_VARIANT_COUNT];
@@ -460,6 +474,7 @@ struct native_renderer {
     uint64_t live_texture_revision;
     RefAgcGpuWorldCache live_world_cache;
     uint64_t live_world_revision;
+    RefAgcSkyboxFrame live_sky_frames[2];
     Ps5CpuToGpuPlan live_texture_cache_plan;
     Ps5CpuToGpuPlan live_world_cache_plan;
     int live_frame_valid;
@@ -1228,6 +1243,9 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         ? PS5_GFX1013_FILTER_ANISOTROPIC_4X
         : PS5_GFX1013_FILTER_TRILINEAR;
 #endif
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    state->live_compose_stage = "world-frame";
+#endif
 #ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
     const uint32_t matrix_index =
         goldsrc_state_matrix_index(frame->frame_index);
@@ -1244,10 +1262,17 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
          matrix_case->fog_color_density[3]},
     };
     const int resource_frame_result = bsp_resource_frame_build_configured(
+#elif defined(PS5_REF_AGC_LIVE_PHASE7)
+    const BspResourceGoldSrcConstants live_constants = {
+        .render_color = {1.0f, 1.0f, 1.0f, 1.0f},
+        .animation_time = (float)state->live_frame.view.time_seconds,
+        .camera_position = {
+            state->noclip.position[0], state->noclip.position[1],
+            state->noclip.position[2],
+        },
+    };
+    const int resource_frame_result = bsp_resource_frame_build_configured(
 #else
-#ifdef PS5_REF_AGC_LIVE_PHASE7
-    state->live_compose_stage = "world-frame";
-#endif
     const int resource_frame_result = bsp_resource_frame_build(
 #endif
             &state->resource_frames[resource_slot],
@@ -1268,6 +1293,8 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             base_filter
 #ifdef PS5_GOLDSRC_STATE_MATRIX_GATE
             , &matrix_constants
+#elif defined(PS5_REF_AGC_LIVE_PHASE7)
+            , &live_constants
 #endif
             );
     if (resource_frame_result != 0) {
@@ -1284,6 +1311,68 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #endif
         return resource_compose_fail(state, resource_slot, -9);
     }
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    RefAgcGpuWorldStats live_special_stats;
+    if (ref_agc_gpu_world_cache_stats(
+            &state->live_world_cache, &live_special_stats) !=
+        REF_AGC_GPU_WORLD_OK)
+        return resource_compose_fail(state, resource_slot, -9);
+    memset(&state->live_sky_frames[resource_slot], 0,
+           sizeof(state->live_sky_frames[resource_slot]));
+    if (live_special_stats.sky_draw_count != 0u &&
+        state->live_frame.sky.active) {
+        state->live_compose_stage = "skybox-frame";
+        const int skybox_result = ref_agc_skybox_frame_build(
+                &state->live_sky_frames[resource_slot],
+                &state->transient_ring, resource_slot,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                &state->live_frame.sky,
+                &state->live_texture_cache);
+        if (skybox_result != REF_AGC_SKYBOX_OK) {
+            uint32_t resolved_mask = 0u;
+            for (uint32_t side = 0u; side < REF_AGC_LIVE_SKY_SIDES;
+                 ++side) {
+                RefAgcGpuTextureEntry texture;
+                if (ref_agc_gpu_texture_cache_get(
+                        &state->live_texture_cache,
+                        state->live_frame.sky.texture_handles[side],
+                        &texture) == REF_AGC_GPU_TEXTURE_OK)
+                    resolved_mask |= 1u << side;
+            }
+            (void)ps5log_printf(PS5LOG_ERR,
+                "REF_AGC_LIVE_SKYBOX_FRAME_FAILURE result=%d "
+                "revision=%llu active=%u resolved_mask=%02x "
+                "handles=%u,%u,%u,%u,%u,%u transient_used=%llu "
+                "transient_capacity=%llu",
+                skybox_result,
+                (unsigned long long)state->live_frame.sky.revision,
+                state->live_frame.sky.active, resolved_mask,
+                state->live_frame.sky.texture_handles[0],
+                state->live_frame.sky.texture_handles[1],
+                state->live_frame.sky.texture_handles[2],
+                state->live_frame.sky.texture_handles[3],
+                state->live_frame.sky.texture_handles[4],
+                state->live_frame.sky.texture_handles[5],
+                (unsigned long long)
+                    state->transient_ring.slots[resource_slot].used,
+                (unsigned long long)
+                    state->transient_ring.slots[resource_slot].bytes);
+            return resource_compose_fail(state, resource_slot, -9);
+        }
+        state->resource_frames[resource_slot].transient_bytes =
+            state->transient_ring.slots[resource_slot].used;
+    } else if (live_special_stats.sky_draw_count != 0u &&
+               (frame->frame_index < 3u ||
+                frame->frame_index % 120u == 0u)) {
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_LIVE_SKY_DEFERRED frame=%llu serial=%llu "
+            "sky_draws=%u reason=setup-pending",
+            (unsigned long long)frame->frame_index,
+            (unsigned long long)state->live_frame.serial,
+            live_special_stats.sky_draw_count);
+    }
+#endif
 #ifdef PS5_GOLDSRC_2D_GATE
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "screen-2d-frame";
@@ -1435,7 +1524,11 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "texture-accounting";
 #endif
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    if (bsp_texture_accounting_record_variable(
+#else
     if (bsp_texture_accounting_record(
+#endif
             &state->texture_accounting, frame->frame_index,
             transient_slot->used,
             state->dynamic_lightmap_updates[resource_slot].uploaded_bytes,
@@ -1817,16 +1910,41 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     RefAgcGpuWorldComposeResult live_opaque_unlit = {0};
     RefAgcGpuWorldComposeResult live_alpha = {0};
     RefAgcGpuWorldComposeResult live_alpha_unlit = {0};
+    RefAgcGpuWorldComposeResult live_turbulent = {0};
+    RefAgcSkyboxComposeResult live_skybox = {0};
+    const uint32_t live_surface_mask =
+        REF_AGC_WORLD_DRAW_ALPHA_TEST |
+        REF_AGC_WORLD_DRAW_LIGHTMAP |
+        REF_AGC_WORLD_DRAW_SKY |
+        REF_AGC_WORLD_DRAW_TURB;
     if (result == 0 && live_world_stats.active) {
+        if (state->live_sky_frames[resource_slot].active) {
+            state->live_compose_stage = "live-world-skybox-pipeline";
+            result = bind_native_pipeline(
+                state, &cursor, end,
+                state->sky_pipelines[frame->buffer]);
+        }
+        if (result == 0 &&
+            state->live_sky_frames[resource_slot].active) {
+            state->live_compose_stage = "live-world-skybox-draw";
+            result = ref_agc_skybox_compose(
+                &cursor, end, &state->live_sky_frames[resource_slot],
+                state->resource_frames[resource_slot].map_constant_table,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                state->draw_modifier,
+                ps5_native_set_sh_direct, ps5_native_draw_index,
+                &live_skybox);
+        }
         state->live_compose_stage = "live-world-opaque-pipeline";
-        result = bind_native_pipeline(
-            state, &cursor, end, state->pipelines[frame->buffer]);
+        if (result == 0)
+            result = bind_native_pipeline(
+                state, &cursor, end, state->pipelines[frame->buffer]);
         if (result == 0) {
             state->live_compose_stage = "live-world-opaque-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST |
-                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                live_surface_mask,
                 REF_AGC_WORLD_DRAW_LIGHTMAP,
                 state->resource_frames[resource_slot].map_constant_table,
                 state->resources->resource_heap,
@@ -1849,8 +1967,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->live_compose_stage = "live-world-opaque-unlit-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST |
-                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                live_surface_mask,
                 0u,
                 state->resource_frames[resource_slot].map_constant_table,
                 state->resources->resource_heap,
@@ -1869,8 +1986,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->live_compose_stage = "live-world-alpha-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST |
-                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                live_surface_mask,
                 REF_AGC_WORLD_DRAW_ALPHA_TEST |
                     REF_AGC_WORLD_DRAW_LIGHTMAP,
                 state->resource_frames[resource_slot].map_constant_table,
@@ -1894,8 +2010,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             state->live_compose_stage = "live-world-alpha-unlit-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST |
-                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                live_surface_mask,
                 REF_AGC_WORLD_DRAW_ALPHA_TEST,
                 state->resource_frames[resource_slot].map_constant_table,
                 state->resources->resource_heap,
@@ -1904,14 +2019,69 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                 ps5_native_set_sh_direct, ps5_native_draw_index,
                 &live_alpha_unlit);
         }
+        if (result == 0 && live_world_stats.turbulent_draw_count != 0u) {
+            state->live_compose_stage = "live-world-turbulent-pipeline";
+            result = bind_native_pipeline(
+                state, &cursor, end,
+                state->turbulent_pipelines[frame->buffer]);
+        }
+        if (result == 0 && live_world_stats.turbulent_draw_count != 0u) {
+            state->live_compose_stage = "live-world-turbulent-draw";
+            result = ref_agc_gpu_world_compose(
+                &cursor, end, &state->live_world_cache,
+                REF_AGC_WORLD_DRAW_SKY | REF_AGC_WORLD_DRAW_TURB,
+                REF_AGC_WORLD_DRAW_TURB,
+                state->resource_frames[resource_slot].map_constant_table,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                state->draw_modifier,
+                ps5_native_set_sh_direct, ps5_native_draw_index,
+                &live_turbulent);
+        }
         if (result == 0 &&
             (live_opaque.draws + live_opaque_unlit.draws +
-                 live_alpha.draws + live_alpha_unlit.draws !=
+                 live_alpha.draws + live_alpha_unlit.draws +
+                 live_turbulent.draws + live_world_stats.sky_draw_count !=
                  live_world_stats.draw_count ||
              live_opaque.indices + live_opaque_unlit.indices +
-                 live_alpha.indices + live_alpha_unlit.indices !=
+                 live_alpha.indices + live_alpha_unlit.indices +
+                 live_turbulent.indices + live_world_stats.sky_index_count !=
                  live_world_stats.index_count))
             result = -2;
+        if (result == 0 &&
+            state->live_sky_frames[resource_slot].active &&
+            (live_skybox.draws != REF_AGC_SKYBOX_SIDES ||
+             live_skybox.indices != REF_AGC_SKYBOX_INDICES))
+            result = -3;
+        if (result == 0 &&
+            state->live_sky_frames[resource_slot].active &&
+            (frame->frame_index % 120u == 0u ||
+             state->live_frame.sky.revision !=
+                 state->live_sky_frames[resource_slot ^ 1u].sky_revision))
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_LIVE_SPECIAL_SURFACES schema=1 frame=%llu "
+                "source_sky_draws=%u source_sky_indices=%u "
+                "skybox_draws=%u skybox_indices=%u sky_active=%u "
+                "sky_revision=%llu "
+                "sky_geometry_hash=%016llx sky_texture_hash=%016llx "
+                "turbulent_draws=%u turbulent_indices=%u "
+                "animation_time_milli=%llu paused=%u "
+                "sky=engine-six-sided-camera-centred "
+                "turbulent=engine-time-classic-warp ownership=transient-slot",
+                (unsigned long long)frame->frame_index,
+                live_world_stats.sky_draw_count,
+                live_world_stats.sky_index_count,
+                live_skybox.draws, live_skybox.indices,
+                state->live_sky_frames[resource_slot].active,
+                (unsigned long long)state->live_frame.sky.revision,
+                (unsigned long long)
+                    state->live_sky_frames[resource_slot].geometry_hash,
+                (unsigned long long)
+                    state->live_sky_frames[resource_slot].texture_hash,
+                live_turbulent.draws, live_turbulent.indices,
+                (unsigned long long)(
+                    state->live_frame.view.time_seconds * 1000.0),
+                state->live_frame.view.paused);
     }
     if (result != 0)
         return resource_compose_fail(state, resource_slot, -16);
@@ -3945,6 +4115,97 @@ int main(void)
                 resources.surface.height) != 0)
             return fail_pre_submit("sky_pipeline_build", -1);
     }
+    const struct ps5_shader_metadata turbulent_metadata = {
+        PS5_BSP_TURBULENT_GS_RSRC1, PS5_BSP_TURBULENT_GS_RSRC2,
+        PS5_BSP_TURBULENT_PS_RSRC1, PS5_BSP_TURBULENT_PS_RSRC2,
+        PS5_BSP_TURBULENT_GE_CNTL,
+        PS5_BSP_TURBULENT_SHADER_STAGES_EN,
+        PS5_BSP_TURBULENT_GS_OUT_PRIM_TYPE,
+        PS5_BSP_TURBULENT_DRAW_MODIFIER,
+        ps5_bsp_turbulent_pre_raster_cx,
+        sizeof(ps5_bsp_turbulent_pre_raster_cx) /
+            sizeof(ps5_bsp_turbulent_pre_raster_cx[0]),
+        ps5_bsp_turbulent_pixel_cx,
+        sizeof(ps5_bsp_turbulent_pixel_cx) /
+            sizeof(ps5_bsp_turbulent_pixel_cx[0])
+    };
+    struct ps5_shader_arena *turbulent_gs_arena =
+        (struct ps5_shader_arena *)(base + TURBULENT_GS_HEADER_OFFSET);
+    struct ps5_shader_arena *turbulent_ps_arena =
+        (struct ps5_shader_arena *)(base + TURBULENT_PS_HEADER_OFFSET);
+    uint8_t *turbulent_gs_code = base + TURBULENT_GS_CODE_OFFSET;
+    uint8_t *turbulent_ps_code = base + TURBULENT_PS_CODE_OFFSET;
+    const size_t turbulent_gs_isa = (size_t)(
+        ps5_bsp_turbulent_gs_end - ps5_bsp_turbulent_gs_start);
+    const size_t turbulent_ps_isa = (size_t)(
+        ps5_bsp_turbulent_ps_end - ps5_bsp_turbulent_ps_start);
+    const uint32_t turbulent_gs_size =
+        (uint32_t)turbulent_gs_isa + SHADER_FOOTER_BYTES;
+    const uint32_t turbulent_ps_size =
+        (uint32_t)turbulent_ps_isa + SHADER_FOOTER_BYTES;
+    if (turbulent_gs_isa != PS5_BSP_TURBULENT_GS_ISA_BYTES ||
+        turbulent_ps_isa != PS5_BSP_TURBULENT_PS_ISA_BYTES ||
+        turbulent_metadata.draw_modifier != metadata.draw_modifier ||
+        ps5_shader_header_build(
+            turbulent_gs_arena, PS5_SHADER_PRE_RASTER,
+            turbulent_gs_size, &turbulent_metadata) != 0 ||
+        ps5_shader_header_build(
+            turbulent_ps_arena, PS5_SHADER_PIXEL,
+            turbulent_ps_size, &turbulent_metadata) != 0)
+        return fail_pre_submit("turbulent_shader_header", -1);
+    memcpy(turbulent_gs_code, ps5_bsp_turbulent_gs_start,
+           turbulent_gs_isa);
+    memcpy(turbulent_ps_code, ps5_bsp_turbulent_ps_start,
+           turbulent_ps_isa);
+    memcpy(turbulent_gs_code + turbulent_gs_size - SHADER_FOOTER_BYTES,
+           "barefoot", 8u);
+    memcpy(turbulent_ps_code + turbulent_ps_size - SHADER_FOOTER_BYTES,
+           "barefoot", 8u);
+    void *turbulent_gs_object = 0;
+    void *turbulent_ps_object = 0;
+    result = sceAgcCreateShader(&turbulent_gs_object,
+                                turbulent_gs_arena,
+                                turbulent_gs_code);
+    if (result != 0 || turbulent_gs_object != turbulent_gs_arena)
+        return fail_pre_submit("create_turbulent_gs",
+                               result != 0 ? result : -1);
+    result = sceAgcCreateShader(&turbulent_ps_object,
+                                turbulent_ps_arena,
+                                turbulent_ps_code);
+    if (result != 0 || turbulent_ps_object != turbulent_ps_arena)
+        return fail_pre_submit("create_turbulent_ps",
+                               result != 0 ? result : -1);
+    struct ps5_agc_linked_cx *turbulent_linked_cx =
+        (struct ps5_agc_linked_cx *)(
+            base + TURBULENT_LINKED_CX_OFFSET);
+    struct ps5_agc_linked_uc *turbulent_linked_uc =
+        (struct ps5_agc_linked_uc *)(
+            base + TURBULENT_LINKED_UC_OFFSET);
+    result = sceAgcLinkShaders(turbulent_linked_cx,
+                               turbulent_linked_uc, 0,
+                               turbulent_gs_object,
+                               turbulent_ps_object, 4u);
+    if (result != 0)
+        return fail_pre_submit("link_turbulent_shaders", result);
+    struct ps5_pipeline_registers *turbulent_pipelines =
+        (struct ps5_pipeline_registers *)(
+            base + TURBULENT_PIPELINE_OFFSET);
+    for (unsigned slot = 0; slot < 2u; ++slot) {
+        ps5_agc_register color[PS5_COLOR_REGISTER_COUNT];
+        const uintptr_t address = (uintptr_t)resources.framebuffer +
+            resources.surface.buffer_offsets[slot];
+        if (ps5_color_build_target(color, defaults, address,
+                                   resources.surface.width,
+                                   resources.surface.height) != 0 ||
+            ps5_pipeline_build(
+                &turbulent_pipelines[slot], color,
+                turbulent_linked_cx, turbulent_linked_uc,
+                turbulent_gs_arena->cx, turbulent_ps_arena->cx,
+                turbulent_gs_arena->sh, turbulent_ps_arena->sh,
+                resources.surface.width,
+                resources.surface.height) != 0)
+            return fail_pre_submit("turbulent_pipeline_build", -1);
+    }
     const struct ps5_shader_metadata overlay_metadata = {
         PS5_BSP_OVERLAY_GS_RSRC1, PS5_BSP_OVERLAY_GS_RSRC2,
         PS5_BSP_OVERLAY_PS_RSRC1, PS5_BSP_OVERLAY_PS_RSRC2,
@@ -4649,33 +4910,40 @@ int main(void)
     renderer.alpha_test_pipelines[1] = &alpha_test_pipelines[1];
     renderer.sky_pipelines[0] = &sky_pipelines[0];
     renderer.sky_pipelines[1] = &sky_pipelines[1];
+    renderer.turbulent_pipelines[0] = &turbulent_pipelines[0];
+    renderer.turbulent_pipelines[1] = &turbulent_pipelines[1];
     renderer.overlay_draw_modifier = overlay_metadata.draw_modifier;
     renderer.overlay_depth_disabled = overlay_depth_disabled;
-    if (PS5_PIPELINE_PERMUTATION_COUNT != 4 ||
+    if (PS5_PIPELINE_PERMUTATION_COUNT != 5 ||
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_RESOURCE]
                 .gs_application_words != 2u ||
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_ALPHA_TEST]
                 .gs_application_words != 2u ||
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_SKY]
+                .gs_application_words != 2u ||
+        ps5_pipeline_permutations[PS5_PIPELINE_BSP_TURBULENT]
                 .gs_application_words != 2u ||
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_OVERLAY]
                 .gs_application_words != 1u)
         return fail_pre_submit("pipeline_permutation_table", -1);
     (void)ps5log_printf(PS5LOG_MARK,
         "RESOURCE_PIPELINES_READY count=%u map=%s alpha_test=%s sky=%s "
-        "overlay=%s map_gs_words=%u alpha_gs_words=%u sky_gs_words=%u "
-        "overlay_gs_words=%u "
+        "turbulent=%s overlay=%s map_gs_words=%u alpha_gs_words=%u "
+        "sky_gs_words=%u turbulent_gs_words=%u overlay_gs_words=%u "
         "overlay_depth=disabled",
         PS5_PIPELINE_PERMUTATION_COUNT,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_RESOURCE].name,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_ALPHA_TEST].name,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_SKY].name,
+        ps5_pipeline_permutations[PS5_PIPELINE_BSP_TURBULENT].name,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_OVERLAY].name,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_RESOURCE]
             .gs_application_words,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_ALPHA_TEST]
             .gs_application_words,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_SKY]
+            .gs_application_words,
+        ps5_pipeline_permutations[PS5_PIPELINE_BSP_TURBULENT]
             .gs_application_words,
         ps5_pipeline_permutations[PS5_PIPELINE_BSP_OVERLAY]
             .gs_application_words);
@@ -4994,7 +5262,9 @@ int main(void)
             (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_LIVE_WORLD_SYNC serial=%llu revision=%llu "
                 "vertices=%u indices=%u draws=%u texture_tables=%u "
-                "lightmapped_draws=%u lightmap=%ux%u row_pitch=%u "
+                "lightmapped_draws=%u sky_draws=%u sky_indices=%u "
+                "turbulent_draws=%u turbulent_indices=%u "
+                "lightmap=%ux%u row_pitch=%u "
                 "lightmap_bytes=%llu lightmap_rgb_sum=%llu "
                 "lightmap_nonzero_texels=%u lightmap_rgb_range=%u..%u "
                 "resident_bytes=%llu peak_bytes=%llu source_hash=%016llx "
@@ -5006,6 +5276,9 @@ int main(void)
                 world_stats.vertex_count, world_stats.index_count,
                 world_stats.draw_count, world_stats.texture_tables,
                 world_stats.lightmapped_draw_count,
+                world_stats.sky_draw_count, world_stats.sky_index_count,
+                world_stats.turbulent_draw_count,
+                world_stats.turbulent_index_count,
                 world_stats.lightmap_width, world_stats.lightmap_height,
                 world_stats.lightmap_row_pitch,
                 (unsigned long long)world_stats.lightmap_bytes,
@@ -5213,7 +5486,9 @@ int main(void)
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_GPU_WORLD_COMPLETE revision=%llu publishes=%llu "
         "clears=%llu vertices=%u indices=%u draws=%u texture_tables=%u "
-        "lightmapped_draws=%u lightmap=%ux%u row_pitch=%u "
+        "lightmapped_draws=%u sky_draws=%u sky_indices=%u "
+        "turbulent_draws=%u turbulent_indices=%u "
+        "lightmap=%ux%u row_pitch=%u "
         "lightmap_bytes=%llu lightmap_rgb_sum=%llu "
         "lightmap_nonzero_texels=%u lightmap_rgb_range=%u..%u "
         "resident_bytes=%llu peak_bytes=%llu source_hash=%016llx "
@@ -5227,6 +5502,9 @@ int main(void)
         live_world_stats.vertex_count, live_world_stats.index_count,
         live_world_stats.draw_count, live_world_stats.texture_tables,
         live_world_stats.lightmapped_draw_count,
+        live_world_stats.sky_draw_count, live_world_stats.sky_index_count,
+        live_world_stats.turbulent_draw_count,
+        live_world_stats.turbulent_index_count,
         live_world_stats.lightmap_width, live_world_stats.lightmap_height,
         live_world_stats.lightmap_row_pitch,
         (unsigned long long)live_world_stats.lightmap_bytes,
@@ -5936,6 +6214,35 @@ int main(void)
             &renderer.texture_accounting, run.frames_completed,
             &texture_upload_summary) != 0)
         park("texture-accounting-summary-gate-failure");
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    (void)ps5log_printf(PS5LOG_MARK,
+        "TEXTURE_UPLOAD_SUMMARY schema=2 frames=%llu "
+        "transient_bytes_baseline=%llu transient_bytes_min=%llu "
+        "transient_bytes_max=%llu transient_variation_frames=%llu "
+        "bounded_lightmap_bytes_per_frame=%llu "
+        "transient_bytes_total=%llu lightmap_bytes_total=%llu "
+        "upload_bytes_total=%llu frame_bytes_min=%llu "
+        "frame_bytes_max=%llu full_upload_frames=%llu "
+        "bounded_upload_frames=%llu sequence_hash=%016llx "
+        "sequence=gap-free accounting=checked-u64 mode=live-variable",
+        (unsigned long long)texture_upload_summary.frames,
+        (unsigned long long)
+            texture_upload_summary.transient_bytes_per_frame,
+        (unsigned long long)texture_upload_summary.transient_bytes_min,
+        (unsigned long long)texture_upload_summary.transient_bytes_max,
+        (unsigned long long)
+            texture_upload_summary.transient_variation_frames,
+        (unsigned long long)
+            texture_upload_summary.bounded_lightmap_bytes_per_frame,
+        (unsigned long long)texture_upload_summary.transient_bytes_total,
+        (unsigned long long)texture_upload_summary.lightmap_bytes_total,
+        (unsigned long long)texture_upload_summary.upload_bytes_total,
+        (unsigned long long)texture_upload_summary.frame_bytes_min,
+        (unsigned long long)texture_upload_summary.frame_bytes_max,
+        (unsigned long long)texture_upload_summary.full_upload_frames,
+        (unsigned long long)texture_upload_summary.bounded_upload_frames,
+        (unsigned long long)texture_upload_summary.sequence_hash);
+#else
     (void)ps5log_printf(PS5LOG_MARK,
         "TEXTURE_UPLOAD_SUMMARY schema=1 frames=%llu "
         "transient_bytes_per_frame=%llu "
@@ -5958,6 +6265,7 @@ int main(void)
         (unsigned long long)texture_upload_summary.full_upload_frames,
         (unsigned long long)texture_upload_summary.bounded_upload_frames,
         (unsigned long long)texture_upload_summary.sequence_hash);
+#endif
 #endif
 #endif
     if (!resource_valid)
