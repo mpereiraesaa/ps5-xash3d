@@ -257,4 +257,7 @@ storage. The complete live compositor test passes AddressSanitizer and UBSan.
    do not infer acceptance from draw counters alone.
 4. Preserve paired menu/map/brush/Studio/lightmap/resource validation, exact
    teardown and deployment hashes. Update the lab checkpoint and HTML plan and
-   integrate through green PRs. Only then continue to live game audio.
+   integrate through green PRs. Only then continue to Studio lighting/viewmodel
+   improvements (lighting, chrome, controllers and animation transitions),
+   preserving accepted smooth NPC walking. The owner-reordered five-task plan
+   places real game audio fourth, after Studio, and `valve_hd` validation fifth.
