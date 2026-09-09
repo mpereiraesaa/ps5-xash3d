@@ -174,9 +174,30 @@ def validate_live_studio(messages: list[str], views: int) -> dict:
     observed = set()
     for sample in samples:
         selected = [e for e in entities if e.get("serial") == sample.get("serial")]
+        viewmodels = [parse_fields(m) for m in messages if m.startswith("REF_AGC_VIEWMODEL ")
+                      and parse_fields(m).get("serial") == sample.get("serial")]
+        if len(viewmodels) > 1:
+            fail("duplicate live viewmodel sample")
+        vm_count = 0
+        if viewmodels:
+            vm = viewmodels[0]
+            if not exact(vm, {"schema": "1", "depth": "0..0.3", "order": "after-npc-before-hud"}) \
+                    or vm.get("valid") not in ("0", "1"):
+                fail("invalid live viewmodel contract")
+            vm_count = int(vm["valid"])
+            if vm_count:
+                if not vm.get("model", "").endswith(".mdl") or int(vm.get("sequence", -1)) < 0 \
+                        or not 0 <= float(vm.get("frame", "nan")) < float("inf") \
+                        or not 0 < int(vm.get("draws", 0)) <= int(sample["draws"]) \
+                        or not 0 < int(vm.get("vertices", 0)) <= int(sample["vertices"]):
+                    fail("invalid live viewmodel accounting")
+            elif int(vm.get("draws", -1)) != 0 or int(vm.get("vertices", -1)) != 0:
+                fail("inactive viewmodel has geometry")
         if sample.get("schema") != schema or sample.get("ownership") != "transient-slot" or sample.get("lighting") != lighting \
-                or len(selected) != int(sample["entities"]) or not selected \
-                or len({e["index"] for e in selected}) != len(selected) \
+                or len(selected) + vm_count != int(sample["entities"]) or not (selected or vm_count) \
+                or any(int(e["index"]) < 0 for e in selected) \
+                or len({e["index"] for e in selected if int(e["index"]) > 0}) \
+                    != sum(int(e["index"]) > 0 for e in selected) \
                 or any(int(sample[k]) <= 0 for k in ("draws", "vertices", "indices")) \
                 or int(sample["indices"]) % 3:
             fail("invalid live Studio sample accounting")

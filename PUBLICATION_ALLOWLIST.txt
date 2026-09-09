@@ -109,6 +109,12 @@ src/ref_agc_live_brush.c
 src/ref_agc_live_brush.h
 src/ref_agc_live_studio.c
 src/ref_agc_live_studio.h
+src/ref_agc_live_sprite.c
+src/ref_agc_live_sprite.h
+src/ref_agc_effects.c
+src/ref_agc_effects.h
+xash/platform_ps5/effect_bridge.h
+xash/tools/prepare_blood_effects.py
 src/ref_agc_studio_lighting.h
 src/ref_agc_studio_store.c
 src/ref_agc_studio_store.h
@@ -273,6 +279,10 @@ tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
 tests/test_ref_agc_live_brush.c
 tests/test_ref_agc_live_studio.c
+tests/test_ref_agc_live_sprite.c
+tests/test_prepare_blood_effects.py
+tests/test_ref_agc_effects.c
+tests/test_ref_agc_effect_bridge.c
 tests/test_ref_agc_studio_lighting.c
 tests/test_studio_light_bridge.c
 tests/test_ref_agc_studio_store.c
@@ -413,6 +423,8 @@ xash/config/dualsense.cfg
 xash/tools/prepare_client_ammo.py
 tests/test_prepare_client_ammo.py
 tests/test_pad_aim.c
+tests/test_studio_event_window.c
+xash/platform_ps5/studio_event_window.h
 xash/platform_ps5/pad_aim.h
 xash/platform_ps5/server_prx_module.cpp
 xash/platform_ps5/prx_gate_ps5.c

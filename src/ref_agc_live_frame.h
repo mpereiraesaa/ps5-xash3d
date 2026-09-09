@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include "ref_agc_studio_lighting.h"
+#include "ref_agc_effects.h"
 
 /* Upstream R_StudioLerpMovement timing; preserve its bounded-time extrapolation
  * rather than clamping to [0,1]. Stale/equal timestamps select current state. */
@@ -84,6 +85,12 @@ typedef struct RefAgcLiveEntity {
     int32_t model_index;
     uint32_t studio_handle;
     uint32_t studio_pose; /* one-based owned pose index; zero means absent */
+    uint32_t sprite_texture;
+    int32_t sprite_type, sprite_format;
+    uint32_t sprite_viewmodel;
+    uint32_t sprite_lit;
+    float sprite_light[3];
+    float sprite_extents[4]; /* up, down, left, right; owned engine values */
     int32_t sequence;
     int32_t body;
     int32_t skin;
@@ -137,6 +144,7 @@ typedef struct RefAgcLiveFrame {
     uint32_t canvas_width;
     uint32_t canvas_height;
     RefAgcLiveWorld world;
+    RefAgcEffects effects;
     RefAgcLiveSky sky;
     RefAgcLiveView view;
     RefAgcLiveEntity viewmodel;

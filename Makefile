@@ -61,6 +61,7 @@ $(eval $(call test_rule,test_ps5_direct_memory,tests/test_ps5_direct_memory.c sr
 $(eval $(call test_rule,test_ps5_platform_abi,tests/test_ps5_platform_abi.c,))
 $(eval $(call test_rule,test_in_ps5,tests/test_in_ps5.c xash/platform_ps5/in_ps5.c,-Iinclude -Ixash/platform_ps5 -Inative/ps5log))
 $(eval $(call test_rule,test_pad_aim,tests/test_pad_aim.c,-Ixash/platform_ps5 -lm))
+$(eval $(call test_rule,test_studio_event_window,tests/test_studio_event_window.c,-Ixash/platform_ps5 -lm))
 $(eval $(call test_rule,test_ps5_audio,tests/test_ps5_audio.c xash/platform_ps5/audio_ps5.c,-Iinclude -Ixash/platform_ps5 -Inative/ps5log -lpthread))
 $(eval $(call test_rule,test_ps5_audio_pattern,tests/test_ps5_audio_pattern.c xash/platform_ps5/audio_pattern_ps5.c,-Iinclude -Ixash/platform_ps5))
 $(eval $(call test_rule,test_ps5log_host,tests/test_ps5log_host.c native/ps5log/ps5log.c,-Inative/ps5log))
@@ -98,6 +99,9 @@ $(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c
 $(eval $(call test_rule,test_ref_agc_live_2d,tests/test_ref_agc_live_2d.c src/ref_agc_live_2d.c src/ref_agc_gpu_texture_cache.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_live_studio,tests/test_ref_agc_live_studio.c src/ref_agc_live_studio.c src/ref_agc_gpu_studio_cache.c src/ref_agc_gpu_texture_cache.c src/bsp_flat_scene.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc -lm))
 $(eval $(call test_rule,test_ref_agc_studio_lighting,tests/test_ref_agc_studio_lighting.c,-Isrc -lm))
+$(eval $(call test_rule,test_ref_agc_live_sprite,tests/test_ref_agc_live_sprite.c src/ref_agc_live_sprite.c src/ref_agc_gpu_texture_cache.c src/bsp_flat_scene.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc -lm))
+$(eval $(call test_rule,test_ref_agc_effects,tests/test_ref_agc_effects.c src/ref_agc_effects.c src/ref_agc_live_sprite.c src/ref_agc_gpu_texture_cache.c src/bsp_flat_scene.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc -lm))
+$(eval $(call test_rule,test_ref_agc_effect_bridge,tests/test_ref_agc_effect_bridge.c src/ref_agc_effects.c third_party/xash3d-fwgs/public/matrixlib.c third_party/xash3d-fwgs/public/xash3d_mathlib.c,-Wno-unused-parameter -Isrc -Ithird_party/xash3d-fwgs/engine -Ithird_party/xash3d-fwgs/common -Ithird_party/xash3d-fwgs/public -Ithird_party/xash3d-fwgs/filesystem -Ithird_party/xash3d-fwgs/pm_shared -Ithird_party/xash3d-fwgs/3rdparty/library_suffix/include -lm))
 $(eval $(call test_rule,test_studio_light_bridge,tests/test_studio_light_bridge.c third_party/xash3d-fwgs/public/matrixlib.c,-Wno-unused-parameter -Isrc -Ithird_party/xash3d-fwgs/ref/common -Ithird_party/xash3d-fwgs/engine -Ithird_party/xash3d-fwgs/engine/common -Ithird_party/xash3d-fwgs/common -Ithird_party/xash3d-fwgs/public -Ithird_party/xash3d-fwgs/filesystem -Ithird_party/xash3d-fwgs/pm_shared -Ithird_party/xash3d-fwgs/3rdparty/library_suffix/include -lm))
 $(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
 $(eval $(call test_rule,test_goldsrc_sprite_particles,tests/test_goldsrc_sprite_particles.c src/goldsrc_sprite_particles.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
@@ -134,7 +138,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_pipeline test_ps5_event_adapter test_ps5_gpu_span \
 	test_ps5_gpu_flip_timing test_ps5_submission test_ps5_direct_memory \
 	test_ps5_platform_abi \
-	test_in_ps5 test_pad_aim test_ps5_audio test_ps5_audio_pattern \
+	test_in_ps5 test_pad_aim test_studio_event_window test_ps5_audio test_ps5_audio_pattern \
 	test_ps5log_host test_ps5_shader_header test_ps5_agc_writer \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
 	test_bsp_flat_draw test_bsp_flat_scene test_bsp_noclip test_bsp_runtime_plan \
@@ -151,7 +155,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
-	test_ref_agc_live_brush test_ref_agc_live_studio test_ref_agc_studio_lighting test_studio_light_bridge test_ref_agc_studio_store \
+	test_ref_agc_live_brush test_ref_agc_live_studio test_ref_agc_live_sprite test_ref_agc_effects test_ref_agc_effect_bridge test_ref_agc_studio_lighting test_studio_light_bridge test_ref_agc_studio_store \
 	test_ref_agc_gpu_studio_cache \
 	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache test_ref_agc_memory_budget test_ref_agc_2d_state \
 	test_ref_agc_world_store test_ref_agc_lightmap_atlas \
@@ -188,6 +192,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_gpu_flip_timing_evidence.py
 	python3 tests/test_generate_static_library_tables.py
 	python3 -B tests/test_prepare_client_ammo.py
+	python3 -B tests/test_prepare_blood_effects.py
 	python3 tests/test_generate_prx_descriptor.py
 	python3 tests/test_deploy_engine_bundle.py
 	python3 tests/test_instrument_fs_trace.py

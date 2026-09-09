@@ -57,6 +57,13 @@ int main(void) {
     assert(out.valid&&out.ambient==10&&out.shade==90);
     assert(fabsf(out.color[1]-.8f)<.001f&&out.direction[2]==-1);
     assert(entity.cvFloorColor.r==0); /* borrowed entity not modified */
+    float sprite_light[3];
+    assert(!PS5_SpriteCaptureLighting(&api,entity.origin,sprite_light));
+    assert(fabsf(sprite_light[0]-100/255.0f)<.001f);
+    assert(fabsf(sprite_light[1]-80/255.0f)<.001f);
+    assert(fabsf(sprite_light[2]-60/255.0f)<.001f);
+    const float invalid_origin[3]={NAN,0,0};
+    assert(PS5_SpriteCaptureLighting(&api,invalid_origin,sprite_light)<0);
     dynamic[0].die=20;dynamic[0].radius=64;dynamic[0].color.r=255;
     VectorCopy(entity.origin,dynamic[0].origin);
     assert(!PS5_StudioCaptureLighting(&api,&entity,entity.origin,1,&out,table));

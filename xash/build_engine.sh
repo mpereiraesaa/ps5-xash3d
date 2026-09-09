@@ -422,6 +422,9 @@ compile_set() {
 }
 
 echo "== engine (dedicated, static libs)"
+if [[ $mode == client ]]; then
+    python3 -B "$root/xash/tools/prepare_blood_effects.py" "$xash/engine/client/cl_tent.c" "$gen/ps5_cl_tent.c"
+fi
 engine_sources=$(
     find "$xash/engine/common" "$xash/engine/server" -maxdepth 1 -name '*.c'
     if [[ $fs_trace == 1 ]]; then
@@ -462,7 +465,8 @@ engine_sources=$(
         echo "$root/xash/platform_ps5/prx_gate_ps5.c"
     fi
     if [[ $mode == client ]]; then
-        find "$xash/engine/client" -name '*.c'
+        find "$xash/engine/client" -name '*.c' ! -name 'cl_tent.c'
+        echo "$gen/ps5_cl_tent.c"
         if [[ $audio == 1 ]]; then
             echo "$root/xash/platform_ps5/s_ps5.c"
         else
@@ -970,6 +974,8 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/src/ref_agc_live_2d.c"
         "$root/src/ref_agc_live_brush.c"
         "$root/src/ref_agc_live_studio.c"
+        "$root/src/ref_agc_live_sprite.c"
+        "$root/src/ref_agc_effects.c"
         "$xash/public/xash3d_mathlib.c"
         "$xash/public/matrixlib.c"
         "$root/src/ref_agc_lightmap_atlas.c"

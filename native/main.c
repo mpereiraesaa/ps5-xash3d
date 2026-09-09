@@ -104,6 +104,7 @@ static size_t live_texture_arena_bytes;
 #include "ref_agc_live_2d.h"
 #include "ref_agc_live_brush.h"
 #include "ref_agc_live_studio.h"
+#include "ref_agc_live_sprite.h"
 #include "ref_agc_gpu_studio_cache.h"
 #include "ref_agc_gpu_texture_cache.h"
 #include "ref_agc_gpu_world_cache.h"
@@ -527,6 +528,10 @@ struct native_renderer {
     RefAgcSkyboxFrame live_sky_frames[2];
     RefAgcLiveBrushFrame live_brush_frames[2];
     RefAgcLiveStudioFrame live_studio_frames[2];
+    RefAgcLiveSpriteFrame live_sprite_frames[2];
+    RefAgcLiveEffectFrame live_effect_frames[2];
+    uint64_t live_effect_draw_frames;
+    uint64_t live_sprite_draw_frames;
     uint64_t live_studio_draw_frames, live_studio_draws, live_studio_indices;
     uint64_t live_studio_pose_hash, live_studio_pose_changes;
     uint32_t live_sampling_probe_seen;
@@ -1753,6 +1758,23 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             return resource_compose_fail(state, resource_slot, -9);
         }
     }
+    state->live_compose_stage = "live-sprite-frame";
+    memset(&state->live_sprite_frames[resource_slot], 0,
+           sizeof(state->live_sprite_frames[resource_slot]));
+    if (live_world_frame_ready && ref_agc_live_sprite_build(
+            &state->live_sprite_frames[resource_slot], &state->live_frame,
+            &state->live_texture_cache, &state->transient_ring, resource_slot,
+            state->resources->resource_heap, state->resources->resource_heap_bytes,
+            state->noclip.position, state->noclip.forward, state->live_aspect_ratio))
+        return resource_compose_fail(state, resource_slot, -9);
+    state->live_compose_stage = "live-effect-frame";
+    memset(&state->live_effect_frames[resource_slot],0,sizeof(state->live_effect_frames[resource_slot]));
+    if(live_world_frame_ready && ref_agc_live_effect_build(
+            &state->live_effect_frames[resource_slot],&state->live_frame.effects,
+            &state->live_texture_cache,&state->transient_ring,resource_slot,
+            state->resources->resource_heap,state->resources->resource_heap_bytes,
+            state->noclip.position,state->noclip.forward,state->live_aspect_ratio))
+        return resource_compose_fail(state,resource_slot,-9);
     state->live_compose_stage = "screen-2d-frame";
     const int live_2d_build_result = ref_agc_live_2d_frame_build(
             &state->live_2d_frames[resource_slot],
@@ -2685,6 +2707,51 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             }
         }
     }
+    RefAgcLiveSpriteFrame *sprites = &state->live_sprite_frames[resource_slot];
+    RefAgcLiveEffectFrame *effects=&state->live_effect_frames[resource_slot];
+    for(uint32_t i=0;!result && i<effects->count;++i) {
+        RefAgcLiveStudioDraw *draw=&effects->draws[i];
+        GoldSrcRenderState rs;Ps5GoldSrcPipelineBinding binding;
+        state->live_compose_stage="live-effect-draw";
+        if(goldsrc_render_state_from_mode(draw->entity,GOLDSRC_CULL_NONE,0,0,&rs)||
+           bind_goldsrc_pipeline(state,&cursor,end,&rs,frame->buffer,&binding))result=-5;
+        if(!result)result=ref_agc_live_studio_compose(&cursor,end,draw,
+            state->resources->resource_heap,state->resources->resource_heap_bytes,
+            binding.draw_modifier,ps5_native_set_sh_direct,ps5_native_draw_index);
+    }
+    if(!result && (effects->count||state->live_frame.effects.dropped) &&
+       (++state->live_effect_draw_frames<=32||state->live_effect_draw_frames%300==0))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_LIVE_EFFECTS schema=1 serial=%llu batches=%u particles=%u tracers=%u decals=%u dropped=%u ownership=engine-simulation+transient-slot",
+            (unsigned long long)state->live_frame.serial,effects->count,
+            state->live_frame.effects.particles,state->live_frame.effects.tracers,
+            state->live_frame.effects.decals,state->live_frame.effects.dropped);
+    for (uint32_t i = 0; !result && i < sprites->count; ++i) {
+        RefAgcLiveStudioDraw *draw = &sprites->draws[i];
+        GoldSrcRenderMode mode = (GoldSrcRenderMode)
+            state->live_frame.entities[draw->entity].render_mode;
+        /* Sprite kRenderTransAlpha uses alpha blending without depth writes,
+         * unlike the masked brush/Studio interpretation of mode 4. */
+        if (mode == GOLDSRC_RENDER_TRANS_ALPHA)
+            mode = GOLDSRC_RENDER_TRANS_TEXTURE;
+        if (mode == GOLDSRC_RENDER_NORMAL && draw->flags == 3)
+            mode = GOLDSRC_RENDER_TRANS_ALPHA;
+        GoldSrcRenderState render_state;
+        Ps5GoldSrcPipelineBinding binding;
+        state->live_compose_stage = "live-sprite-draw";
+        if (goldsrc_render_state_from_mode(mode, GOLDSRC_CULL_NONE, 0, 0, &render_state) ||
+            bind_goldsrc_pipeline(state, &cursor, end, &render_state, frame->buffer, &binding))
+            result = -5;
+        if (!result) result = ref_agc_live_studio_compose(&cursor, end, draw,
+            state->resources->resource_heap, state->resources->resource_heap_bytes,
+            binding.draw_modifier, ps5_native_set_sh_direct, ps5_native_draw_index);
+    }
+    if (!result && sprites->count && (++state->live_sprite_draw_frames <= 16 ||
+            state->live_sprite_draw_frames % 300 == 0))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_LIVE_SPRITES schema=1 serial=%llu draws=%u additive=%u masked=%u viewmodel=%u ownership=transient-slot",
+            (unsigned long long)state->live_frame.serial, sprites->count,
+            sprites->additive, sprites->masked, sprites->viewmodel);
     RefAgcLive2DComposeResult live_2d_composed = {0};
     RefAgcLive2DFrame *const live_2d =
         &state->live_2d_frames[resource_slot];

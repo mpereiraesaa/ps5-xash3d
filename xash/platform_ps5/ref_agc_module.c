@@ -33,12 +33,79 @@ callbacks below are always the project-owned AGC implementation.
 #undef GetRefAPI
 #include "ref_params.h"
 #include "enginefeatures.h"
+#include "studio_event_window.h"
 
 static ref_api_t ref_agc_engine;
+static struct {
+    int valid, sequence;
+    uint32_t handle;
+    float animtime;
+    double time;
+    uint64_t dispatched;
+} ref_agc_viewmodel_events;
+static int ref_agc_viewmodel_event_active;
+static void RefAgcCaptureEffects(const ref_client_t *client);
+static void RefAgcClearDecals(void);
+static void RefAgcProcessEntities(qboolean allocate,cl_entity_t *entities,unsigned count);
+
+static int RefAgcViewmodelEvents(cl_entity_t *entity,
+    const RefAgcLiveEntity *live, const RefAgcLiveStudioPose *pose,
+    const ref_client_t *client)
+{
+    const studiohdr_t *h=entity->model->cache.data;
+    /* Pose capture already validated sequence and bone spans. Validate all
+     * event/attachment data before mutating the engine entity or dispatching. */
+    const mstudioseqdesc_t *seq=(const void *)((const byte *)h+h->seqindex);
+    seq+=live->sequence;
+    if(h->numattachments>4 ||
+       !ps5_studio_event_span(h->length,h->attachmentindex,h->numattachments,sizeof(mstudioattachment_t)) ||
+       !ps5_studio_event_span(h->length,seq->eventindex,seq->numevents,sizeof(mstudioevent_t))) return -1;
+    const mstudioattachment_t *att=(const void *)((const byte *)h+h->attachmentindex);
+    const mstudioevent_t *events=(const void *)((const byte *)h+seq->eventindex);
+    float attachments[4][3];
+    for(int i=0;i<4;++i) for(int k=0;k<3;++k) attachments[i][k]=live->origin[k];
+    for(int i=0;i<h->numattachments;++i) {
+        if(att[i].bone<0 || (uint32_t)att[i].bone>=pose->bones) return -1;
+        if(ps5_studio_attachment(pose->matrices[att[i].bone],att[i].org,attachments[i])) return -1;
+    }
+    for(int i=0;i<seq->numevents;++i)
+        if(events[i].frame<0 || events[i].frame>=seq->numframes ||
+           (events[i].event>=5000 && !memchr(events[i].options,0,sizeof(events[i].options)))) return -1;
+    memcpy(entity->attachment,attachments,sizeof(attachments));
+    if(client->paused || client->time<=client->oldtime) return 0;
+    if(ref_agc_viewmodel_events.valid && ref_agc_viewmodel_events.time==client->time)
+        return 0; /* repeated view pass: never replay side effects */
+    const ref_host_t *host=(const void *)ref_agc_engine.EngineGetParm(PARM_GET_HOST_PTR,0);
+    if(!host || !ref_agc_engine.pfnStudioEvent) return -1;
+    float delta=entity->curstate.framerate*host->frametime*seq->fps;
+    if(!isfinite(delta) || delta<0) return -1;
+    int first=!ref_agc_viewmodel_events.valid || ref_agc_viewmodel_events.handle!=live->studio_handle ||
+        ref_agc_viewmodel_events.sequence!=live->sequence || ref_agc_viewmodel_events.animtime!=entity->curstate.animtime ||
+        ref_agc_viewmodel_events.time>client->time;
+    ref_agc_viewmodel_events.valid=1;
+    ref_agc_viewmodel_events.handle=live->studio_handle;
+    ref_agc_viewmodel_events.sequence=live->sequence;
+    ref_agc_viewmodel_events.animtime=entity->curstate.animtime;
+    ref_agc_viewmodel_events.time=client->time;
+    for(int i=0;i<seq->numevents;++i) if(events[i].event>=5000 &&
+        ps5_studio_event_due(events[i].frame,pose->frame,delta,seq->numframes-1,
+            first,(seq->flags&STUDIO_LOOPING)!=0)) {
+        ref_agc_viewmodel_event_active=1;
+        ref_agc_engine.pfnStudioEvent(&events[i],entity);
+        ref_agc_viewmodel_event_active=0;
+        ++ref_agc_viewmodel_events.dispatched;
+        if(ref_agc_viewmodel_events.dispatched<=32 || ref_agc_viewmodel_events.dispatched%128==0)
+            ref_agc_engine.Con_Printf("REF_AGC_VIEWMODEL_EVENT schema=1 model=%s sequence=%d event=%d frame=%d total=%llu owner=engine-thread\n",
+                live->model_name,live->sequence,events[i].event,events[i].frame,
+                (unsigned long long)ref_agc_viewmodel_events.dispatched);
+    }
+    return 0;
+}
 /* Owner-thread-only staging, consumed before publish. Engine model pointers
  * here are never copied into RefAgcLiveFrame or read by the GPU worker. */
 static cl_entity_t ref_agc_studio_light_entities[REF_AGC_LIVE_MAX_STUDIO_POSES];
 int PS5_StudioLightStyles(const ref_api_t *, lightstyle_t *);
+int PS5_SpriteCaptureLighting(const ref_api_t *,const float *,float *);
 int PS5_StudioCaptureLighting(const ref_api_t *, cl_entity_t *, const float *,
     int, RefAgcStudioLighting *, uint16_t *);
 static void RefAgcRunLightStyles(lightstyle_t *styles)
@@ -777,6 +844,7 @@ static void RefAgcShutdown(void)
 		if( ref_agc_runtime_state == REF_AGC_COMPLETE )
 			ref_agc_runtime_state = REF_AGC_JOINED;
 	}
+	RefAgcProcessEntities(false,NULL,0);
 	if( ref_agc_live_initialized )
 	{
 		ref_agc_live_store_destroy( &ref_agc_live );
@@ -1328,8 +1396,12 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 			return;
 		}
 		ref_agc_live_set_viewmodel( &ref_agc_live, &live_viewmodel );
+		if(RefAgcViewmodelEvents((cl_entity_t *)viewmodel,&live_viewmodel,
+			&ref_agc_live.building.studio_poses[live_viewmodel.studio_pose-1],client))
+			ref_agc_engine.Host_Error("ref_agc: invalid viewmodel event/attachment data");
 	}
 	else ref_agc_live_set_viewmodel( &ref_agc_live, NULL );
+	RefAgcCaptureEffects(client);
 }
 
 static void RefAgcSetupSky(int *skybox_textures)
@@ -1357,6 +1429,19 @@ static void RefAgcEndFrame(void)
 	/* R_AddEntity may precede GL_RenderFrame. Only now is this frame's
 	 * RF_DRAW_WORLD known; sampling at pose capture would select fullbright. */
 	RefAgcLiveFrame *pending=&ref_agc_live.building;
+	for(uint32_t i=0;i<pending->entity_count;++i) {
+		RefAgcLiveEntity *e=&pending->entities[i];
+		if(e->model_type!=mod_sprite || e->sprite_format!=3 ||
+		   e->effects&EF_FULLBRIGHT || e->render_amount<=127 ||
+		   !(pending->view.flags&RF_DRAW_WORLD) ||
+		   (e->render_mode!=kRenderNormal && e->render_mode!=kRenderTransAlpha &&
+		    e->render_mode!=kRenderTransTexture) ||
+		   ref_agc_engine.pfnGetCvarFloat("r_sprite_lighting")==0)continue;
+		if(PS5_SpriteCaptureLighting(&ref_agc_engine,e->origin,e->sprite_light)) {
+			ref_agc_engine.Host_Error("ref_agc: sprite lighting capture failed");return;
+		}
+		e->sprite_lit=1;
+	}
 	for(uint32_t i=0;i<pending->entity_count+pending->viewmodel_valid;++i) {
 		RefAgcLiveEntity *entity=i<pending->entity_count ? &pending->entities[i] : &pending->viewmodel;
 		if(entity->model_type!=REF_AGC_LIVE_MODEL_STUDIO) continue;
@@ -1408,6 +1493,8 @@ static void RefAgcEndFrame(void)
 
 static void RefAgcNewMap(void)
 {
+	RefAgcClearDecals();
+	memset(&ref_agc_viewmodel_events,0,sizeof(ref_agc_viewmodel_events));
 	++ref_agc_newmap_calls;
 	ref_agc_world_capture_pending = 1;
 	ref_agc_world_capture_attempts = 1u;
@@ -1571,6 +1658,23 @@ static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 	RefAgcCopy3( live.angles, entity->angles );
 	live.scale = entity->curstate.scale;
 	live.frame = entity->curstate.frame;
+	if( live.model_type == mod_sprite ) {
+		const msprite_t *sprite = entity->model->cache.data;
+		if( !sprite || sprite->numframes <= 0 ||
+			!isfinite(live.frame) || live.frame < 0 || live.frame > 2147483520.0f ||
+			!isfinite(live.angles[YAW]) || !ref_agc_engine.R_GetSpriteFrame ) return false;
+		const mspriteframe_t *frame = ref_agc_engine.R_GetSpriteFrame(
+			entity->model, (int)live.frame, live.angles[YAW]);
+		if( !frame || frame->gl_texturenum <= 0 ) return false;
+		live.sprite_texture = frame->gl_texturenum;
+		live.sprite_type = sprite->type;
+		live.sprite_format = sprite->texFormat;
+		live.sprite_viewmodel = ref_agc_viewmodel_event_active;
+		live.sprite_extents[0] = frame->up;
+		live.sprite_extents[1] = frame->down;
+		live.sprite_extents[2] = frame->left;
+		live.sprite_extents[3] = frame->right;
+	}
 	if( entity->model )
 	{
 		live.first_surface = entity->model->firstmodelsurface > 0 ?
@@ -1590,6 +1694,8 @@ static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 	}
 	return ref_agc_live_add_entity( &ref_agc_live, &live ) == 0;
 }
+
+#include "effect_bridge.h"
 
 static void RefAgcSet2DMode(qboolean enable)
 {
@@ -1742,6 +1848,13 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->GL_RenderFrame = RefAgcRenderFrame;
 	funcs->R_ClearScene = RefAgcClearScene;
 	funcs->R_AddEntity = RefAgcAddEntity;
+	funcs->R_ProcessEntData = RefAgcProcessEntities;
+	funcs->R_DecalShoot = RefAgcDecalShoot;
+	funcs->R_DecalRemoveAll = RefAgcDecalRemove;
+	funcs->R_CreateDecalList = RefAgcCreateDecalList;
+	funcs->R_ClearAllDecals = RefAgcClearDecals;
+	funcs->CL_DrawParticles = RefAgcParticles;
+	funcs->CL_DrawTracers = RefAgcTracers;
 	funcs->R_Set2DMode = RefAgcSet2DMode;
 	funcs->GL_SetRenderMode = RefAgcSetRenderMode;
 	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
