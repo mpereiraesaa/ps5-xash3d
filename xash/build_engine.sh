@@ -884,6 +884,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/native/main.c" "$root/native/ps5_agc_native.c"
         "$root/xash/platform_ps5/ref_agc_module.c"
         "$root/src/ref_agc_live_frame.c"
+        "$root/src/ref_agc_live_2d.c"
         "$root/src/ref_agc_lightmap_atlas.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
         "$root/src/ref_agc_gpu_world_cache.c"

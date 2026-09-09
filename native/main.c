@@ -88,6 +88,7 @@
 #ifdef PS5_REF_AGC_MODULE
 #include <pthread.h>
 #include "ref_agc_live_frame.h"
+#include "ref_agc_live_2d.h"
 #include "ref_agc_gpu_texture_cache.h"
 #include "ref_agc_gpu_world_cache.h"
 #include "ref_agc_gpu_world_draw.h"
@@ -214,7 +215,13 @@ enum {
     GOLDSRC_VIEWPORT_FULL_OFFSET = 0x35040u,
 #endif
 #endif
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    /* Two 1 MiB slots cover the complete 4096-command live 2D contract,
+     * its worst-case per-command texture tables and the world frame tables. */
+    RESOURCE_TRANSIENT_BYTES = 0x200000u,
+#else
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
+#endif
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u,
@@ -470,11 +477,20 @@ struct native_renderer {
     uint64_t live_last_serial;
     uint64_t live_camera_hash;
     uint64_t live_camera_changes;
+    uint64_t live_2d_input_commands;
+    uint64_t live_2d_mode_commands;
+    uint64_t live_2d_quads;
+    uint64_t live_2d_draws;
+    uint64_t live_2d_indices;
+    uint64_t live_2d_frames_with_draws;
+    uint64_t live_2d_command_hash;
+    uint32_t live_2d_peak_batches;
     RefAgcGpuTextureCache live_texture_cache;
     uint64_t live_texture_revision;
     RefAgcGpuWorldCache live_world_cache;
     uint64_t live_world_revision;
     RefAgcSkyboxFrame live_sky_frames[2];
+    RefAgcLive2DFrame live_2d_frames[2];
     Ps5CpuToGpuPlan live_texture_cache_plan;
     Ps5CpuToGpuPlan live_world_cache_plan;
     int live_frame_valid;
@@ -1373,10 +1389,36 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             live_special_stats.sky_draw_count);
     }
 #endif
-#ifdef PS5_GOLDSRC_2D_GATE
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "screen-2d-frame";
-#endif
+    const int live_2d_build_result = ref_agc_live_2d_frame_build(
+            &state->live_2d_frames[resource_slot],
+            &state->transient_ring, resource_slot,
+            state->resources->resource_heap,
+            state->resources->resource_heap_bytes,
+            state->resources->surface.width,
+            state->resources->surface.height,
+            &state->live_frame, &state->live_texture_cache);
+    if (live_2d_build_result != REF_AGC_LIVE_2D_OK) {
+        const RefAgcLive2DFrame *failed =
+            &state->live_2d_frames[resource_slot];
+        (void)ps5log_printf(PS5LOG_ERR,
+            "REF_AGC_LIVE_2D_BUILD_FAILURE serial=%llu result=%d "
+            "input_commands=%u failed_command=%u failed_type=%u "
+            "failed_texture=%d mode_commands=%u stretch_quads=%u "
+            "fill_quads=%u unresolved=%u command_hash=%016llx",
+            (unsigned long long)state->live_frame.serial,
+            live_2d_build_result, state->live_frame.command_2d_count,
+            failed->failed_command, failed->failed_type,
+            failed->failed_texture, failed->mode_commands,
+            failed->stretch_quads, failed->fill_quads,
+            failed->unresolved_textures,
+            (unsigned long long)failed->command_hash);
+        return resource_compose_fail(state, resource_slot, -9);
+    }
+    state->resource_frames[resource_slot].transient_bytes =
+        state->transient_ring.slots[resource_slot].used;
+#elif defined(PS5_GOLDSRC_2D_GATE)
     if (goldsrc_2d_frame_build(
             &state->goldsrc_2d_frames[resource_slot],
             &state->transient_ring, resource_slot,
@@ -2083,6 +2125,83 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                     state->live_frame.view.time_seconds * 1000.0),
                 state->live_frame.view.paused);
     }
+    RefAgcLive2DComposeResult live_2d_composed = {0};
+    RefAgcLive2DFrame *const live_2d =
+        &state->live_2d_frames[resource_slot];
+    for (uint32_t batch_index = 0u;
+         result == 0 && batch_index < live_2d->batch_count;
+         ++batch_index) {
+        const RefAgcLive2DBatch *batch = &live_2d->batches[batch_index];
+        GoldSrcRenderState screen_state;
+        Ps5GoldSrcPipelineBinding screen_binding;
+        state->live_compose_stage = "live-screen-2d-pipeline";
+        if (goldsrc_render_state_2d(batch->blend, &screen_state) != 0)
+            result = -4;
+        if (result == 0)
+            result = bind_goldsrc_pipeline(
+                state, &cursor, end, &screen_state, frame->buffer,
+                &screen_binding);
+        state->live_compose_stage = "live-screen-2d-draw";
+        if (result == 0)
+            result = ref_agc_live_2d_compose_batch(
+                &cursor, end, live_2d, batch_index,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                screen_binding.draw_modifier, ps5_native_set_sh_direct,
+                ps5_native_draw_index, &live_2d_composed);
+    }
+    if (result == 0 &&
+        (live_2d_composed.draws != live_2d->batch_count ||
+         live_2d_composed.indices != live_2d->index_count ||
+         live_2d_composed.texture_binds != live_2d->batch_count ||
+         live_2d->unresolved_textures != 0u))
+        result = -5;
+    if (result == 0) {
+        state->live_2d_input_commands +=
+            state->live_frame.command_2d_count;
+        state->live_2d_mode_commands += live_2d->mode_commands;
+        state->live_2d_quads +=
+            live_2d->stretch_quads + live_2d->fill_quads;
+        state->live_2d_draws += live_2d_composed.draws;
+        state->live_2d_indices += live_2d_composed.indices;
+        if (live_2d_composed.draws != 0u)
+            ++state->live_2d_frames_with_draws;
+        if (live_2d->batch_count > state->live_2d_peak_batches)
+            state->live_2d_peak_batches = live_2d->batch_count;
+        state->live_2d_command_hash =
+            state->live_2d_command_hash == 0u
+                ? live_2d->command_hash
+                : readback_hash(
+                      (const uint64_t[2]){
+                          state->live_2d_command_hash,
+                          live_2d->command_hash,
+                      },
+                      2u * sizeof(uint64_t));
+    }
+    if (result == 0 &&
+        (state->live_frame.serial == 1u ||
+         live_2d->index_count != 0u ||
+         state->live_frame.serial % 600u == 0u))
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_LIVE_2D_FRAME schema=1 frame=%llu serial=%llu "
+            "input_commands=%u mode_commands=%u stretch_quads=%u "
+            "fill_quads=%u batches=%u alpha_batches=%u "
+            "additive_batches=%u opaque_batches=%u draws=%u indices=%u "
+            "texture_binds=%u unresolved=0 command_hash=%016llx "
+            "layout_hash=%016llx transient_bytes=%llu "
+            "order=source-exact geometry=transient-slot "
+            "ownership=fence+videoout",
+            (unsigned long long)frame->frame_index,
+            (unsigned long long)state->live_frame.serial,
+            state->live_frame.command_2d_count, live_2d->mode_commands,
+            live_2d->stretch_quads, live_2d->fill_quads,
+            live_2d->batch_count, live_2d->alpha_batches,
+            live_2d->additive_batches, live_2d->opaque_batches,
+            live_2d_composed.draws, live_2d_composed.indices,
+            live_2d_composed.texture_binds,
+            (unsigned long long)live_2d->command_hash,
+            (unsigned long long)live_2d->layout_hash,
+            (unsigned long long)live_2d->transient_bytes);
     if (result != 0)
         return resource_compose_fail(state, resource_slot, -16);
 #else
@@ -3765,7 +3884,13 @@ int main(void)
 #else
         renderer.bsp_plan.scene_draw_count,
 #endif
-        BSP_TEXTURED_DWORDS_PER_DRAW, BSP_FIXED_COMMAND_DWORDS,
+        BSP_TEXTURED_DWORDS_PER_DRAW,
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+        BSP_FIXED_COMMAND_DWORDS +
+            REF_AGC_LIVE_2D_MAX_BATCHES * 64u,
+#else
+        BSP_FIXED_COMMAND_DWORDS,
+#endif
         &command_plan);
 #else
     const int command_plan_result = bsp_command_plan(
@@ -4981,7 +5106,7 @@ int main(void)
         "BSP_LOOP_BEGIN mode=phase7-live-consumer buffers=2 "
         "color_dma=false depth_dma=true indexed=true frames=engine-owned "
         "camera=live-refapi geometry=live-refapi textures=live-refapi "
-        "lists=world lightmaps=live-atlas retirement=fence+videoout+ack "
+        "lists=world+2d lightmaps=live-atlas retirement=fence+videoout+ack "
         "input_dependency=engine");
 #elif defined(PS5_GPU_FLIP_TIMING_GATE)
     (void)ps5log_line(PS5LOG_MARK,
@@ -5536,6 +5661,22 @@ int main(void)
         (unsigned long long)live_texture_stats.descriptor_hash,
         REF_AGC_GPU_TEXTURE_ARENA_BYTES);
     ref_agc_gpu_texture_cache_destroy(&renderer.live_texture_cache);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_LIVE_2D_COMPLETE schema=1 frames=%llu "
+        "frames_with_draws=%llu input_commands=%llu mode_commands=%llu "
+        "quads=%llu draws=%llu indices=%llu peak_batches=%u "
+        "unresolved=0 command_hash=%016llx "
+        "order=source-exact geometry=transient-slot "
+        "ownership=fence+videoout errors=0",
+        (unsigned long long)live_run.frames_completed,
+        (unsigned long long)renderer.live_2d_frames_with_draws,
+        (unsigned long long)renderer.live_2d_input_commands,
+        (unsigned long long)renderer.live_2d_mode_commands,
+        (unsigned long long)renderer.live_2d_quads,
+        (unsigned long long)renderer.live_2d_draws,
+        (unsigned long long)renderer.live_2d_indices,
+        renderer.live_2d_peak_batches,
+        (unsigned long long)renderer.live_2d_command_hash);
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_LIVE_COMPLETE frames=%llu serial=%llu view_frames=%llu "
         "camera_hash=%016llx camera_changes=%llu "

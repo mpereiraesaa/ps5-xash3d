@@ -368,5 +368,83 @@ proved that the CLI Chiaki process itself was stale; they are not renderer
 evidence. The accepted image came only after a fresh visible home-frame check.
 
 This closes live engine-lightmap atlas construction, direct-memory residency,
-native pipeline binding and compositor-visible sampling. Native sky/turbulent
-semantics, entities, viewmodel and 2D/menu/HUD translation remain open.
+native pipeline binding and compositor-visible sampling. At that checkpoint,
+sky/turbulent semantics, entities, viewmodel and 2D/menu/HUD translation were
+still open. The subsequently merged special-surface gate closed native sky and
+turbulent presentation; this section's live-2D gate starts from that accepted
+boundary.
+
+## Accepted FW 12.02 live-2D gate
+
+The live renderer now consumes `R_Set2DMode`, `R_DrawStretchPic` and `FillRGBA`
+commands in exact producer order after the world and special-surface passes. It
+copies `Color4f` and `Color4ub` into each stretch command, resolves texture
+handles through the live direct-memory cache, and emits orthographic transient
+vertices, indices, constants and descriptor tables. Only consecutive commands
+with identical texture and blend identity may share a draw. Alpha, additive
+and opaque semantics bind the already hardware-proven `screen_2d` pipeline;
+`FillRGBA` uses a transient one-texel white image tinted by vertex color. No
+OpenGL emulation layer is present.
+
+The first hardware attempt exposed a deterministic capacity failure before GPU
+submission: serial 2 contained 867 commands and the old 128 KiB slot returned
+`result=-2`. The live-only transient ring is now two 1 MiB slots. That size is
+not fitted to the observed frame: a host test fills all 4,096 producer entries
+with 4,095 alternating drawable commands and therefore the maximum 4,095
+batches, proving that geometry, constants and descriptor tables fit the slot.
+Older gates retain their original allocation size.
+
+The final five-module bundle was transactionally verified and promoted before
+launch. The synchronized accepted runs began 56 ms apart:
+
+- Engine: `20260909T060525224Z_PPSA99996_xash3d-engine_0x133ed1bbb4d07`
+- Renderer: `20260909T060525280Z_PPSA99996_ps5-xash3d_0x133ed1efb02b5`
+
+The fail-closed paired validator accepted 1,044 matched frames. Exactly 333
+frames contained live 2D draws: 61,316 quads became 367,896 indices and 610
+ordered batches, with a peak of three batches per frame. The run consumed
+63,395 input commands, including 2,079 mode commands, resolved every texture,
+and produced aggregate command hash `177a07fa2fd9e5b1`. The validator sums every
+draw-bearing frame back to the completion totals and rejects missing markers,
+bad mode/quad accounting, a non-six-index quad, reordered ownership, unresolved
+textures or a nonzero error count.
+
+The same run retained the live 3,695-draw world and 1,024x256 lightmap proof.
+Both framebuffer slots produced `49b1297de5cef0a0`, the aggregate frame hash
+was `a3219a480a7a1c41`, all eight parent resources retired, guards remained
+intact and the five PRXs unloaded to zero. Both `ps5log/1` streams were clean,
+gap-free and ended with their exact BYE sequence.
+
+A 20-second 1080p CLI Remote Play recording began before launch. Its frame at
+12.5 seconds visibly contains the translucent Xash console, engine text and the
+localized `MATERIALES ANÓMALO` label over the live tram interior. This is direct
+compositor evidence for textured/tinted 2D over the native world, correlated
+with the structured run rather than inferred from command counts.
+
+| Artifact or evidence | SHA-256 |
+| --- | --- |
+| Engine ELF | `73fbe5af12484a876cdd6a07194fceb22fc2a142cd728131a600761ba3a3f2eb` |
+| Engine fSELF | `3d6df2e36b2f2c689d20636fad6eea40821b19cbc25475b5626b8361aed28301` |
+| `ref_agc` ELF | `db094020deae74f2f5aeb752d20b443f34f3dcd675f11e8c199ed9404badaab0` |
+| `ref_agc.prx` | `03eeea47989b1f5a79d56b6df69faa751bed313d61fe7e5709a2a5f6a199a3f9` |
+| `map.ps5bsp` (`c1a0e` proof resource) | `d66be922584d7537e2dca7233293195d6ae383b22fc7959853537a75815c5cfa` |
+| `model.ps5mdl` (`sphere`, sequence `fire`) | `d5b3a1f9b5d14a42ff646f20fc8f7712f4360b9239df1c858c256aa4bb451d6a` |
+| Engine transcript | `f637d76cc88698869bd2fa9ba8234a2bcd5a8c6d0ac06c090a836e370423baaf` |
+| Renderer transcript | `5eab062c4e38b56208754d7804ab94a9610658b5c79c58ee77bd675b2f3388c6` |
+| Engine manifest | `614086f16c34f87819b1299ee6679027b877edc3f22fd6754c7591d2df528f27` |
+| Renderer manifest | `37e581445453c308d0ac3f0fecfd108238d99a31c301798c870d1b35a590c68d` |
+| Transaction journal | `cf628064e9b11cce6901f0dce4b971e737e6f5e8d0177a44bdd32de54a44dba1` |
+| Launch journal | `b529691f81fff7683c9ec527a0b3c9d13423ab05e9c413c0dc95205ac4fc8206` |
+| 20-second CLI Remote Play recording | `5bcdd2772f5d3d29baae61a659ca19af9c079061f69b79f58dc479e70dce6aa0` |
+| Visible console-overlay frame | `5b39945c66b08a34c8ccee1585a0bdc5655c9c3962d9edd436e0c6849106f5c3` |
+
+The accepted validator result includes:
+
+```json
+{"engine_run_id":"20260909T060525224Z_PPSA99996_xash3d-engine_0x133ed1bbb4d07","frames":1044,"gpu_buffers":["49b1297de5cef0a0","49b1297de5cef0a0"],"live_2d":{"command_hash":"177a07fa2fd9e5b1","draws":610,"frames_with_draws":333,"indices":367896,"peak_batches":3,"quads":61316,"unresolved":0},"ownership":"exact","pass":true,"phase":7,"renderer_run_id":"20260909T060525280Z_PPSA99996_ps5-xash3d_0x133ed1efb02b5","start_skew_ms":56}
+```
+
+This closes live console/HUD/font/fill translation and visible native AGC 2D
+composition. It does not claim that the MainUI main menu has been presented or
+that live entities and the first-person viewmodel are translated; those remain
+separate Phase 7 gates.

@@ -135,7 +135,8 @@ def renderer_messages(errors: str = "0") -> list[str]:
 def phase7_renderer_messages(serial: int = 100, *,
                              resources: bool = False,
                              world: bool = False,
-                             special: bool = False) -> list[str]:
+                             special: bool = False,
+                             live_2d: bool = False) -> list[str]:
     if world and not resources:
         raise ValueError("live world evidence requires GPU textures")
     if special and not world:
@@ -188,7 +189,8 @@ def phase7_renderer_messages(serial: int = 100, *,
     studio = "" if world else \
         f" studio_sha256={STUDIO} studio_bytes=200"
     geometry = "live-refapi" if world else "baked-c1a0"
-    lists = "world" if world else "world+entities+2d"
+    lists = "world+2d" if world and live_2d else \
+        "world" if world else "world+entities+2d"
     textures = " textures=live-refapi" if world else ""
     lightmaps = " lightmaps=live-atlas" if world else ""
     return [
@@ -210,6 +212,27 @@ def phase7_renderer_messages(serial: int = 100, *,
         *texture,
         *gpu_world,
         *special_markers,
+        *([
+            "REF_AGC_LIVE_2D_FRAME schema=1 frame=0 serial=1 "
+            "input_commands=4 mode_commands=1 stretch_quads=2 fill_quads=1 "
+            "batches=3 alpha_batches=1 additive_batches=1 opaque_batches=1 "
+            "draws=3 indices=18 texture_binds=3 unresolved=0 "
+            "command_hash=1234567890abcdef layout_hash=fedcba0987654321 "
+            "transient_bytes=1024 order=source-exact geometry=transient-slot "
+            "ownership=fence+videoout",
+            "REF_AGC_LIVE_2D_FRAME schema=1 frame=1 serial=2 "
+            "input_commands=2 mode_commands=2 stretch_quads=0 fill_quads=0 "
+            "batches=0 alpha_batches=0 additive_batches=0 opaque_batches=0 "
+            "draws=0 indices=0 texture_binds=0 unresolved=0 "
+            "command_hash=2234567890abcdef layout_hash=eedcba0987654321 "
+            "transient_bytes=0 order=source-exact geometry=transient-slot "
+            "ownership=fence+videoout",
+            "REF_AGC_LIVE_2D_COMPLETE schema=1 frames=100 "
+            "frames_with_draws=1 input_commands=203 mode_commands=200 "
+            "quads=3 draws=3 indices=18 peak_batches=3 unresolved=0 "
+            "command_hash=3234567890abcdef order=source-exact "
+            "geometry=transient-slot ownership=fence+videoout errors=0",
+        ] if live_2d else []),
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
@@ -224,6 +247,7 @@ def phase7_renderer_messages(serial: int = 100, *,
 def run(engine: Path, renderer: Path, *,
         require_live_lightmaps: bool = False,
         require_live_special_surfaces: bool = False,
+        require_live_2d: bool = False,
         boot_map: str = "c1a0") -> subprocess.CompletedProcess[str]:
     command = [
         "python3", "-B", str(VALIDATOR), str(engine), str(renderer),
@@ -236,6 +260,8 @@ def run(engine: Path, renderer: Path, *,
         command.append("--require-live-lightmaps")
     if require_live_special_surfaces:
         command.append("--require-live-special-surfaces")
+    if require_live_2d:
+        command.append("--require-live-2d")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -328,6 +354,48 @@ def main() -> None:
         assert special_summary["sky_draws"] == 158
         assert special_summary["turbulent_draws"] == 35
         assert special_summary["animation_time_milli"] == [50, 2050]
+
+        live_2d_renderer = write_run(
+            directory, "live-2d-renderer", "ps5-xash3d",
+            phase7_renderer_messages(
+                resources=True, world=True, live_2d=True),
+            started="2026-09-08T19:13:27.984+00:00")
+        live_2d_valid = run(
+            resource_engine, live_2d_renderer,
+            require_live_lightmaps=True, require_live_2d=True)
+        assert live_2d_valid.returncode == 0, live_2d_valid.stderr
+        live_2d_summary = json.loads(live_2d_valid.stdout)["live_2d"]
+        assert live_2d_summary["frames"] == 100
+        assert live_2d_summary["quads"] == 3
+        assert live_2d_summary["draws"] == 3
+        assert live_2d_summary["indices"] == 18
+
+        missing_live_2d_messages = [
+            message for message in phase7_renderer_messages(
+                resources=True, world=True, live_2d=True)
+            if not message.startswith("REF_AGC_LIVE_2D_COMPLETE ")
+        ]
+        missing_live_2d_renderer = write_run(
+            directory, "missing-live-2d-renderer", "ps5-xash3d",
+            missing_live_2d_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(
+            resource_engine, missing_live_2d_renderer, require_live_2d=True)
+        assert rejected.returncode != 0 \
+            and "frame/completion evidence is missing" in rejected.stderr
+
+        bad_live_2d_messages = [message.replace(
+            "quads=3 draws=3 indices=18", "quads=3 draws=3 indices=24")
+            for message in phase7_renderer_messages(
+                resources=True, world=True, live_2d=True)]
+        bad_live_2d_renderer = write_run(
+            directory, "bad-live-2d-renderer", "ps5-xash3d",
+            bad_live_2d_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(
+            resource_engine, bad_live_2d_renderer, require_live_2d=True)
+        assert rejected.returncode != 0 \
+            and "completion contract mismatch" in rejected.stderr
 
         stalled_special_messages = [message.replace(
             "animation_time_milli=2050", "animation_time_milli=50")

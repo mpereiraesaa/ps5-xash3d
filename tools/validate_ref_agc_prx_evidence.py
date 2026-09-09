@@ -79,6 +79,7 @@ def validate_renderer(
     studio_sha256: str, studio_bytes: int,
     require_live_lightmaps: bool = False,
     require_live_special_surfaces: bool = False,
+    require_live_2d: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -110,14 +111,16 @@ def validate_renderer(
             "color_dma": "false", "depth_dma": "true",
             "indexed": "true", "frames": "engine-owned",
             "camera": "live-refapi", "geometry": "live-refapi",
-            "textures": "live-refapi", "lists": "world",
+            "textures": "live-refapi",
             "retirement": "fence+videoout+ack",
             "input_dependency": "engine",
-        })
+        }) and loop.get("lists") in ("world", "world+2d")
         if not legacy_loop and not live_world_loop:
             fail("Phase 7 live integration loop mismatch")
         if require_live_lightmaps and loop.get("lightmaps") != "live-atlas":
             fail("Phase 7 live lightmap atlas marker is missing")
+        if require_live_2d and loop.get("lists") != "world+2d":
+            fail("Phase 7 live 2D list marker is missing")
         ready = one(messages, "REF_AGC_RUNTIME_READY")
         if not exact(ready, {
             "backend": "phase4-native", "api": "18",
@@ -289,6 +292,102 @@ def validate_renderer(
                 "turbulent_draws": int(world["turbulent_draws"], 10),
                 "turbulent_indices": int(world["turbulent_indices"], 10),
             }
+        live_2d_markers = [
+            parse_fields(message) for message in messages
+            if message.startswith("REF_AGC_LIVE_2D_FRAME ")
+        ]
+        live_2d_complete_markers = [
+            parse_fields(message) for message in messages
+            if message.startswith("REF_AGC_LIVE_2D_COMPLETE ")
+        ]
+        if len(live_2d_complete_markers) > 1:
+            fail("Phase 7 live 2D completion marker is duplicated")
+        live_2d_summary = None
+        if require_live_2d:
+            if not live_2d_markers or len(live_2d_complete_markers) != 1:
+                fail("Phase 7 live 2D frame/completion evidence is missing")
+            draw_samples = 0
+            sampled_quads = 0
+            sampled_draws = 0
+            sampled_indices = 0
+            for marker in live_2d_markers:
+                numeric = {
+                    field: int(marker.get(field, "-1"), 10)
+                    for field in (
+                        "input_commands", "mode_commands", "stretch_quads",
+                        "fill_quads", "batches", "alpha_batches",
+                        "additive_batches", "opaque_batches", "draws",
+                        "indices", "texture_binds", "unresolved",
+                        "transient_bytes",
+                    )
+                }
+                quads = numeric["stretch_quads"] + numeric["fill_quads"]
+                if any(value < 0 for value in numeric.values()) \
+                        or numeric["input_commands"] != \
+                        numeric["mode_commands"] + quads \
+                        or numeric["indices"] != quads * 6 \
+                        or numeric["draws"] != numeric["batches"] \
+                        or numeric["texture_binds"] != numeric["batches"] \
+                        or numeric["batches"] != (
+                            numeric["alpha_batches"]
+                            + numeric["additive_batches"]
+                            + numeric["opaque_batches"]) \
+                        or numeric["unresolved"] != 0 \
+                        or (quads == 0) != (numeric["transient_bytes"] == 0) \
+                        or marker.get("command_hash") in (
+                            None, "0000000000000000") \
+                        or marker.get("layout_hash") in (
+                            None, "0000000000000000") \
+                        or not exact(marker, {
+                            "schema": "1", "order": "source-exact",
+                            "geometry": "transient-slot",
+                            "ownership": "fence+videoout",
+                        }):
+                    fail("Phase 7 live 2D frame contract mismatch")
+                if numeric["draws"] > 0:
+                    draw_samples += 1
+                    sampled_quads += quads
+                    sampled_draws += numeric["draws"]
+                    sampled_indices += numeric["indices"]
+            live_2d = live_2d_complete_markers[0]
+            totals = {
+                field: int(live_2d.get(field, "0"), 10)
+                for field in (
+                    "frames", "frames_with_draws", "input_commands",
+                    "mode_commands", "quads", "draws", "indices",
+                    "peak_batches", "unresolved",
+                )
+            }
+            if totals["frames"] != frames \
+                    or totals["frames_with_draws"] <= 0 \
+                    or totals["frames_with_draws"] > totals["frames"] \
+                    or totals["input_commands"] <= 0 \
+                    or totals["mode_commands"] <= 0 \
+                    or totals["quads"] <= 0 \
+                    or totals["input_commands"] != \
+                    totals["mode_commands"] + totals["quads"] \
+                    or totals["draws"] < totals["frames_with_draws"] \
+                    or totals["indices"] != totals["quads"] * 6 \
+                    or totals["peak_batches"] <= 0 \
+                    or totals["peak_batches"] > totals["draws"] \
+                    or totals["unresolved"] != 0 \
+                    or draw_samples != totals["frames_with_draws"] \
+                    or sampled_quads != totals["quads"] \
+                    or sampled_draws != totals["draws"] \
+                    or sampled_indices != totals["indices"] \
+                    or live_2d.get("command_hash") in (
+                        None, "0000000000000000") \
+                    or not exact(live_2d, {
+                        "schema": "1", "order": "source-exact",
+                        "geometry": "transient-slot",
+                        "ownership": "fence+videoout", "errors": "0",
+                    }):
+                fail("Phase 7 live 2D completion contract mismatch")
+            live_2d_summary = totals | {
+                "command_hash": live_2d["command_hash"],
+                "frame_samples": len(live_2d_markers),
+                "draw_samples": draw_samples,
+            }
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -308,6 +407,7 @@ def validate_renderer(
             "gpu_texture": texture,
             "gpu_world": world,
             "special_surfaces": special_summary,
+            "live_2d": live_2d_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -385,6 +485,7 @@ def main() -> int:
     parser.add_argument("--studio-bytes", required=True, type=int)
     parser.add_argument("--require-live-lightmaps", action="store_true")
     parser.add_argument("--require-live-special-surfaces", action="store_true")
+    parser.add_argument("--require-live-2d", action="store_true")
     parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
@@ -401,6 +502,7 @@ def main() -> int:
             require_live_lightmaps=args.require_live_lightmaps,
             require_live_special_surfaces=
                 args.require_live_special_surfaces,
+            require_live_2d=args.require_live_2d,
         )
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
@@ -470,6 +572,7 @@ def main() -> int:
             "gpu_texture": renderer.get("gpu_texture"),
             "gpu_world": renderer.get("gpu_world"),
             "special_surfaces": renderer.get("special_surfaces"),
+            "live_2d": renderer.get("live_2d"),
             "ownership": "exact",
             "pass": True,
         }
