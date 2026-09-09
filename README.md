@@ -23,7 +23,16 @@ the standalone Gears demo; every phase of the port lands here.
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
 | 6 — Engine integration | Complete | Filesystem, server, MainUI, GoldSrc client and `ref_agc` all run as application-owned PRXs; `c1a0` starts while the native AGC backend presents 600 validated frames, then all five modules unwind exactly |
-| 7 — Playable and release | In progress | Native MainUI → `c1a0`, live world/lightmaps/special surfaces/2D, brush transforms and first animated Studio NPCs are visible; runtime ScePad, background depth, opaque Studio minification and STEP motion have operator evidence. Viewmodel, full Studio fidelity, HUD blend fidelity, integrated game audio, gameplay, performance and release remain |
+| 7 — Playable and release | In progress | Native MainUI → `c1a0`, world/brush/Studio NPCs, HUD/fonts/fades, NPC lighting/chrome and NPOT textures have accepted evidence. Return transitions, pistol/crowbar and DualSense aim have operator QA. Complete viewmodel effects/coverage, full Studio fidelity, integrated game audio, gameplay, performance and release remain |
+
+Current controls and installation: [DualSense profile and QA guide](docs/SCEPAD_PHASE5.md).
+R2 is primary attack for every weapon; D-pad left/right changes weapons directly.
+The current aim baseline uses a radial right-stick curve and 140/105-degree/s
+horizontal/vertical rates. Install the maintained profile as described in the guide;
+existing game configs can otherwise erase default gamepad bindings.
+See [Studio/viewmodel checkpoint](docs/PHASE7_STUDIO_LIGHTING.md) for accepted
+hardware evidence and the precise remaining scope. Diagnostic weapon grants
+are off by default; this is not a completed Phase 7 release.
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
 2,915 opaque, 137 alpha-test and 158 sky draws per frame, 68,731,904 resident
@@ -37,6 +46,8 @@ documents below.
 Run all host contracts and the fail-closed publication audit:
 
 ```sh
+git submodule update --init third_party/xash3d-fwgs third_party/hlsdk-portable
+git -C third_party/xash3d-fwgs submodule update --init 3rdparty/library_suffix
 make test
 make audit
 ```

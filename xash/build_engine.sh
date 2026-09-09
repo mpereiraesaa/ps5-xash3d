@@ -69,6 +69,11 @@ boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
+studio_ab=${XASH_STUDIO_AB:-0}
+viewmodel_qa=${XASH_VIEWMODEL_QA:-0}
+[[ $viewmodel_qa =~ ^[01]$ ]] || { echo "XASH_VIEWMODEL_QA must be 0 or 1" >&2; exit 2; }
+[[ $studio_ab =~ ^[01]$ ]] || { echo "XASH_STUDIO_AB must be 0 or 1" >&2; exit 2; }
+[[ $studio_ab != 1 || $sampling_probe != 1 ]] || { echo "Studio A/B and wall QA are mutually exclusive" >&2; exit 2; }
 texture_memory_probe=${XASH_TEXTURE_MEMORY_PROBE:-0}
 hud_trace=${XASH_HUD_TRACE:-0}
 hud_probe=${XASH_HUD_PROBE:-0}
@@ -265,6 +270,8 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_GATE_SECONDS $gate_seconds
 #define PS5_XASH_GATE_FROM_MAP $gate_from_map
 #define PS5_XASH_SAMPLING_PROBE $sampling_probe
+#define PS5_XASH_STUDIO_AB $studio_ab
+#define PS5_XASH_VIEWMODEL_QA $viewmodel_qa
 #define PS5_XASH_HUD_PROBE $hud_probe
 #define PS5_XASH_TITLE_ID "$title_id"
 #define PS5_XASH_MODE "$mode"
@@ -590,9 +597,12 @@ llvm_nm=${LLVM_NM:-$(command -v llvm-nm-18 || command -v llvm-nm)}
 "$llvm_nm" -g --defined-only "$build/server.stage1.o" | awk '$2 ~ /^[TtWw]$/ {print $3}' | sort -u \
     > "$build/server.defined"
 python3 - "$hlsdk" "$root/xash/exports/server.txt" "$build/server.defined" \
-    "$gen/server_exports.txt" <<'PY'
+    "$gen/server_exports.txt" "$root/xash/tools" <<'PY'
 import pathlib, re, sys
 hlsdk, fixed, defined, out = (pathlib.Path(a) for a in sys.argv[1:5])
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[5])
+from generate_static_library_tables import server_callback_exports
 names = [l.split("#", 1)[0].strip() for l in fixed.read_text().splitlines()]
 names = [n for n in names if n]
 pattern = re.compile(r"LINK_ENTITY_TO_CLASS\s*\(\s*([A-Za-z0-9_]+)")
@@ -602,10 +612,16 @@ for folder in ("dlls", "game_shared"):
         classes.update(pattern.findall(src.read_text(encoding="utf-8", errors="replace")))
 have = set(defined.read_text().split())
 exported = names + sorted(c for c in classes if c in have and c not in names)
+callbacks = server_callback_exports(have)
+exported += [name for name in callbacks if name not in exported]
+# The server descriptor adds six lifecycle/probe exports. Fail at build time
+# rather than emitting a descriptor the runtime cannot validate.
+if len(exported) + 6 > 4096:
+    raise SystemExit("server descriptor exceeds PS5_PRX_MAX_EXPORTS")
 missing = sorted(c for c in classes if c not in have)
-out.write_text("# generated: fixed entry points + LINK_ENTITY_TO_CLASS symbols defined by the module\n"
+out.write_text("# generated: entry points + entity factories + defined C++ save/restore symbols\n"
                + "".join(n + "\n" for n in exported))
-print(f"server exports: {len(exported)} ({len(classes)} entity classes scanned, {len(missing)} not compiled in)")
+print(f"server exports: {len(exported)} ({len(callbacks)} C++ code symbols, {len(classes)} entity classes scanned, {len(missing)} not compiled in)")
 PY
 if [[ $server_prx == 0 ]]; then
     python3 "$root/xash/tools/generate_static_library_tables.py" "$gen/helpers" \
@@ -662,12 +678,14 @@ if [[ $mode == client ]]; then
     export_intersect menu "$root/xash/exports/menu.txt" "$build/menu.stage1.o" "$gen/menu_exports.txt"
 
     echo "== client module (hlsdk-portable cl_dll)"
+    python3 -B "$root/xash/tools/prepare_client_ammo.py" "$hlsdk/cl_dll/ammo.cpp" "$gen/ps5_ammo.cpp"
     client_defines=(-DCLIENT_DLL -DCLIENT_WEAPONS -Dstricmp=strcasecmp -Dstrnicmp=strncasecmp
         -D_snprintf=snprintf -D_vsnprintf=vsnprintf)
     client_includes=(-I"$hlsdk/cl_dll" -I"$hlsdk/dlls" -I"$hlsdk/common" -I"$hlsdk/engine" -I"$hlsdk/pm_shared"
         -I"$hlsdk/game_shared" -I"$hlsdk/public" -I"$hlsdk/utils/fake_vgui/include")
     client_cxx=$(find "$hlsdk/cl_dll" -name '*.cpp' ! -name 'GameStudioModelRenderer_Sample.cpp' \
-            ! -name 'vgui_*.cpp' ! -name 'voice_status.cpp'
+            ! -name 'vgui_*.cpp' ! -name 'voice_status.cpp' ! -name 'ammo.cpp'
+        echo "$gen/ps5_ammo.cpp"
         find "$hlsdk/game_shared" -maxdepth 1 -name '*.cpp' ! -name 'vgui_*.cpp' ! -name 'voice_*.cpp'
         for w in crossbow crowbar egon gauss glock handgrenade hornetgun mp5 python rpg satchel shotgun \
                  squeakgrenade tripmine; do echo "$hlsdk/dlls/$w.cpp"; done)
@@ -927,6 +945,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
         -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
+        -DPS5_REF_AGC_STUDIO_AB=$studio_ab
         -DPS5_REF_AGC_TEXTURE_MEMORY_PROBE=$texture_memory_probe
         -DPS5_REF_AGC_HUD_TRACE=$hud_trace
         -DPS5_TEXTURE_MIB=$texture_mib
@@ -946,6 +965,7 @@ if [[ $ref_agc_prx == 1 ]]; then
     ref_agc_sources=(
         "$root/native/main.c" "$root/native/ps5_agc_native.c"
         "$root/xash/platform_ps5/ref_agc_module.c"
+        "$root/xash/platform_ps5/studio_light_ps5.c"
         "$root/src/ref_agc_live_frame.c"
         "$root/src/ref_agc_live_2d.c"
         "$root/src/ref_agc_live_brush.c"

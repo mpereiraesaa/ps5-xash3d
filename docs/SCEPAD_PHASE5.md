@@ -29,6 +29,158 @@ terminated only when this backend acquired it; the pad handle is closed once.
 
 ## Translation contract
 
+### Release controller profile v5 (current accepted aim baseline)
+
+The maintained profile is [`xash/config/dualsense.cfg`](../xash/config/dualsense.cfg).
+Install it as `valve/userconfig.d/10-dualsense.cfg` in the writable game data.
+The pinned engine executes `userconfig.d/*.cfg` after `config.cfg`, so this
+profile survives `unbindall` in the saved config. It only assigns the gamepad
+buttons listed below and enables the two sticks; keyboard/mouse bindings and
+left-stick behavior are preserved. Right-stick sensitivity is now explicitly
+configured as described below. Touchpad is not assigned or cleared by this
+profile, keeping the optional QA hook available. No Remote Play is required.
+
+Profile v4 includes the v3 mapping of R2 to primary attack for all weapons (including crowbar),
+and R1 to secondary attack. Profile v4 is deployed and startup-confirmed;
+the operator accepted v5 aim feel for now and confirmed R2 crowbar attack.
+Other untested button actions remain pending. The table below records
+upstream defaults, not these two overrides.
+The last column is the **historical pre-install audit**, not the post-install
+state. L2/L3 use the engine's
+`+speed` modifier, not a newly implemented sprint. Weapon selection uses the
+inventory directly: D-pad left equips the previous weapon, right the next,
+without pressing R1. Profile v2 sets `hud_fastswitch 1`. The pinned HLSDK
+originally applies this cvar only to slot selection, so the build generates
+`ps5_ammo.cpp` with the same opt-in behavior for `invprev` and `invnext`.
+It sends the weapon command directly, never synthesizes attack, and retains
+the upstream death/HUD/ammo guards. `hud_fastswitch 0` restores confirmation.
+This cvar also affects keyboard/mouse weapon cycling, but their bindings are
+unchanged. The operator confirmed immediate cycling with either direction
+and repeated presses returning to the pistol, without R1. With two weapons,
+both directions and `lastinv` look equivalent; `lastinv` still means the
+previously equipped weapon, not inventory cycling. D-pad up remains spray;
+no cheats have been added to the release profile.
+
+Profile v2 deployment: FTP readback matches local SHA-256
+`f704d6d8ec6cf166ecd8c978842108f21a54e9f137e75123cf582ad454438eba`.
+Client PRX SHA-256:
+`44da7c9ef86a650b84129538ec20de988fefdf5da535edb1736d541b07b240fd`.
+Run `20260909T162323591Z_PPSA99996_xash3d-engine_0x155a5f82b3e1f`
+confirms `PS5_DUALSENSE_PROFILE version=2 loaded=1`. Native build and
+`tests/test_prepare_client_ammo.py` passed; the latter checks both generated
+selection sites and rejects upstream source drift, not gameplay behavior.
+
+For release packaging, include this cfg at the path above and verify the
+startup marker `PS5_DUALSENSE_PROFILE version=5 loaded=1`; do not assume
+engine defaults survive existing user configs. To customize the layout, edit
+this profile or add a later-sorted cfg in `userconfig.d`. To stop enforcing it,
+remove that profile; already saved bindings remain until changed explicitly.
+Hardware action validation (jump/use/fire/reload/weapon selection) is separate
+from confirming the file was installed or executed.
+
+Historical profile v1 was installed on PPSA99996 on 2026-09-09 with owner approval. Local and FTP
+readback SHA-256 both:
+`d3aac3278dfab617475bf146ec5385ad07311b05def365d10bff5a53d25c45ca`.
+Run `20260909T161409756Z_PPSA99996_xash3d-engine_0x15525055f36e6`
+logs `execing userconfig.d/10-dualsense.cfg` followed by the version=1
+loaded=1 marker. All 16 button bindings match the pinned engine defaults in
+a host comparison. No existing cfg was overwritten. On 2026-09-09 the operator
+confirmed pistol fire with R1, jump with Cross, crouch with both L1 and R3,
+and pistol-to-crowbar selection with D-pad left followed by R1. These are
+manual gameplay observations, not independent action telemetry. Reload, use,
+secondary attack and the remaining bindings still need explicit gameplay QA;
+this installation is not a resource teardown gate.
+
+### Right-stick aim baseline — profile v5
+
+Operator feedback on v4: R2 crowbar attack works and fine adjustment overshoots
+less, but aiming still feels too fast. V5 changes only the two look rates from
+180/135 to 140/105 degrees/second (yaw/pitch), preserving the radial deadzone,
+curve, movement and bindings. On 2026-09-09 the operator accepted v5 for now:
+"listo dejemoslo asi por ahora esta mejor que antes". Keep these settings as
+the current baseline; no further sensitivity changes requested. This accepts
+the subjective aim feel, not every QA item below or the entire viewmodel gate.
+V5 local/FTP SHA-256:
+`1fb70cc9172a82136e69e0a780869d1e437880d468524fdfa03a004adc13b9db`.
+Run `20260909T164158161Z_PPSA99996_xash3d-engine_0x156a978a27888`
+confirms profile version=5 loaded=1; binaries unchanged from the v4 aim run.
+
+Only client-mode right-stick yaw/pitch pass through `pad_aim.h`; movement,
+trigger values, button edges, and the dedicated platform gate are unchanged.
+Normalize the vector by 32767, compute radius r, return zero inside the radial
+deadzone d, otherwise preserve direction and use magnitude
+`((min(r, 1) - d) / (1 - d)) ^ exponent`. The transform is memoryless: no
+history, smoothing delay, time-based acceleration, or aim assist. Diagonal
+input is normalized rather than receiving a square-corner speed boost.
+
+Candidate parameters, subject to operator QA rather than universal defaults:
+
+| Setting | Value | Meaning |
+|---|---|---|
+| `ps5_aim_enable` | 1 | Enable PS5 right-stick shaping |
+| `ps5_aim_deadzone` | 0.10 | Radial inner deadzone, clamped 0..0.4 |
+| `ps5_aim_exponent` | 1.6 | Fine center response, clamped 1..3 |
+| `joy_yaw` | 140 | Maximum horizontal speed, degrees/second |
+| `joy_pitch` | 105 | Vertical axis rate, 25% below horizontal |
+| `joy_yaw_deadzone`, `joy_pitch_deadzone` | 0 | Avoid a second axial cutoff |
+
+`set` creates the PS5 profile variables before the first native pad poll.
+Nonfinite deadzone/exponent fall back to 0.10/1.6. Values can be edited in
+the profile and reloaded. To restore the previous linear feel, set
+`ps5_aim_enable 0`, `joy_pitch 100`, `joy_yaw 100` and both look deadzones
+to 4096. Merely disabling shaping does not restore those other settings.
+
+Host tests cover neutral input, inner deadzone, signed endpoints, diagonal
+normalization, full positive-axis monotonicity, symmetry and invalid settings.
+Hardware QA must check idle drift, small adjustments on a fixed edge, tracking,
+full-stick turns, release-to-stop, diagonal motion, unchanged movement, and
+R2 attacks with pistol/crowbar. Loading the cfg alone does not accept aim feel.
+
+Deployment evidence (2026-09-09): local/FTP profile SHA-256
+`40936db7c11d2ac14494bd327ef74affb7bc4ae25cdf59884526d439a0baa707`;
+engine ELF `7cb95f38a88638e01dce8f981e210e4d044fad0bd851d4a69d1c27c49429b644`;
+SELF `d6ff88953965ac2308d5c22303659d5f764eefc26c89e0c4335498e493cecc20`.
+Run `20260909T163602896Z_PPSA99996_xash3d-engine_0x15656c176bdac`
+logs profile version=4 loaded=1. Native build, host suite (`make all`) and
+ASan/UBSan radial tests passed. Existing unsupported legacy config commands
+still warn at startup; this is not a zero-warning claim or a completed QA gate.
+
+### Historical pre-profile config audit
+
+During viewmodel QA, read-only FTP inspection of the running title's
+`/mnt/sandbox/PPSA99996_000/download0/xash3d/valve/config.cfg` found `unbindall`
+followed by only `bind "START" "cancelselect"` for gamepad buttons. Joystick
+axes are enabled. Upstream `Key_Unbindall_f` clears all bindings and restores
+Escape/Start only; defaults listed below do not survive that config. This is
+saved configuration evidence, not a live in-memory bindlist dump. No bindings
+were changed during this audit. Other runtime cfg overrides have not been
+exhaustively excluded.
+
+| DualSense | Engine default action | Saved console config |
+|---|---|---|
+| Left stick | Move | Enabled |
+| Right stick | Look | Enabled |
+| Cross | Jump | Not rebound after unbindall |
+| Circle | Use/interact | Not rebound |
+| Square | Reload | Not rebound |
+| Triangle | Flashlight | Not rebound |
+| R1 | Primary attack | Not rebound |
+| R2 | Secondary attack | Not rebound |
+| L1 / R3 | Crouch | Neither rebound |
+| L2 / L3 | Speed modifier (`+speed`) | Neither rebound |
+| D-pad left/right | Previous/next inventory weapon | Not rebound |
+| D-pad down | Last weapon | Not rebound |
+| D-pad up | Spray | Not rebound |
+| Options | Cancel selection/menu (`cancelselect`) | Explicitly bound |
+| Create | Pause | Not rebound |
+| Touchpad | Unassigned | Unassigned in normal/viewmodel builds |
+
+Button names are translated by `xash/platform_ps5/in_ps5.c`; default commands
+are in `third_party/xash3d-fwgs/engine/client/input/in_keys.c`. The table below
+describes the original platform gate, not proof of the currently loaded game
+bindings. Restore a scoped gamepad profile before requiring attack/reload QA;
+do not reset unrelated keyboard or user settings without authorization.
+
 `scePadRead(handle, records, 64)` returns a chronological batch, oldest record
 first. The backend consumes every returned record rather than only the newest,
 preserving short button edges between engine polls. Stick bytes are centered

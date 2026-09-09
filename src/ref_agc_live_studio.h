@@ -16,7 +16,13 @@ typedef struct RefAgcLiveStudioFrame {
     RefAgcLiveStudioDraw draws[REF_AGC_STUDIO_DRAW_MAX];
     uint32_t count, entities, vertices, indices;
     int32_t failed_entity;
-    uint64_t pose_hash;
+    uint64_t pose_hash, normal_hash;
+    uint32_t normals;
+    uint64_t light_hash;
+    uint32_t light_min, light_max;
+    uint32_t chrome_draws, chrome_vertices;
+    uint64_t chrome_uv_hash;
+    uint32_t viewmodel_draws, viewmodel_vertices;
 } RefAgcLiveStudioFrame;
 
 int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,

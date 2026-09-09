@@ -14,6 +14,14 @@ import generate_static_library_tables as tables  # noqa: E402
 
 
 def main() -> int:
+    callbacks = {"_ZN10CBaseDelay10DelayThinkEv", "_ZThn8_N5Probe3RunEv"}
+    assert tables.server_callback_exports(callbacks | {"worldspawn", "memcpy"}) == sorted(callbacks)
+    try:
+        tables.server_callback_exports({"_Zbad-name"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid callback symbol accepted")
     assert tables.parse_exports("GetFSAPI\n") == ["GetFSAPI"]
     assert tables.parse_exports("# comment\nA\n\nB # trailing\n") == ["A", "B"]
     for bad in ("", "#only\n", "1abc\n", "A\nA\n", "bad-name\n"):

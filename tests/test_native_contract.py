@@ -6,6 +6,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main() -> None:
     source = (ROOT / "native/main.c").read_text(encoding="utf-8")
+    world_revision = source.split(
+        "if (next_world_revision != renderer.live_world_revision)", 1)[1].split(
+        "renderer.live_world_revision = next_world_revision;", 1)[0]
+    assert "(world_stats.active &&" in world_revision
+    assert "(!world_stats.active &&" in world_revision
+    assert "REF_AGC_LIVE_WORLD_CLEAR schema=1" in world_revision
+    assert "world_stats.resident_bytes != 0u" in world_revision
     native_bind = source.split("static int bind_native_pipeline(", 1)[1].split(
         "static int bind_goldsrc_pipeline(", 1)[0]
     assert "bind_native_opaque_blend(state, cursor, end)" in native_bind
@@ -48,6 +55,14 @@ def main() -> None:
     ref_agc_module = (
         ROOT / "xash/platform_ps5/ref_agc_module.c"
     ).read_text(encoding="utf-8")
+    end_frame = ref_agc_module.split("static void RefAgcEndFrame(void)", 1)[1]
+    if end_frame.index("PS5_StudioCaptureLighting(") > end_frame.index("ref_agc_live_publish("):
+        raise SystemExit("Studio lighting must be finalized before immutable publication")
+    pose_capture = ref_agc_module.rsplit("static int RefAgcCaptureStudioPose(", 1)[1].split("static qboolean RefAgcAddEntity", 1)[0]
+    if "PS5_StudioCaptureLighting(" in pose_capture:
+        raise SystemExit("Studio pose capture precedes current view flags; defer lighting")
+    if "funcs->CL_RunLightStyles = RefAgcRunLightStyles" not in ref_agc_module:
+        raise SystemExit("Studio shared lightstyles callback missing")
     filesystem_prx_module = (
         ROOT / "xash/platform_ps5/filesystem_prx_module.c"
     ).read_text(encoding="utf-8")

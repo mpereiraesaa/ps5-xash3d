@@ -48,6 +48,24 @@ def test_studio_validation():
         "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=10 draws=20 indices=60 pose_hash=123456789abcdef0 pose_changes=9 ownership=fence+videoout+ack lighting=unlit errors=0",
     ]
     assert validate_live_studio(valid, 10)["models"] == ["models/test.mdl"]
+    lit = [m.replace("schema=1", "schema=2").replace("lighting=unlit", "lighting=engine-bsp-dynamic") for m in valid]
+    lit[0] += " normals=4 light_hash=123456789abcdef0 light_min=12 light_max=210"
+    assert validate_live_studio(lit, 10)["lighting"] == "engine-bsp-dynamic"
+    for broken in ("normals=3", "normals=-1"):
+        try:
+            validate_live_studio([m.replace("normals=4", broken) for m in lit], 10)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid lighting normal coverage accepted")
+    for key, bad in (("light_min=12", "light_min=-1"), ("light_max=210", "light_max=256"),
+                     ("light_hash=123456789abcdef0", "light_hash=0000000000000000")):
+        try:
+            validate_live_studio([m.replace(key, bad) for m in lit], 10)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid lighting values accepted")
     for bad in (valid[:-1], [m.replace("bones=24", "bones=129") for m in valid],
                 [m.replace("pose_changes=9", "pose_changes=0") for m in valid],
                 [m.replace("entities=1", "entities=2") for m in valid],

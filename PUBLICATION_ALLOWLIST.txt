@@ -6,6 +6,7 @@ NOTICE.md
 PUBLICATION_ALLOWLIST.txt
 README.md
 docs/PHASE7_HUD_FONT_BLEND.md
+docs/PHASE7_STUDIO_LIGHTING.md
 src/ref_agc_2d_state.h
 tests/test_ref_agc_2d_state.c
 docs/PHASE7_TEXTURE_MEMORY_POLICY.md
@@ -108,6 +109,7 @@ src/ref_agc_live_brush.c
 src/ref_agc_live_brush.h
 src/ref_agc_live_studio.c
 src/ref_agc_live_studio.h
+src/ref_agc_studio_lighting.h
 src/ref_agc_studio_store.c
 src/ref_agc_studio_store.h
 src/ref_agc_gpu_studio_cache.c
@@ -271,6 +273,8 @@ tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
 tests/test_ref_agc_live_brush.c
 tests/test_ref_agc_live_studio.c
+tests/test_ref_agc_studio_lighting.c
+tests/test_studio_light_bridge.c
 tests/test_ref_agc_studio_store.c
 tests/test_ref_agc_gpu_studio_cache.c
 tests/test_ref_agc_live_2d.c
@@ -404,6 +408,12 @@ xash/platform_ps5/filesystem_prx_exports.map
 xash/platform_ps5/filesystem_prx_module.c
 xash/platform_ps5/client_prx_module.cpp
 xash/platform_ps5/ref_agc_module.c
+xash/platform_ps5/studio_light_ps5.c
+xash/config/dualsense.cfg
+xash/tools/prepare_client_ammo.py
+tests/test_prepare_client_ammo.py
+tests/test_pad_aim.c
+xash/platform_ps5/pad_aim.h
 xash/platform_ps5/server_prx_module.cpp
 xash/platform_ps5/prx_gate_ps5.c
 xash/platform_ps5/prx_loader_ps5.c

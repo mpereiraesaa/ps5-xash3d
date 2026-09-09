@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <stdint.h>
+#include "ref_agc_studio_lighting.h"
 
 /* Upstream R_StudioLerpMovement timing; preserve its bounded-time extrapolation
  * rather than clamping to [0,1]. Stale/equal timestamps select current state. */
@@ -106,6 +107,7 @@ typedef struct RefAgcLiveEntity {
 typedef struct RefAgcLiveStudioPose {
     uint32_t bones;
     float frame;
+    RefAgcStudioLighting lighting;
     float matrices[REF_AGC_LIVE_MAX_STUDIO_BONES][3][4];
 } RefAgcLiveStudioPose;
 
@@ -126,6 +128,7 @@ typedef struct RefAgcLive2DCommand {
 } RefAgcLive2DCommand;
 
 typedef struct RefAgcLiveFrame {
+    uint16_t studio_light_gamma[1024];
     uint64_t serial;
     uint64_t map_serial;
     uint64_t begin_calls;

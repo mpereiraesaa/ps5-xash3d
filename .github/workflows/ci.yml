@@ -14,6 +14,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - name: Initialize pinned host lighting header dependency
+        run: git -C third_party/xash3d-fwgs submodule update --init 3rdparty/library_suffix
       - name: Validate shell sources
         run: bash -n tools/build_native.sh tools/package_release.sh
       - name: Build and run host contracts

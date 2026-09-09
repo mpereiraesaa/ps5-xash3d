@@ -20,6 +20,19 @@ import sys
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def server_callback_exports(defined: set[str]) -> list[str]:
+    """Keep compiled Itanium C++ code symbols for bidirectional save/restore.
+
+    Input must come from nm's defined T/W symbols, never data or imports.
+    Include thunks as well as methods: filtering by Think/Use names would miss
+    callbacks with arbitrary names. This stores names, not process addresses.
+    """
+    callbacks = sorted(name for name in defined if name.startswith("_Z"))
+    if any(len(name) > 256 or not NAME_RE.fullmatch(name) for name in callbacks):
+        raise ValueError("invalid compiled C++ callback symbol")
+    return callbacks
+
+
 def parse_exports(text: str) -> list[str]:
     exports = []
     for raw in text.splitlines():

@@ -32,6 +32,7 @@ adapter owned by the Xash3D port; no vendor header is included.
 #include "keydefs.h"
 #include "client.h"
 #include "ps5_xash_build.h"
+#include "pad_aim.h"
 #endif
 
 #define PS5_PAD_MAX_SAMPLES 64
@@ -204,6 +205,11 @@ static void process_axes( int16_t side, int16_t forward, int16_t pitch,
 		pad.look_active = look;
 		log_axis_action( "look", look, timestamp );
 	}
+#if PS5_XASH_MODE_CLIENT
+	if (Cvar_VariableValue("ps5_aim_enable") != 0)
+		ps5_pad_aim(&yaw, &pitch, Cvar_VariableValue("ps5_aim_deadzone"),
+			Cvar_VariableValue("ps5_aim_exponent"));
+#endif
 	emit_axis( PS5_XASH_AXIS_SIDE, side );
 	emit_axis( PS5_XASH_AXIS_FORWARD, forward );
 	emit_axis( PS5_XASH_AXIS_PITCH, pitch );
@@ -235,6 +241,18 @@ static void xash_axis_event( void *opaque, enum ps5_xash_pad_axis axis, int16_t 
 static void xash_button_event( void *opaque, enum ps5_xash_pad_button button, int down )
 {
 	(void)opaque;
+#if PS5_XASH_STUDIO_AB
+	if(button == PS5_XASH_BUTTON_TOUCHPAD && cls.state == ca_active) {
+		if(down) {
+			int unlit = Cvar_VariableValue("r_agc_studio_unlit") == 0;
+			Cvar_SetValue("r_agc_studio_unlit", unlit);
+			CL_CenterPrint(unlit ? "STUDIO B: SIN ILUMINACION" : "STUDIO A: ILUMINACION NORMAL", 0.15f);
+			(void)ps5log_printf(PS5LOG_MARK,
+				"XASH_STUDIO_AB_REQUEST schema=1 unlit=%d source=touchpad", unlit);
+		}
+		return;
+	}
+#endif
 #if PS5_XASH_SAMPLING_PROBE
 	if( button == PS5_XASH_BUTTON_TOUCHPAD && cls.state == ca_active )
 	{

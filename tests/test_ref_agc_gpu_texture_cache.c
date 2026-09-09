@@ -21,6 +21,39 @@ static void flush_memory(const void *memory, size_t bytes, void *user)
 
 int main(void)
 {
+    /* Independent AddrLib ShiftCeil layout fixtures: actual NPC dimensions
+     * plus power-of-two control. Logical samples stay floor-sized. */
+    static uint8_t npot_arena[100000], npot_pixels[100000];
+    const unsigned cases[][4]={{68,97,25600,75264},{80,94,24064,72192},
+        {92,109,28160,83968},{60,92,23552,47104},{64,64,16128,32512}};
+    for(unsigned k=0;k<sizeof(cases)/sizeof(cases[0]);++k) {
+        RefAgcGpuTextureCache nc;
+        RefAgcGpuTextureEntry ne;
+        FlushLog nf={0};
+        memset(npot_arena,0xa5,sizeof(npot_arena));
+        memset(npot_pixels,0x67,sizeof(npot_pixels));
+        RefAgcTextureView nv={.handle=1,.width=cases[k][0],.height=cases[k][1],
+            .depth=1,.mip_count=1,.generate_mips=1,.revision=1,.active=1,
+            .pixels=npot_pixels,.pixel_bytes=cases[k][0]*cases[k][1]*4u};
+        assert(!ref_agc_gpu_texture_cache_init(&nc,npot_arena,UINT64_C(0x200000000),
+            cases[k][3],flush_memory,&nf));
+        assert(!ref_agc_gpu_texture_cache_apply(&nc,&nv,0));
+        assert(!ref_agc_gpu_texture_cache_get(&nc,1,&ne));
+        assert(ne.allocation_bytes==cases[k][3]&&nf.bytes==cases[k][3]);
+        assert(!memcmp(npot_arena+cases[k][2],npot_pixels,nv.width*4u));
+        size_t offset=0;
+        for(unsigned l=ne.mip_count;l-->0;) {
+            unsigned div=1u<<l,sw=(nv.width+div-1)/div,sh=(nv.height+div-1)/div;
+            size_t pitch=((sw*4u+255)/256)*256;
+            for(unsigned y=0;y<sh;++y)
+                for(unsigned x=0;x<sw*4u;++x)
+                    assert(npot_arena[offset+y*pitch+x]==0x67);
+            offset+=pitch*sh;
+        }
+        assert(offset==cases[k][3]&&npot_arena[offset]==0xa5);
+        assert(!ref_agc_gpu_texture_cache_validate(&nc));
+        ref_agc_gpu_texture_cache_destroy(&nc);
+    }
     uint8_t arena[4096];
     uint8_t pixels_a[3u * 2u * 4u];
     uint8_t pixels_b[4u * 1u * 4u];

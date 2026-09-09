@@ -562,6 +562,16 @@ static void PS5_GateTick( double now )
 	if( cls.state == ca_active )
 		(void)PS5_PadInputRuntimePoll( );
 #endif
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_VIEWMODEL_QA
+	{
+		static qboolean granted;
+		if(!granted && cls.state==ca_active && now-started>10.0) {
+			granted=true;
+			Con_Printf("XASH_VIEWMODEL_QA schema=1 action=grant weapons=crowbar+handgun diagnostic=1\n");
+			Cbuf_AddText("sv_cheats 1\ngive weapon_crowbar\ngive weapon_9mmhandgun\ngive ammo_9mmclip\n");
+		}
+	}
+#endif
 #if PS5_XASH_MODE_CLIENT && PS5_XASH_HUD_PROBE
 	PS5_HudProbeTick( now );
 #endif
