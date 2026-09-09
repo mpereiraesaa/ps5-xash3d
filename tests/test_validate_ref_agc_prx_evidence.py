@@ -19,6 +19,80 @@ STUDIO = "2" * 64
 sys.path.insert(0, str(ROOT / "tools"))
 from validate_ref_agc_prx_evidence import validate_live_brush, validate_live_studio, EvidenceError
 from validate_ref_agc_prx_evidence import validate_texture_budget
+from validate_ref_agc_prx_evidence import validate_map_sequence, validate_engine_menu
+from validate_engine_boot_evidence import validate_recovery_console
+
+
+def test_recovery_console():
+    stages = [f"{i}\t{100+i}\tMARK\tXASH_RECOVERY_GATE schema=1 stage={i} "
+              f"active={int(i in (1,2,5))} map=c1a0 diagnostic=1" for i in range(1,6)]
+    error = "[00:00:20] Host_Error: PS5_RECOVERY_EXPECTED"
+    lines = stages[:2] + [error] + stages[2:]
+    assert "Host_Error:" not in validate_recovery_console(lines, [error], "c1a0")
+    for bad_lines, raw in ((lines + [error], [error, error]),
+                           (lines[:-1], [error]), (stages + [error], [error]),
+                           ([m.replace("PS5_RECOVERY_EXPECTED", "unexpected") for m in lines],
+                            [error.replace("PS5_RECOVERY_EXPECTED", "unexpected")])):
+        try:
+            validate_recovery_console(bad_lines, raw, "c1a0")
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid recovery console accepted")
+
+
+test_recovery_console()
+
+
+def test_map_sequence():
+    names = ["c1a0", "c1a0d", "c1a0"]
+    raw = [line for name in names for line in (
+        f"[00:00:05] Spawn Server: {name} [landmark]",
+        f"REF_AGC_LIVE_WORLD_CAPTURE name=maps/{name}.bsp attempts=1 first_surface=0 surface_count=2 model_surfaces=3 source=engine-model-ready")]
+    syncs = [f"REF_AGC_LIVE_WORLD_SYNC serial={i*10} revision={i*2-1} "
+             "vertices=4 indices=6 draws=3 texture_tables=3 resident_bytes=100 "
+             "arena_bytes=1000 source_hash=1111111111111111 upload_hash=2222222222222222 "
+             "memory=direct ownership=retired-before-reuse index_mode=per-draw-u16 source_indices=u32"
+             for i in range(1, 4)]
+    complete = ("REF_AGC_GPU_WORLD_COMPLETE revision=5 publishes=3 clears=0 "
+                "vertices=4 indices=6 draws=3 texture_tables=3 resident_bytes=100 "
+                "source_hash=1111111111111111 upload_hash=2222222222222222")
+    messages = syncs + [complete, "REF_AGC_LIVE_COMPLETE frames=40"]
+    assert validate_map_sequence(raw, messages, names)["serials"] == [10, 20, 30]
+    recovery_raw = raw[:2] + raw[-2:]
+    clear = "REF_AGC_LIVE_WORLD_CLEAR schema=1 serial=20 revision=2 resident_bytes=0 ownership=retired-before-reuse"
+    idle = "REF_AGC_LIVE_2D_FRAME serial=21 draws=3"
+    recovery_messages = [syncs[0], clear, idle, syncs[-1],
+                         complete.replace("publishes=3 clears=0", "publishes=2 clears=1"),
+                         messages[-1]]
+    assert validate_map_sequence(recovery_raw, recovery_messages, ["c1a0", "c1a0"], recovery=True)
+    for bad in ([m for m in recovery_messages if m != idle],
+                [m.replace("serial=20", "serial=31") for m in recovery_messages],
+                [m.replace("resident_bytes=0", "resident_bytes=1") for m in recovery_messages]):
+        try:
+            validate_map_sequence(recovery_raw, bad, ["c1a0", "c1a0"], recovery=True)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid renderer recovery accepted")
+    cases = [(raw[:-1], messages, names), (raw, messages, names[::-1][:-1]),
+             (raw + raw[:2], messages, names), (raw, messages[1:], names),
+             (raw, messages, ["../c1a0", "c1a0d"])]
+    for old, new in (("serial=20", "serial=10"), ("revision=3", "revision=1"),
+                     ("publishes=3", "publishes=2"), ("clears=0", "clears=1"),
+                     ("draws=3", "draws=4"), ("retired-before-reuse", "unchecked"),
+                     ("upload_hash=2222222222222222", "upload_hash=0000000000000000")):
+        cases.append((raw, [m.replace(old, new) for m in messages], names))
+    for bad_raw, bad_messages, bad_names in cases:
+        try:
+            validate_map_sequence(bad_raw, bad_messages, bad_names)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid map sequence accepted")
+
+
+test_map_sequence()
 
 
 def test_texture_budget_policy():
@@ -109,11 +183,16 @@ def test_brush_validation():
     valid = [sample, entity, sample.replace("serial=1", "serial=2"),
              entity.replace("serial=1", "serial=2").replace("angles_milli=0,0,0", "angles_milli=0,90000,0"), complete]
     assert validate_live_brush(valid, 2, 20)["moving_entities"] == [["5", "*2"]]
+    epochs = ["REF_AGC_LIVE_WORLD_SYNC serial=1 revision=1 draws=20",
+              "REF_AGC_LIVE_WORLD_SYNC serial=2 revision=3 draws=30"]
+    assert validate_live_brush(valid + epochs, 2, 30)["moving_entities"] == []
     for bad in (
         [m.replace("surface_count=2", "surface_count=21") for m in valid],
         [m.replace("instances=1", "instances=2") for m in valid],
         [m.replace("draws=4", "draws=1") for m in valid],
         valid[:-1],
+        valid + ["REF_AGC_LIVE_WORLD_SYNC serial=1 revision=1 draws=11",
+                 "REF_AGC_LIVE_WORLD_SYNC serial=2 revision=3 draws=30"],
     ):
         try:
             validate_live_brush(bad, 2, 20)
@@ -583,6 +662,23 @@ def main() -> None:
             rejected = run(menu_engine, bad_extended, require_live_2d=True)
             assert rejected.returncode != 0, label
         menu_summary = json.loads(menu_valid.stdout)
+        multi_raw = menu_raw + ["Spawn Server: c1a0d [landmark]", "Spawn Server: c1a0 [landmark]"]
+        multi_engine = write_run(directory, "multi-engine", "xash3d-engine",
+                                engine_messages(consumer=True, resources=True, live_menu=True),
+                                raw=multi_raw, started="2026-09-08T19:13:27.933+00:00")
+        assert validate_engine_menu(multi_engine, boot_map="c1a0", gate_seconds=20,
+                                    expected_maps=["c1a0", "c1a0d", "c1a0"])
+        for candidate in (multi_engine, write_run(
+                directory, "prefix-engine", "xash3d-engine",
+                engine_messages(consumer=True, resources=True, live_menu=True),
+                raw=[line.replace("Spawn Server: c1a0", "Spawn Server: c1a0d") for line in menu_raw],
+                started="2026-09-08T19:13:27.933+00:00")):
+            try:
+                validate_engine_menu(candidate, boot_map="c1a0", gate_seconds=20)
+            except EvidenceError:
+                pass
+            else:
+                raise AssertionError("single-map gate accepted repeat or prefix collision")
         assert menu_summary["engine_menu"]["menu_seconds"] == 5
         assert menu_summary["live_menu"] == {
             "draws": 3, "first_serial": 1, "frames": 1,

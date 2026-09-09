@@ -5,6 +5,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    platform = (ROOT / "xash/platform_ps5/sys_ps5.c").read_text()
+    recovery_callback = platform.split("static void PS5_RecoveryError_f( void )", 1)[1].split("#endif", 1)[0]
+    assert recovery_callback.index('Cmd_RemoveCommand( "ps5_recovery_error" )') < recovery_callback.index('Host_Error( "PS5_RECOVERY_EXPECTED')
+    tick = platform.split("static void PS5_GateTick( double now )", 1)[1].split("double Platform_DoubleTime", 1)[0]
+    assert 'Host_Error(' not in tick and 'Host_Error (' not in tick
+    assert 'Cbuf_AddText( "ps5_recovery_error\\n" )' in tick
+    assert 'Cmd_AddRestrictedCommand( "ps5_recovery_error", PS5_RecoveryError_f' in tick
+    assert tick.index('pthread_equal( owner') < tick.index('PS5_RecoveryStep(')
     source = (ROOT / "native/main.c").read_text(encoding="utf-8")
     world_revision = source.split(
         "if (next_world_revision != renderer.live_world_revision)", 1)[1].split(

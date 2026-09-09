@@ -27,6 +27,9 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include "common.h"
 #include "ps5log.h"
 #include "ps5_xash_build.h"
+#if PS5_XASH_RECOVERY_GATE
+#include "recovery_gate.h"
+#endif
 #if PS5_XASH_MODE_CLIENT
 #include "client.h"
 #if PS5_XASH_HUD_PROBE
@@ -522,6 +525,16 @@ int PS5_Phase7MenuGateMapQueued( void )
 	return ps5_phase7_menu_map_queued != false;
 }
 
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_RECOVERY_GATE
+/* Execute through Cbuf at its normal frame boundary, never longjmp from a
+ * clock callback or worker thread. Do not enable developer-only fatal commands. */
+static void PS5_RecoveryError_f( void )
+{
+	Cmd_RemoveCommand( "ps5_recovery_error" );
+	Host_Error( "PS5_RECOVERY_EXPECTED\n" );
+}
+#endif
+
 /*
 The host reads the clock at the top of every frame on the main thread, which
 makes it the one hook a dedicated build reaches every frame without touching
@@ -561,6 +574,30 @@ static void PS5_GateTick( double now )
 #if PS5_XASH_MODE_CLIENT && !PS5_XASH_PAD_GATE
 	if( cls.state == ca_active )
 		(void)PS5_PadInputRuntimePoll( );
+#endif
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_RECOVERY_GATE
+	{
+		static PS5RecoveryGate recovery;
+		static qboolean busy;
+		if( !busy )
+		{
+			int action;
+			busy = true;
+			action = PS5_RecoveryStep( &recovery, now, cls.state == ca_active );
+			if( action == PS5_RECOVERY_ARM )
+				Cmd_AddRestrictedCommand( "ps5_recovery_error", PS5_RecoveryError_f,
+					"one-shot platform recovery diagnostic" );
+			if( action )
+				(void)ps5log_printf( PS5LOG_MARK,
+					"XASH_RECOVERY_GATE schema=1 stage=%d active=%d map=%s diagnostic=1",
+					action, cls.state == ca_active, PS5_XASH_BOOT_MAP );
+			if( action == PS5_RECOVERY_INJECT )
+				Cbuf_AddText( "ps5_recovery_error\n" );
+			if( action == PS5_RECOVERY_RELOAD )
+				Cbuf_AddText( "map " PS5_XASH_BOOT_MAP "\n" );
+			busy = false;
+		}
+	}
 #endif
 #if PS5_XASH_MODE_CLIENT && PS5_XASH_VIEWMODEL_QA
 	{
