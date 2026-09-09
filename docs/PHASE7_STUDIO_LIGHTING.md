@@ -9,8 +9,9 @@ evidence boundary; the current status here supersedes their pending statements.
 ## Current integration checkpoint — 2026-09-09
 
 Local controller-interpolation candidate follows the merged recovery checkpoint;
-host/native checks pass, but it has not been deployed or hardware accepted.
-See the coverage ledger below. The console retains the accepted normal build.
+host/native checks and the 10,989-frame paired hardware regression pass, with
+operator acceptance. The candidate remains installed; PR integration is pending.
+See the coverage ledger below for the untested forced cases.
 
 Latest effects checkpoint: operator accepted reload/crowbar, muzzleflash,
 wall marks, blood and the enhanced-blood/sprite-lighting candidate. The final
@@ -567,7 +568,7 @@ profile change. It is not yet deployed; no new hardware result is claimed.
 
 | Remaining case | Current boundary / required proof |
 | --- | --- |
-| Controller and 2/4-way blend interpolation | Candidate above; NPC visual regression and telemetry first. Forced changing controls and 2/4-way cases still need explicit coverage. |
+| Controller and 2/4-way blend interpolation | Natural NPC regression accepted below, including sampled controller changes. Forced wrap and 2/4-way cases still need explicit coverage. |
 | Previous-sequence crossfade | Not implemented; reference blends the latched prior sequence over 0.2 seconds. Keep separate from accepted STEP movement. |
 | Forced glowshell / other render effects | Ordinary chrome is accepted; shell expansion/pass state and forced effects are not. |
 | Custom viewmodel FOV/handedness | Normal pistol/crowbar path accepted; overrides remain unproven. |
@@ -577,6 +578,27 @@ Next operator observation: remain in `c1a0`, approach Barney and scientists,
 observe head/body turns and standing/walking changes; check that accepted
 lighting, chrome and absence of flicker remain intact. This natural scene
 cannot by itself close forced wrap, 4-way blend or all sequence coverage.
+
+#### Controller candidate hardware outcome — accepted natural-scene regression
+
+Engine `20260909T191350217Z_PPSA99996_xash3d-engine_0x15ef302087045` and
+renderer `20260909T191350314Z_PPSA99996_ps5-xash3d_0x15ef307a587b5` pass the
+paired live lightmap/2D/menu/brush/Studio validator: 10,989 frames, 10,770
+world-view frames, 97 ms start skew, nine exact resource reclaims, intact
+guards, zero errors, clean BYEs and exact VideoOut/direct-memory/AGC teardown.
+The operator reported “no, todo perfecto” when asked about jumps, trembling
+and flicker during NPC turns and movement.
+
+There are 65 bounded controller samples: all report two controllers and
+`blends=1`; four samples contain different current/previous controller bytes.
+This is evidence of the natural changing-controller path, not exhaustive
+sampling or forced circular-wrap/2-way/4-way blend acceptance. Those cases,
+previous-sequence crossfade and glowshell remain open.
+
+The exact raw-FTP verified candidate above remains installed after its automatic
+close. No second launch, manual close, control-profile edit or asset change was
+performed for this validation. Code is local on `feat/phase7-studio-coverage`;
+PR/merge and the lab plan update have not yet been performed for this increment.
 
 ### Earlier viewmodel-event implementation record (historical)
 
