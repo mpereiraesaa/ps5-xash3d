@@ -67,6 +67,58 @@ static void *allocate(Ps5TransientRing *r, uint32_t s, size_t n, size_t align,
     return v.cpu;
 }
 
+/* Reference shell expansion uses shared, area-weighted world-space face
+ * normals, not the per-corner lighting normals (which split at UV seams). */
+static int shell_normals(ModelBytes *m,const RefAgcLiveStudioPose *pose,
+    int nv,int bone_at,int vertex_at,int meshes,int mesh_at,float (*world)[3],float (*normals)[3],int *first_normal)
+{
+    memset(normals,0,(size_t)nv*sizeof(*normals));
+    for(int i=0;i<nv;++i) first_normal[i]=-1;
+    for(int i=0;i<nv;++i) {
+        unsigned bone=m->p[(size_t)bone_at+i];
+        if(bone>=pose->bones) return -1;
+        float p[3]; for(int k=0;k<3;++k) p[k]=f32(m,(size_t)vertex_at+i*12+k*4);
+        for(int k=0;k<3;++k) {
+            world[i][k]=pose->matrices[bone][k][3];
+            for(int j=0;j<3;++j) world[i][k]+=pose->matrices[bone][k][j]*p[j];
+            if(!isfinite(world[i][k])) return -1;
+        }
+    }
+    for(int mesh=0;mesh<meshes;++mesh) {
+        size_t me=(size_t)mesh_at+mesh*20, cursor=(size_t)i32(m,me+4);
+        int triangles=i32(m,me), total=0, ended=0;
+        if(triangles<0||triangles>21845) return -1;
+        if(!triangles) continue;
+        for(int cmd=0;cmd<=triangles;++cmd) {
+            int command=i16(m,cursor); cursor+=2;
+            if(m->bad) return -1;
+            if(!command) { ended=1; break; }
+            int n=command<0?-command:command;
+            if(n<3||total+n-2>triangles||!span(m,cursor,(size_t)n*8)) return -1;
+            for(int j=0;j<n;++j) {
+                int vertex=i16(m,cursor+(size_t)j*8);
+                if(vertex<0||vertex>=nv) return -1;
+                if(first_normal[vertex]<0) first_normal[vertex]=i16(m,cursor+(size_t)j*8+2);
+            }
+            int a=i16(m,cursor),b=i16(m,cursor+8);
+            if(a<0||a>=nv||b<0||b>=nv) return -1;
+            for(int j=2;j<n;++j) {
+                int c=i16(m,cursor+(size_t)j*8);
+                if(c<0||c>=nv) return -1;
+                float e0[3],e1[3],normal[3];
+                for(int k=0;k<3;++k) { e0[k]=world[b][k]-world[a][k]; e1[k]=world[c][k]-world[a][k]; }
+                chrome_cross(e1,e0,normal);
+                for(int k=0;k<3;++k) { normals[a][k]+=normal[k];normals[b][k]+=normal[k];normals[c][k]+=normal[k]; }
+                if(command<0 || j%2) b=c; else a=c;
+            }
+            total+=n-2; cursor+=(size_t)n*8;
+        }
+        if(!ended||total!=triangles) return -1;
+    }
+    for(int i=0;i<nv;++i) if(chrome_normalize(normals[i])) return -1;
+    return m->bad?-1:0;
+}
+
 int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
     const RefAgcLiveFrame *live, const RefAgcGpuStudioCache *models,
     const RefAgcGpuTextureCache *textures, Ps5TransientRing *ring,
@@ -108,6 +160,8 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
            !span(&m,tex_at,(size_t)textures_n*80)||!span(&m,skin_at,(size_t)skins*families*2)||
            !span(&m,part_at,(size_t)parts*76)) goto failed;
         out->pose_hash=hash(out->pose_hash,pose->matrices,pose->bones*sizeof(pose->matrices[0]));
+        const int passes=e->render_fx==19 ? 2:1; /* kRenderFxGlowShell */
+        for(int shell=0;shell<passes;++shell) {
         for(int part=0;part<parts;++part) {
             size_t bp=(size_t)part_at+part*76;
             int count=i32(&m,bp+64), base=i32(&m,bp+68), model_at=i32(&m,bp+72);
@@ -121,6 +175,15 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                !span(&m,mesh_at,(size_t)meshes*20)||!span(&m,bone_at,nv)||
                !span(&m,vertex_at,(size_t)nv*12)||!span(&m,normal_bone_at,nn)||
                !span(&m,normal_at,(size_t)nn*12)) goto failed;
+            float (*shell_world)[3]=NULL,(*shell_normal)[3]=NULL;
+            int *shell_first_normal=NULL;
+            if(shell) {
+                shell_world=allocate(ring,slot,(size_t)nv*sizeof(*shell_world),16,mapping,mapping_bytes);
+                shell_normal=allocate(ring,slot,(size_t)nv*sizeof(*shell_normal),16,mapping,mapping_bytes);
+                shell_first_normal=allocate(ring,slot,(size_t)nv*sizeof(*shell_first_normal),16,mapping,mapping_bytes);
+                if(!shell_world||!shell_normal||!shell_first_normal) { rc=-3;goto failed; }
+                if(shell_normals(&m,pose,nv,bone_at,vertex_at,meshes,mesh_at,shell_world,shell_normal,shell_first_normal)) goto failed;
+            }
             for(int mesh=0;mesh<meshes;++mesh) {
                 size_t me=(size_t)mesh_at+mesh*20;
                 int triangles=i32(&m,me), tri_at=i32(&m,me+4), skin=i32(&m,me+8);
@@ -130,6 +193,7 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                 if(tex<0||tex>=textures_n) goto failed;
                 size_t tx=(size_t)tex_at+tex*80;
                 int flags=i16(&m,tx+64), width=i32(&m,tx+68), height=i32(&m,tx+72), handle=i32(&m,tx+76);
+                if(shell) { flags=2|0x20;handle=(int)live->studio_shell_texture; }
                 if(flags&2) ++out->chrome_draws;
                 RefAgcGpuTextureEntry texture;
                 if(width<1||height<1||handle<1||ref_agc_gpu_texture_cache_get(textures,handle,&texture)) goto failed;
@@ -163,6 +227,7 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                         constants->mvp[column*4+2]*=0.3f;
                 constants->control[0]=constants->control[1]=constants->control[2]=1;
                 constants->control[3]=e->render_mode==0?1:e->render_amount/255.0f;
+                if(shell) constants->control[3]=1;
                 /* GoldSrc surface VS: explicit Studio vertex-light opt-in.
                  * debug_values[11] aliases draw_state.debug_values[1].w. */
                 constants->debug_values[11]=-1.0f;
@@ -177,6 +242,8 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                     for(int j=0;j<n;++j) {
                         int source=i16(&m,cursor), normal=i16(&m,cursor+2);
                         if(source<0||source>=nv||normal<0||normal>=nn||vi>=vertices) goto failed;
+                        if(shell) normal=shell_first_normal[source];
+                        if(normal<0||normal>=nn) goto failed;
                         unsigned bone=data[(size_t)bone_at+source];
                         unsigned normal_bone=data[(size_t)normal_bone_at+normal];
                         if(bone>=pose->bones||normal_bone>=pose->bones) goto failed;
@@ -203,10 +270,22 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                             for(int l=0;l<3;++l) world[k]+=pose->matrices[bone][k][l]*p[l];
                             if(!isfinite(world[k])) goto failed;
                         }
+                        if(shell) {
+                            float scale=fmaxf(1.0f,(float)e->render_amount)/128.0f;
+                            for(int k=0;k<3;++k) world[k]=shell_world[source][k]+shell_normal[source][k]*scale;
+                        }
                         v[vi]=(BspBundleVertex){.position={world[0],world[2],-world[1]},
                             .base_uv={i16(&m,cursor+4)/(float)width,i16(&m,cursor+6)/(float)height}};
                         if(flags&2) {
-                            if(chrome_uv(&live->view,pose->matrices[normal_bone],
+                            RefAgcLiveView chrome_view=live->view;
+                            if(shell) {
+                                float phase=(float)live->view.time_seconds*live->studio_shell_frequency;
+                                if(!isfinite(phase)) goto failed;
+                                chrome_view.origin[0]=cosf(phase)*4000;
+                                chrome_view.origin[1]=sinf(phase)*4000;
+                                chrome_view.origin[2]=cosf(phase*0.33f)*4000;
+                            }
+                            if(chrome_uv(&chrome_view,pose->matrices[normal_bone],
                                 world_normal,width,height,v[vi].base_uv)) goto failed;
                             ++out->chrome_vertices;
                             out->chrome_uv_hash=hash(out->chrome_uv_hash,v[vi].base_uv,sizeof(v[vi].base_uv));
@@ -214,6 +293,11 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                         if(ref_agc_studio_vertex_light(&pose->lighting,
                             live->studio_light_gamma,world_normal,(uint32_t)flags,
                             &v[vi].face_id)) goto failed;
+                        if(shell) {
+                            uint32_t color=(uint32_t)e->render_color[0]|((uint32_t)e->render_color[1]<<8)|((uint32_t)e->render_color[2]<<16);
+                            v[vi].face_id=UINT32_C(0xff000000)|(color?color:UINT32_C(0xffffff));
+                            ++out->shell_vertices;
+                        }
                         /* CPU-only diagnostic: leave every shader/constant,
                          * vertex position, UV, alpha and index unchanged. */
                         if(live->view.sampling_probe_mode==4u)
@@ -235,9 +319,11 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                 }
                 if(m.bad||ii!=indices||vi!=vertices) goto failed;
                 out->draws[out->count++]=(RefAgcLiveStudioDraw){ct.words,vt.words,tt.words,ix,indices,(uint32_t)handle,viewmodel?UINT32_MAX:ei,(uint32_t)flags};
+                if(shell) ++out->shell_draws;
                 if(viewmodel) { ++out->viewmodel_draws;out->viewmodel_vertices+=vertices; }
                 out->vertices+=vertices; out->indices+=indices;
             }
+        }
         }
         ++out->entities;
     }
@@ -252,6 +338,7 @@ failed:
     out->chrome_draws=out->chrome_vertices=0;
     out->chrome_uv_hash=0;
     out->viewmodel_draws=out->viewmodel_vertices=0;
+    out->shell_draws=out->shell_vertices=0;
     return rc;
 }
 

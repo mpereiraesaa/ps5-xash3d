@@ -241,6 +241,20 @@ static void xash_axis_event( void *opaque, enum ps5_xash_pad_axis axis, int16_t 
 static void xash_button_event( void *opaque, enum ps5_xash_pad_button button, int down )
 {
 	(void)opaque;
+#if PS5_XASH_STUDIO_COVERAGE_QA
+	if(button==PS5_XASH_BUTTON_TOUCHPAD && cls.state==ca_active) {
+		if(down) {
+			static const char *names[]={"STUDIO 0: NORMAL","STUDIO 1: CONTROLADOR LINEAL",
+				"STUDIO 2: GIRO CIRCULAR FORZADO","STUDIO 3: 2 BLENDS (SI DISPONIBLE)",
+				"STUDIO 4: 4 BLENDS (SI DISPONIBLE)","STUDIO 5: GLOWSHELL"};
+			int mode=((int)Cvar_VariableValue("r_agc_studio_coverage")+1)%6;
+			Cvar_SetValue("r_agc_studio_coverage",mode);
+			CL_CenterPrint(names[mode],0.15f);
+			(void)ps5log_printf(PS5LOG_MARK,"XASH_STUDIO_COVERAGE_MODE schema=1 mode=%d source=touchpad",mode);
+		}
+		return;
+	}
+#endif
 #if PS5_XASH_STUDIO_AB
 	if(button == PS5_XASH_BUTTON_TOUCHPAD && cls.state == ca_active) {
 		if(down) {

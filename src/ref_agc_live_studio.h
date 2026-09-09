@@ -23,6 +23,7 @@ typedef struct RefAgcLiveStudioFrame {
     uint32_t chrome_draws, chrome_vertices;
     uint64_t chrome_uv_hash;
     uint32_t viewmodel_draws, viewmodel_vertices;
+    uint32_t shell_draws, shell_vertices;
 } RefAgcLiveStudioFrame;
 
 int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,

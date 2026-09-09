@@ -1,5 +1,43 @@
 # SceAudioOut PCM output — Phase 5
 
+## Phase 7 live-game audio (2026-09-09, first hardware acceptance)
+
+Operator confirmed "todo perfecto" for the live-game listening test. Engine
+run `20260909T200850188Z_PPSA99996_xash3d-engine_0x161f354ed4b13` and renderer
+run `20260909T200850288Z_PPSA99996_ps5-xash3d_0x161f35a662700` closed cleanly.
+SELF SHA-256: `04261813fb4448db9a012669338ddad4bb507c7c309a53ed746cc5ee8ae1135c`.
+Paired renderer validation passed with 18,179 frames, nine reclaims, intact
+guards and exact teardown. Audio produced/consumed 13,423,452 source frames,
+sent 14,610,688 output frames in 57,073 blocks, padding 129, discarded 0,
+output errors 0; drain/close/join each occurred once, worker owned, result 0.
+
+Six underruns remain recorded, not erased or counted as zero: four before the
+active-map timer marker and two just after it, with none later in the run.
+Loading stalls are a hypothesis, not a demonstrated cause. Operator accepted
+this as non-blocking polish after hearing no issue. Map-transition audio,
+long-session behavior and underrun mitigation remain unvalidated. Four-blend
+Studio hardware coverage is explicitly deferred; it does not block audio.
+
+The operator deferred four-blend Studio hardware coverage to prioritize real
+game audio. Build with `XASH_AUDIO=1`, `XASH_AUDIO_GATE=0`, the complete
+client/menu/ref_agc stack, no Studio/recovery/weapon-grant probes, and a
+300-second map-relative gate. This exercises the engine mixer through SNDDMA,
+not the previously accepted deterministic tone pattern.
+
+The client launcher previously added `-nosound` unconditionally. It now does
+so only when the generated numeric `PS5_XASH_AUDIO_ENABLED` is zero; the
+existing user-selection string macro remains separate. A host contract test
+guards this wiring. Graphics-only builds retain their old silent behavior.
+
+First hardware QA: keep Remote Play closed, use moderate TV volume, listen
+for menu sounds, NPC speech, machinery and footsteps, and turn/move around a
+sound source to check spatial behavior. Report silence, crackles, repetition,
+speed/pitch anomalies or interruptions. Avoid map changes in this first run.
+Audibility is operator evidence; separately inspect audio init/progress,
+non-silent PCM, output errors/underruns/discards and exact drain/close/join,
+plus paired renderer teardown. The first-run acceptance above is separate
+from the Phase 5 tone evidence below and is not full release audio coverage.
+
 This gate adds native PCM output to the stable dedicated Xash3D host. It proves
 the audio half of the PS5 platform layer independently of the Phase 6 client:
 the gate pushes a deterministic pattern through the ring, the resampler, the

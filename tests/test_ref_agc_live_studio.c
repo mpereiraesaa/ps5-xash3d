@@ -134,6 +134,30 @@ int main(void)
     live.viewmodel.studio_pose=0;checkpoint=ring.slots[0].used;
     assert(BUILD()<0&&!out.viewmodel_draws&&ring.slots[0].used==checkpoint);
     live.viewmodel_valid=0;
+    /* Shell is a second, expanded additive draw, never a replacement skin. */
+    float quad[4][3]={{0,0,0},{1,0,0},{0,1,0},{1,1,0}};
+    p16(arena,588,4);
+    memcpy(arena+540,quad,sizeof(quad));
+    live.entities[0].render_fx=19; live.entities[0].render_amount=64;
+    live.entities[0].render_color[0]=20;live.entities[0].render_color[1]=80;live.entities[0].render_color[2]=200;
+    live.studio_shell_texture=1;live.studio_shell_frequency=2.2f;
+    ring.slots[0].used=0;assert(!BUILD());
+    assert(out.entities==1 && out.count==2 && out.shell_draws==1 && out.shell_vertices==4);
+    assert(!(out.draws[0].flags&0x20) && (out.draws[1].flags&0x20));
+    const uint32_t *base_words=out.draws[0].vertices,*shell_words=out.draws[1].vertices;
+    const BspBundleVertex *base_v=(void *)(uintptr_t)((uint64_t)base_words[0]|((uint64_t)(base_words[1]&65535)<<32));
+    const BspBundleVertex *shell_v=(void *)(uintptr_t)((uint64_t)shell_words[0]|((uint64_t)(shell_words[1]&65535)<<32));
+    for(int i=0;i<4;++i) {
+        float distance=0;
+        for(int k=0;k<3;++k) distance+=(shell_v[i].position[k]-base_v[i].position[k])*(shell_v[i].position[k]-base_v[i].position[k]);
+        assert(fabsf(distance-.25f)<1e-5f);
+        assert(shell_v[i].face_id==UINT32_C(0xffc85014));
+    }
+    live.studio_shell_texture=0;checkpoint=ring.slots[0].used;
+    assert(BUILD()<0 && !out.count && !out.shell_draws && ring.slots[0].used==checkpoint);
+    live.studio_shell_texture=1;live.studio_shell_frequency=NAN;
+    assert(BUILD()<0 && !out.count && ring.slots[0].used==checkpoint);
+    live.studio_shell_frequency=2.2f;live.entities[0].render_fx=0;
     p32(arena,520,1024);checkpoint=ring.slots[0].used;
     assert(BUILD()<0);assert(ring.slots[0].used==checkpoint);
     free(memory);puts("ref_agc live Studio geometry tests passed");

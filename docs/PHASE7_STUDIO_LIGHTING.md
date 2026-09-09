@@ -1,12 +1,19 @@
-# Phase 7 Studio lighting and viewmodel — in progress
+# Phase 7 Studio lighting and viewmodel — integration checkpoint
 
 Baseline: hardware-accepted HUD PR #27, merged as `4726bd3`, with the normal
-non-probe build installed. This task precedes live game audio and `valve_hd`.
+non-probe build installed. Live game audio and the optional `valve_hd` mount
+now have first hardware acceptance; this document retains their precise
+evidence boundaries below.
 Accepted NPC STEP interpolation, poses, mip filtering and HUD state ownership
 must remain intact. Historical candidate entries below preserve their original
 evidence boundary; the current status here supersedes their pending statements.
 
 ## Current integration checkpoint — 2026-09-09
+
+Local controller-interpolation candidate follows the merged recovery checkpoint;
+host/native checks and the 10,989-frame paired hardware regression pass, with
+operator acceptance. The candidate remains installed; PR integration is pending.
+See the coverage ledger below for the untested forced cases.
 
 Latest effects checkpoint: operator accepted reload/crowbar, muzzleflash,
 wall marks, blood and the enhanced-blood/sprite-lighting candidate. The final
@@ -33,7 +40,21 @@ are historical. Phase 7 and broader Studio/effects parity remain open.
   R1 secondary and immediate D-pad cycling. See [controller guide](SCEPAD_PHASE5.md)
   for deployment hashes, run IDs, controls and remaining button QA.
 - Diagnostic weapon grants and Studio A/B remain opt-in, default off. Graphics
-  evidence uses audio disabled. Live game audio and valve_hd are still pending.
+  evidence uses audio disabled; live-game audio and the optional `valve_hd`
+  mount have separate first-run acceptance. Six startup underruns and
+  four-blend console coverage remain open polish/coverage items.
+
+## Latest cross-feature hardware checkpoint — 2026-09-09
+
+The combined Studio QA run accepted controller interpolation, crossfade,
+two-blend routing and glowshell visually. Mode 4 found no visible four-blend
+sequence, so that path is not hardware-accepted. The subsequent live-game
+audio run was audible to the operator and closed with exact ownership; the HD
+run mounted `valve_hd` and was visually accepted. Their complete run IDs,
+hashes, underrun note and rollback boundaries are documented in
+`SCEAUDIOOUT_PHASE5.md` and the lower combined-candidate record. The top UI
+diagnostic text is still a presentation cleanup task; external `ps5log/1`
+telemetry remains enabled.
 
 Do not mark Phase 7 complete based on this incremental integration.
 
@@ -535,7 +556,166 @@ These are build evidence only, not deployed or hardware-accepted artifacts.
 
 ## Remaining implementation and acceptance
 
-### Next increment: viewmodel attachments/client events (not deployed)
+### Coverage ledger after recovery — controller interpolation candidate
+
+The live adapter previously used only `curstate.controller` and
+`curstate.blending`, unlike pinned `ref/gl/gl_studio.c`. The candidate now
+uses the reference animation-time interpolant (default 1, extrapolation cap
+2), latched previous controllers, shortest circular controller interpolation
+across the byte wrap, and latched blending values for both axes of 2/4-way
+blend sequences. The existing upstream bone slerp clamps its blend weight.
+Mouth mapping and the accepted STEP movement interpolation are unchanged.
+Nonfinite scalar input/output is rejected before immutable pose publication.
+
+Host tests cover time thresholds, disabled interpolation, extrapolation,
+linear bounds, both circular-wrap directions, the exact 128-byte boundary,
+blending and nonfinite rejection. ASan/UBSan, full host suite and native build
+pass. Source-contract checks verify the actual adapter consumes latched values.
+Bounded `REF_AGC_STUDIO_CONTROLLERS` telemetry reports sequence, controller and
+blend counts, current/previous bytes and interpolation factors on the engine
+thread. Sampling is not exhaustive coverage of all controllers or sequences.
+
+Candidate renderer PRX SHA-256:
+`a293b132fffec15182e65627062c65f7efdf79f868405fe9287025442ab59efe`.
+Normal engine SELF remains
+`6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`.
+Candidate has no weapon grant, recovery injection, lighting change or input
+profile change. It is not yet deployed; no new hardware result is claimed.
+
+| Remaining case | Current boundary / required proof |
+| --- | --- |
+| Controller and 2/4-way blend interpolation | Natural NPC regression accepted below, including sampled controller changes. Forced wrap and 2/4-way cases still need explicit coverage. |
+| Previous-sequence crossfade | Local candidate below implements the reference 0.2-second blend. Hardware acceptance pending; separate from accepted STEP movement. |
+| Forced glowshell / other render effects | Local two-pass shell candidate below; ordinary chrome remains accepted, shell hardware acceptance is pending. Other forced render effects remain separate. |
+| Custom viewmodel FOV/handedness | Normal pistol/crowbar path accepted; overrides remain unproven. |
+| Other effect parity | Entity muzzleflash dynamic light, beams, glow/sorting/follow details and Studio wound decals remain outside accepted impact effects. |
+
+Next operator observation: remain in `c1a0`, approach Barney and scientists,
+observe head/body turns and standing/walking changes; check that accepted
+lighting, chrome and absence of flicker remain intact. This natural scene
+cannot by itself close forced wrap, 4-way blend or all sequence coverage.
+
+#### Controller candidate hardware outcome — accepted natural-scene regression
+
+Engine `20260909T191350217Z_PPSA99996_xash3d-engine_0x15ef302087045` and
+renderer `20260909T191350314Z_PPSA99996_ps5-xash3d_0x15ef307a587b5` pass the
+paired live lightmap/2D/menu/brush/Studio validator: 10,989 frames, 10,770
+world-view frames, 97 ms start skew, nine exact resource reclaims, intact
+guards, zero errors, clean BYEs and exact VideoOut/direct-memory/AGC teardown.
+The operator reported “no, todo perfecto” when asked about jumps, trembling
+and flicker during NPC turns and movement.
+
+There are 65 bounded controller samples: all report two controllers and
+`blends=1`; four samples contain different current/previous controller bytes.
+This is evidence of the natural changing-controller path, not exhaustive
+sampling or forced circular-wrap/2-way/4-way blend acceptance. Those cases,
+previous-sequence crossfade and glowshell remain open.
+
+The exact raw-FTP verified candidate above remains installed after its automatic
+close. No second launch, manual close, control-profile edit or asset change was
+performed for this validation. Code is local on `feat/phase7-studio-coverage`;
+PR/merge and the lab plan update have not yet been performed for this increment.
+
+#### Previous-sequence crossfade candidate — not deployed
+
+The following sequence candidate is now included in the combined QA build
+described below; it has not had a separate hardware launch.
+
+The adapter now evaluates the latched previous sequence at its frozen
+`prevframe`, uses its own `prevseqblending` for 2/4-way poses and blends it
+with the current pose over the reference 0.2-second interval. Current and
+previous evaluation share one function; external animation groups remain
+engine-owned and only finished matrices cross the immutable frame boundary.
+The previous-frame latch is updated only outside the active crossfade and
+after successful finite-matrix validation. Sequence bounds, blend counts,
+bone parent/controller references, nonfinite frames and weights are checked.
+The reference previous-frame clamp/reset behavior is retained.
+
+Host tests execute the actual extracted adapter evaluator with deterministic
+bone-math doubles to verify 1/2/4-way routing, axis order, motion suppression
+and malformed-input rejection. This does not independently validate upstream
+quaternion interpolation or compressed animation decoding. Timing/latch-weight
+tests include start/midpoint/expiry, an unset latch, invalid indices, frame
+clamps and nonfinite values; scalar ASan/UBSan checks pass. Full host suite and
+native build pass. Source checks enforce previous-sequence blending inputs and
+the successful-pose-before-latch-update order.
+
+`REF_AGC_STUDIO_CROSSFADE` samples active transitions every six scene calls,
+reporting current/previous sequence, frozen previous frame, weight and times.
+The marker was verified in the renderer ELF. Candidate renderer PRX SHA-256:
+`f5f8bf3d52244f2eb1a0979aa04e09027e6e82008cf8b3d241820964471892e5`.
+Engine SELF remains the normal `6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`.
+No deployment or launch yet; the console retains the accepted controller-only
+candidate. Natural sequence-change QA and paired resource closure are next.
+Forced blend/wrap cases, glowshell and broader Studio parity remain open.
+
+#### Combined Studio coverage — accepted hardware subset (2026-09-09)
+
+The next single QA build combines sequence crossfade, forced controller/blend
+modes and glowshell. `XASH_STUDIO_COVERAGE_QA=1` is off by default, requires
+the complete MainUI/ref_agc stack and at least 300 map-relative seconds, and
+rejects conflicting diagnostics. Touchpad mode 0/1/2/3/4/5 cycles through
+normal, linear controller, circular wrap, actual 2-blend sequence, actual
+4-blend sequence and glowshell. See `SCEPAD_PHASE5.md` for operator guidance.
+Modes 3/4 select only valid existing sequences and explicitly log unsupported
+models; no sequence count or animation allocation is fabricated. Host tests
+already force 2/4-way routing, but absence of matching console assets remains
+an explicit hardware coverage gap. Forced entity state is a local copy, never
+a server-state or on-disk model edit. Cvars are not archived; restart resets 0.
+
+Glowshell adds a second draw pass after each normal Studio entity. Shared
+world-space face normals, accumulated across submodel meshes and normalized,
+expand vertices by `max(1, renderamt)/128`; first-referenced normal indices
+stabilize chrome mapping across shared vertices. The engine owner captures the
+default chrome sprite handle before publication. The second pass has its own
+transient vertices/constants/texture tables, rotating chrome origin using
+`r_glowshellfreq`, additive draw flags, full alpha and rendercolor (white when
+all channels are zero). Normal texture/lighting remain in the first pass.
+No shader change or retained engine pointer crosses the frame boundary.
+
+Host tests verify a normal-plus-shell pair, additive routing, half-unit
+expansion at amount 64, packed tint, invalid texture/nonfinite rollback and
+the existing normal/chrome/viewmodel paths. ASan/UBSan pass for the live Studio
+geometry tests. `REF_AGC_STUDIO_SHELL` reports bounded shell draw/vertex counts
+and texture identity; `REF_AGC_STUDIO_BLEND_QA` reports selected/unsupported
+sequences. Controller samples identify diagnostic mode; their current/previous
+bytes describe raw entity input, not the forced scalar override in modes 1/2.
+
+Operator reported all modes visually correct after two complete touchpad
+cycles. Paired evidence validation passed: 18,178 frames, 17,960 world views,
+zero errors, nine resource reclaims, intact guards, exact ownership, VideoOut
+closed, direct memory released and clean engine/renderer BYEs. Runs:
+
+- Engine: `20260909T194723366Z_PPSA99996_xash3d-engine_0x160c7b9664654`.
+- Renderer: `20260909T194723463Z_PPSA99996_ps5-xash3d_0x160c7bf39d9a5`.
+
+Crossfade telemetry records changing previous weights. Mode 3 selected real
+sequence 6 on entity 63 (`supported=1`). Mode 4 reported `supported=0` for all
+visible models: **four-blend hardware coverage remains open**, despite the
+successful mode cycle and host routing tests. Shell samples show 64 draws /
+3,372 vertices with texture 29, then zero shell draws after return to normal.
+This accepts the observed controller/crossfade/two-blend/glowshell subset,
+not full glow/sorting parity or a release configuration.
+
+Final combined candidate: full host suite, native build, publication audit and
+live Studio ASan/UBSan pass. All mode/crossfade/shell markers were verified in
+the actual ELF outputs. Diagnostic engine ELF SHA-256:
+`f769cb704533711d9612a997b6dffc055ab6f46b4ec178ee4394b7e72afa002a`;
+SELF `5b107c76ed3edfd7d8781f0b4e6a7b861b24440ff65e0d14e65b297073bf0f0e`;
+renderer PRX `1ba4540065cd3ecaa16bca5e74b3f90791be1004e9184f14c41c028b3e480ce1`.
+This accepted five-minute build is diagnostic-only; normal configuration
+disables the touchpad test cycle.
+
+At 19:59 UTC the normal research configuration was rebuilt and restored with
+all nine files verified via raw FTP SHA-256, without launching it. Coverage,
+weapon-grant and recovery probes are off; the existing 180-second map-relative
+gate and audio-off setting remain (this is not a release build). SELF SHA-256:
+`6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`;
+renderer PRX `470fbeb293256843c626ad7feec3390c3a816053faf01d6a0da2646d7c925252`.
+
+### Earlier viewmodel-event implementation record (historical)
+
+The following entries preserve the earlier candidate and its subsequent QA.
 
 Branch `feat/phase7-viewmodel-events` adds engine-thread attachment transforms
 using the already evaluated viewmodel bones and delivers client Studio events
@@ -788,5 +968,8 @@ Renderer is unchanged from the accepted candidate (`d7003f1c…` PRX).
 DualSense v5, sprite lighting and reversible `ps5_blood_amount` default 1.5
 are retained; `ps5_blood_amount 1` restores original blood presentation.
 
-Next: transition-aware evidence and inactive-world Host_Error hardware recovery,
-then remaining Studio coverage, live game audio, HD-pack and release gates.
+Next: close the presentation-overlay cleanup, investigate startup audio
+underruns and (if desired) supply a real four-blend model for console coverage;
+then proceed to fixed-camera comparison, gameplay/performance soaks and the
+release package. Audio and HD are accepted first passes, not full release
+coverage (map-transition audio and long-session HD performance remain open).

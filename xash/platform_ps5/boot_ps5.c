@@ -445,7 +445,9 @@ int main( int argc, char **argv )
 #if PS5_XASH_MODE_CLIENT
 	engine_argv[engine_argc++] = "-ref";
 	engine_argv[engine_argc++] = PS5_XASH_REF;
+#if !PS5_XASH_AUDIO_ENABLED
 	engine_argv[engine_argc++] = "-nosound";
+#endif
 #endif
 #if (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX) && !PS5_XASH_PHASE7_MENU_GATE
 	engine_argv[engine_argc++] = "+map";
