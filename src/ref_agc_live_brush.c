@@ -166,6 +166,10 @@ int ref_agc_live_brush_frame_build(
                 constants->control[2] = 1.0f;
         constants->control[3] = classification == REF_AGC_LIVE_BRUSH_OPAQUE
             ? 1.0f : entity->render_amount / 255.0f;
+        /* Producer leaves this zero in ordinary builds. Keep blend/depth state. */
+        if (live->view.sampling_probe_mode >= 1u &&
+            live->view.sampling_probe_mode <= 3u)
+            constants->control[1] = 1.0f + live->view.sampling_probe_mode;
         if (ps5_gfx1013_build_constant_vsharp(
                 constant_table.words, (uintptr_t)constants,
                 sizeof(*constants)) != 0)

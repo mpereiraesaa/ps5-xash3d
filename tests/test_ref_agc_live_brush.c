@@ -28,6 +28,12 @@ static void expect_point(const float matrix[16], const float camera[16],
 
 int main(void)
 {
+    assert(fabsf(ref_agc_studio_movement_fraction(10.05, 10.0, 9.9) - 0.5f) < 0.0001f);
+    assert(ref_agc_studio_movement_fraction(10.0, 10.0, 9.9) == 0.0f);
+    assert(ref_agc_studio_movement_fraction(10.5, 10.0, 10.0) == 1.0f);
+    assert(ref_agc_studio_movement_fraction(11.0, 10.0, 9.9) == 1.0f);
+    assert(fabsf(ref_agc_studio_movement_fraction(10.15, 10.0, 9.9) - 1.5f) < 0.0001f);
+    assert(ref_agc_studio_movement_fraction(NAN, 10.0, 9.9) == 1.0f);
     uint8_t *memory = aligned_alloc(256u, 16384u);
     assert(memory);
     Ps5TransientRing ring;
@@ -95,6 +101,18 @@ int main(void)
         &frame, &live, &second_ring, 0u, memory, 16384u,
         camera, forward, 16.0f / 9.0f) == 0);
     assert(frame.count == 2u && frame.rejected == 1u);
+    for (uint32_t mode = 0u; mode <= 4u; ++mode) {
+        assert(ps5_transient_ring_init(&second_ring, memory, 16384u, 1u, 256u) ==
+               PS5_TRANSIENT_OK);
+        assert(ps5_transient_ring_begin(&second_ring, 0u, 0u, 0) == PS5_TRANSIENT_OK);
+        live.view.sampling_probe_mode = mode;
+        assert(ref_agc_live_brush_frame_build(
+            &frame, &live, &second_ring, 0u, memory, 16384u,
+            camera, forward, 16.0f / 9.0f) == 0);
+        const float expected = mode >= 1u && mode <= 3u ? 1.0f + mode : 128.0f/255.0f;
+        assert(fabsf(constants(&frame.entries[0])->control[1] - expected) < 0.0001f);
+        assert(fabsf(constants(&frame.entries[0])->control[3] - 128.0f/255.0f) < 0.0001f);
+    }
     free(memory);
     puts("ref_agc live brush tests passed");
     return 0;

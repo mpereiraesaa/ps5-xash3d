@@ -23,7 +23,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
 | 6 — Engine integration | Complete | Filesystem, server, MainUI, GoldSrc client and `ref_agc` all run as application-owned PRXs; `c1a0` starts while the native AGC backend presents 600 validated frames, then all five modules unwind exactly |
-| 7 — Playable and release | In progress | The live `c1a0` world, base textures, engine lightmaps, sky/turbulent semantics and source-ordered 2D are compositor-visible through native AGC; MainUI now presents before an engine-command-buffer transition into `c1a0`; entities, viewmodel, gameplay, performance and release gates remain |
+| 7 — Playable and release | In progress | Native MainUI → `c1a0`, live world/lightmaps/special surfaces/2D, brush transforms and first animated Studio NPCs are visible; runtime ScePad, background depth, opaque Studio minification and STEP motion have operator evidence. Viewmodel, full Studio fidelity, HUD blend fidelity, integrated game audio, gameplay, performance and release remain |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
 2,915 opaque, 137 alpha-test and 158 sky draws per frame, 68,731,904 resident

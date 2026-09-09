@@ -387,6 +387,14 @@ def main() -> None:
             phase7_renderer_messages(resources=True),
             started="2026-09-08T19:13:27.984+00:00")
         resource_valid = run(resource_engine, resource_renderer)
+        for budget, should_pass in (("83886080", True), ("1024", False)):
+            mip_messages = [m.replace("arena_bytes=67108864", "arena_bytes=" + budget)
+                            .replace("descriptors=rgba8+bilinear ",
+                                     "descriptors=rgba8+bilinear+studio-trilinear ")
+                            for m in phase7_renderer_messages(resources=True)]
+            mip_renderer = write_run(directory, "mip-" + budget, "ps5-xash3d",
+                mip_messages, started="2026-09-08T19:13:27.984+00:00")
+            assert (run(resource_engine, mip_renderer).returncode == 0) == should_pass
         assert resource_valid.returncode == 0, resource_valid.stderr
         resource_summary = json.loads(resource_valid.stdout)
         assert resource_summary["ref_agc_texture_handles"] == 250

@@ -241,3 +241,324 @@ has the same cause. Next isolated visual-quality test: proper GPU mip residency
 and minification sampling, compare the same model near/far and stationary/moving.
 Do not substitute higher-resolution replacement art, and do not claim this
 input-only run fixes image quality. No Remote Play session or capture was used.
+
+### Distance-black wall: sampling probe (2026-09-09, unresolved)
+
+The operator reports that wall geometry remains visible but black at distance,
+with its texture appearing progressively when approaching. An opt-in build
+(`XASH_SAMPLING_PROBE=1`) cycles root-world shading every 45 map seconds:
+normal, base texture only, lightmap only, then explicit level-zero sampling of
+both textures. Brush entities and Studio draws are not modified by this probe.
+
+- Engine run: `20260909T102943333Z_PPSA99996_xash3d-engine_0x142594fbb6b5b`.
+- Renderer run: `20260909T102943391Z_PPSA99996_ps5-xash3d_0x14259532d5e07`.
+- Engine SELF remains `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`.
+- Diagnostic renderer ELF: `381ec0f5cba8c6fd68af4106c777abd57c856d3d89087c35f7ea53d24ed6a101`.
+- Diagnostic renderer PRX: `707f378e651b43a43fac7a09b7e447ff59ceb718d820bfe0b06b67eb215e7ed1`.
+- Deployment journal in the lab: `research/xash3d/phase7-sampling-probe-deploy-20260909.jsonl`.
+- Mode markers: serial 227 / 1133 ms; 2843 / 45010 ms;
+  5540 / 90005 ms; 8237 / 135000 ms.
+- Operator clarification: only two visual checks were requested and observed.
+  First, with lighting present, the distant wall was black and its texture
+  appeared progressively when approaching. Second, nearby walls lost their
+  textures while the target wall in the distance remained black. The latter
+  appearance is consistent with the lightmap-only diagnostic, but operator
+  observations were not individually synchronized to all four mode markers.
+  Neither base-only nor explicit-LOD-zero has a separately confirmed visual
+  result. The earlier attribution of "still black" to explicit LOD zero was
+  an assistant error, not operator evidence; that conclusion is withdrawn.
+- The paired validator passes run mechanics: 10,991 matched frames, 10,765
+  Studio frames, 898,094 Studio draws, 95,162,280 Studio indices and 10,764 pose
+  changes. Both runs finish cleanly. Independent post-run status at 10:38 UTC
+  finds no BigApp and all four supervisory services healthy.
+
+Automatic mode markers establish execution, not operator validation of each
+mode. Future visual checks must identify and hold one mode until the operator
+reports its result, rather than infer correspondence from message timing.
+This is an unresolved diagnostic, not a visual fix. The single-level live
+sampler already clamps minimum and maximum LOD to zero; missing mip chains
+remain relevant to shimmer but do not establish the cause of the black wall.
+Also, until the target is identified as root world rather than a brush entity,
+unchanged black cannot conclusively isolate its lightmap or sampling path.
+Next discriminate draw ownership and base-only appearance before changing
+filtering or lighting. No Remote Play session or capture was used.
+
+#### Follow-up QA protocol: operator-held modes
+
+The replacement opt-in probe removes timed switching. A touchpad **press edge**
+while the client is active cycles `r_agc_qa_mode`: 0 normal, 1 base-only,
+2 lightmap-only, 3 solid cyan, then 0. Holding the button does not advance again.
+The cvar is non-archived and reset at renderer initialization. Ordinary builds
+retain the usual touchpad binding and publish probe mode zero. The mode travels
+in the owned live-view snapshot; the renderer logs every consumed transition
+as `REF_AGC_SAMPLING_PROBE schema=2`, including returns to a previous mode.
+
+Coverage is root-world ordinary/alpha-tested surfaces and brush ordinary/
+alpha-tested/translucent/additive surfaces. Sky, turbulent water and Studio
+models are not the target of this wall probe. Unlightmapped surfaces show white
+in lightmap-only mode. Solid cyan returns before texture fetches and alpha
+discard, so masked cutouts intentionally fill in. Existing geometry, depth and
+blend state are retained; translucent/additive brush surfaces need not appear
+as uniformly opaque cyan. This test cannot by itself exclude depth/occlusion.
+
+Use a 1,800-second active-map safety timeout for the interactive QA, with no
+mode changes on timers. Before each change, record the current operator report;
+ask for exactly one touchpad click, confirm the renderer transition, then ask
+for the next observation. Do not conflate an input request with a consumed mode
+or either of those with a visual result.
+
+1. Find the same black wall in normal mode. First hold still and describe whether
+   the black region is stable or flickering. Record camera telemetry.
+2. From the same position and orientation, compare base-only, lightmap-only and
+   solid cyan. Report whether the target changes, whether nearby walls visibly
+   confirm the mode, and whether boundaries resemble triangles, blocks or a
+   smooth gradient. Do not move between these initial comparisons.
+3. Return to the mode that best discriminates the defect. Approach/back away,
+   then rotate from a fixed position; describe progressive versus abrupt change.
+   Treat distance and viewing angle as separate variables.
+4. Only after the wall diagnosis, revisit Studio shimmer independently.
+
+Host tests cover unchanged normal brush constants, mode encoding for every
+diagnostic mode, invalid-mode fallback, preserved alpha, shader specialization,
+and solid-branch placement before texture sampling. Hardware mode switching and
+visual conclusions remain pending until the operator performs the new QA.
+
+Manual-QA candidate built and deployed on 2026-09-09:
+
+- Engine ELF `46886a9e15ed0a5b19bb5b020519d4bc2a5f6ba6ee512fd3105405a74c1c192a`;
+  SELF `e6c8bcc7a192e7baefdcc18341f4cdc70f57380de3450581b29646bc677631ff`.
+- Renderer ELF `485912d9a9d4baf49146055dff01bc93ccc0b1c0a3a6b76e16afb2c0dbf4d944`;
+  PRX `b3b2e6ce32ca91b380a6ba759dee9fa905cee9f8a7052668312ce3d70c644a19`.
+- Both control markers and the QA cvar description verified in the ELFs.
+  Full shader/build validation and `make all` pass; publication audit: 405 files.
+- Canonical nine-file raw-readback deployment:
+  lab `research/xash3d/phase7-manual-qa-deploy-20260909.jsonl`.
+- Engine run `20260909T104641154Z_PPSA99996_xash3d-engine_0x14346499d0eaf`;
+  renderer run `20260909T104641211Z_PPSA99996_ps5-xash3d_0x143464d0ea183`.
+  Launch verified as PPSA99996; run and operator QA are pending, not accepted.
+
+Manual-QA operator observations (run still in progress):
+
+- Normal mode: operator identifies the target as a stable black square/plane
+  apparently in front of the camera, not necessarily a wall. It appears to move
+  away when advancing and follow when retreating; it does not flicker. Apparent
+  wall texture recovery may instead be this occluder moving behind the wall.
+  Camera-relative geometry/occlusion is a hypothesis, not yet a proven cause.
+- Base-only mode confirmed by renderer serial 10108 (`mode=1 name=base-only`)
+  following `XASH_QA_MODE_REQUEST mode=1`. Operator confirms surrounding lighting
+  changes, but the black square does not change; it still recedes/follows with
+  forward/backward movement. Do not describe this as a fixed wall material bug.
+- Lightmap-only confirmed by renderer serial 16670 (`mode=2 name=lightmap-only`).
+  Operator confirms nearby surfaces lose their textures while the black shape
+  remains unchanged, stable, and apparently follows/recedes with camera movement.
+  Operator asks whether it is an effect or something intended to be textured or
+  transparent; none of those explanations is confirmed yet.
+- Solid-cyan confirmed by renderer serial 28476 (`mode=3 name=solid-cyan`).
+  Operator explicitly confirms the environment becomes cyan but the shape stays
+  black. This distinguishes it from the overridden wall shading, but does not
+  yet identify which other draw/depth interaction produces the occlusion.
+
+Follow-up source inspection finds a concrete suspect: `bsp_flat_build_clear`
+places the background triangle at clip depth 0.999, while the native live path
+binds the enabled depth target before `bsp_resource_compose_clear`. With the
+camera projection near=1/far=8192, this is an interior depth, not the far plane.
+Check/fix background depth ownership and validate on hardware before attributing
+the operator's shape to this path. Skybox and other non-overridden draws remain
+alternative contributors; no hardware fix has been tested yet.
+
+#### Background depth isolation candidate
+
+The live-world clear now binds the existing disabled-depth state before its
+color draw and restores the complete ordinary depth state immediately afterward,
+before sky/world geometry. Both commands are error-checked; a failed clear or
+restore prevents successful composition. This leaves the clear color, clip
+vertices, texture filters, lightmaps and map geometry unchanged. The independent
+depth-buffer fill remains 1.0. A periodic `REF_AGC_BACKGROUND_DEPTH` marker
+identifies the candidate and the commanded state transition, not visual success.
+A host source-contract regression checks disable → clear → restore ordering.
+
+The manual-QA run was externally closed at 10:58 UTC to replace the bundle;
+supervisor verified no BigApp and all four services healthy. Do not count this
+operator-driven early replacement as an engine timeout/teardown acceptance.
+New hardware validation is pending. Start with normal shading, locate the same
+view, then compare near/far and camera rotation before asserting the cause fixed.
+
+Candidate renderer ELF `f2a13ae66240bb51454fd1a00461cab47f7b509308944fd417e33cc8ffb27896`;
+PRX `a23054f739a3ebcae970760cc9ad9849f06995b0cee7462739ff9165d7e82f3e`.
+Engine SELF is unchanged from manual QA (`e6c8bcc7…`). Build and `make all` pass
+(405-file publication audit); the new marker is present in the renderer ELF.
+Deployment journal: lab `research/xash3d/phase7-clear-depth-deploy-20260909.jsonl`.
+Nine-file promotion completed with exact raw readback. Candidate launched as
+PPSA99996: engine `20260909T105928815Z_PPSA99996_xash3d-engine_0x143f905380475`,
+renderer `20260909T105928873Z_PPSA99996_ps5-xash3d_0x143f9089909ac`.
+Operator confirms on this candidate: "si ya desaparecio y veo todo a distancia
+ok". The camera-following black shape is gone and distant surfaces are visible
+in normal shading. Renderer logs confirm `mode=0 name=normal` and repeated
+`REF_AGC_BACKGROUND_DEPTH clear_test=0 clear_write=0 world_depth=restored`.
+This accepts the visual correction of this defect in the tested view: the
+background color triangle was incorrectly participating in scene depth. Texture
+filtering, lighting and geometry were unchanged in this isolated comparison.
+End-of-run teardown and broader regression coverage remain pending; this is not
+completion of Phase 7 or acceptance of the separate Studio aliasing/shimmer issue.
+
+### Studio minification candidate (2026-09-09, pending hardware QA)
+
+Operator requests correction of strong shimmer/flicker when characters walk and
+of jagged edges. Whether whole body parts disappear versus texture/edge shimmer
+has been asked explicitly and is not yet established. Do not infer that texture
+filtering repairs animation, visibility or silhouette aliasing.
+
+The first isolated candidate generates GPU mip chains for opaque Studio images
+identified by the producer's `#… .mdl` naming contract (without the space).
+TF_NOMIPMAP, TF_NEAREST, alpha-bearing and normal-map textures are excluded.
+World, menu and sky keep their current path. Source mip metadata is retained;
+the separate owned `generate_mips` property requests GPU generation from RGBA
+level zero. GPU entries report their actual resident level count.
+
+The cache uses the same reverse-level, 256-byte-row-aligned linear layout as the
+existing BSP mip path. It builds each reduced level with box averaging, covering
+odd-sized edges, uploads/flushes the whole allocation, and enables trilinear
+sampling only when more than one level exists. Replacement still requires prior
+GPU use retirement; allocation size includes every level. Opaque alpha remains
+opaque. There is no new per-frame upload or pose change in this candidate.
+`REF_AGC_STUDIO_MIP_RESOURCE` records handle, dimensions, levels and resident bytes.
+
+Host checks cover metadata propagation, checkerboard averaging, layout and
+descriptor mip selection, odd dimensions, 1x1 fallback and retirement on update.
+The cache test passes AddressSanitizer/UndefinedBehaviorSanitizer. The background
+color-only depth correction remains enabled. Hardware resource markers and
+operator near/far, stationary/moving comparisons are required before acceptance.
+
+Candidate renderer ELF `8f3bd1ecf882e38d05282ca622ccc82fd90d145da9b78748c93859e016e21c8e`;
+PRX `f3f5f55bae8d520461320b717e9d76a5c14b53fd66b6d286162ad01b8e5dd5d6`.
+Engine SELF unchanged (`e6c8bcc7…`). `make all` passes (405-file publication
+audit), and the mip-resource and background-depth markers are present in the ELF.
+Previous background-fix run was externally closed at 11:07 UTC for this
+replacement; no BigApp and four healthy services independently verified.
+Deployment journal: lab `research/xash3d/phase7-studio-mips-deploy-20260909.jsonl`.
+Nine-file deployment passed exact raw readback. New engine run
+`20260909T110826606Z_PPSA99996_xash3d-engine_0x144763b8fb258`, renderer run
+`20260909T110826667Z_PPSA99996_ps5-xash3d_0x144763efd9fc3`.
+Hardware mip-resource markers are present for Studio textures; visual quality
+and final teardown remain pending. No claim of reduced shimmer is made yet.
+
+This first candidate failed before active-map rendering: serial 225 emitted
+`REF_AGC_LIVE_TEXTURE_FAILURE cache_result=-2` (arena exhaustion), then
+`PARKED retain_all_resources=true`. It is a failed run, not a visual validation.
+At revision 963 the baseline occupied 52,698,624 bytes and the mip candidate
+59,770,880: a measured 7,072,256-byte increase. Baseline final residency was
+60,644,864 bytes; adding that increase exceeds the old 67,108,864-byte arena.
+The revised candidate budgets 80 MiB in the same owned direct-memory pool, with
+unchanged allocation/retirement/teardown mechanisms. Verify final residency and
+remaining headroom in hardware telemetry. The budget should have been checked
+before the first launch; allocation failure was correctly detected, not ignored.
+
+80-MiB candidate renderer ELF
+`0c80f45716a4d05b63fa88142e8126a473d7a55a94f2c1d491ac8c6f0774663f`, PRX
+`7df4aa9a99985d622d1ce7f823c99e03888525071de8fb976166fc8c21425400`.
+The native source-contract test's explicit arena expectation was updated from
+64 to 80 MiB along with the allocation budget; the failed 64-MiB run remains
+recorded above rather than being overwritten by the replacement candidate.
+
+80-MiB run: engine `20260909T111118598Z_PPSA99996_xash3d-engine_0x1449e4702632b`,
+renderer `20260909T111118658Z_PPSA99996_ps5-xash3d_0x1449e4a8db8ef`.
+Build and `make all` pass, nine-file raw-readback deployment verified (lab
+`research/xash3d/phase7-studio-mips80-deploy-20260909.jsonl`). Active map reached:
+serial 225, revision 1010, 1,002 active textures, 67,717,120 resident bytes in
+83,886,080 bytes (16,168,960 bytes headroom). Normal shading and runtime input
+confirmed; Studio frames show four entities, 81 draws, 8,559 indices and changing
+pose hashes. No structured renderer error observed through serial 1201.
+Visual shimmer/edge quality and final teardown still await validation.
+
+Operator visual feedback on the 80-MiB candidate: distant models/contours look
+smoother and walking vibration is somewhat reduced, including when stepping
+farther away. No body parts ever disappear. Residual vibration is most apparent
+when the character walks facing the viewer; it is not noticeable to the operator
+when walking away with its back visible. Other animations look very good.
+This is partial visual acceptance of Studio minification, not elimination of
+all aliasing or an MSAA/silhouette-AA claim. Do not classify the report as mesh
+dropout. Texture shimmer versus discontinuous pose motion remains to be
+discriminated for the front-facing walk; final teardown is still pending.
+
+### Studio walking motion interpolation candidate (2026-09-09)
+
+Operator clarifies that face/clothing details are not vibrating; walking itself
+looks unnatural and not fluid, as though animation runs at a different speed
+from the game. They cannot distinguish discrete position jumps. This is an
+observation/hypothesis, not proof of an incorrect animation rate.
+
+Source comparison against pinned upstream `ref/gl/gl_studio.c` establishes:
+our frame estimate already uses the same normalized network frame plus elapsed
+client time × entity framerate × sequence fps. However the AGC adapter inherited
+the null renderer's empty `R_StudioLerpMovement` callback and omitted the
+renderer-owned MOVETYPE_STEP transform interpolation. Upstream `cl_frame.c`
+delegates this to the renderer unless ENGINE_COMPUTE_STUDIO_LERP moves ownership
+into the engine (which then calls that callback).
+
+The candidate implements the callback and the renderer-owned fallback before
+world-space bone assembly, guarded by the engine feature to avoid double
+interpolation. It interpolates previous/current origin and quaternion angles
+using upstream timing, including the one-second stale-update cutoff. It does
+not alter animation FPS, client clock, game speed, filters or the background fix.
+Host tests check fractional progress, equal/stale timestamps, extrapolation and
+invalid-time fallback. `REF_AGC_STUDIO_MOVEMENT` samples owner, timestamps,
+fraction and raw/rendered origins to establish actual hardware use. Controller
+interpolation and sequence crossfades remain separate unimplemented work.
+This candidate still requires hardware and operator validation.
+
+Candidate renderer ELF `e34b41518db3b532f600644fb9ccec7c8c00145c42620c622c6ba7e68bdadf4c`;
+PRX `5768afe3aba682465ea401398cc07b4dc5ae98de0f3e71326a9ff1cb2205c055`.
+Engine SELF unchanged (`e6c8bcc7…`). Build and `make all` pass; movement marker
+verified inside the ELF. Prior minification run externally closed at 11:23 UTC,
+with no BigApp and four healthy services confirmed. Canonical deployment journal:
+lab `research/xash3d/phase7-studio-lerp-deploy-20260909.jsonl`.
+
+Run engine `20260909T112410646Z_PPSA99996_xash3d-engine_0x14552080e37de`, renderer
+`20260909T112410705Z_PPSA99996_ps5-xash3d_0x145520b966fd9`. Active-map Studio
+draws and changing poses observed; movement marker reports `owner=renderer` with
+varying timestamp fractions. Early sampled origins are equal while the sampled
+NPC is stationary, so those samples alone do not prove smoother translation.
+Operator now confirms: "ahora avanza fluidamente OK". Walking translation is
+visually accepted on this candidate. The missing STEP movement interpolation,
+not a changed game/sequence playback rate, was the defect isolated by this
+comparison. Mip filtering and the background-depth fix are retained unchanged.
+This does not accept all Studio features: controller interpolation, sequence
+crossfades, lighting/chrome and broader regression still require their own work.
+End-of-run ownership/teardown validation and PR integration remain pending.
+
+### Integration closure and newly reported limits
+
+The resource closure rerun uses `XASH_GATE_SECONDS=180`, `XASH_GATE_FROM_MAP=1`,
+`XASH_SAMPLING_PROBE=0`: normal rendering and natural engine quit after three
+active-map minutes. The touchpad QA override is not present in this engine build.
+SELF `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`;
+renderer ELF `06f4900beebe7627d507d06cc5a2fcd94367604d7e26a03653f2a94ffd35ebd8`,
+PRX `6f4d4326403d62e71296b94aa8a0a3a23f7ca8878ea33801b015081df91eafc3`.
+Engine run `20260909T113010025Z_PPSA99996_xash3d-engine_0x145a5b445db42`;
+renderer run `20260909T113010080Z_PPSA99996_ps5-xash3d_0x145a5b7bceb85`.
+
+New operator reports must not be hidden by closing the accepted graphics work:
+
+- No audio: these client/graphics builds explicitly use `XASH_AUDIO=0`, linking
+  the sound stub. Phase 5 SceAudioOut evidence is not acceptance of this live
+  client mix. Enable `XASH_AUDIO=1` in a separate integration run and validate
+  real map sounds, mix/ring telemetry and exact audio teardown. Silence is
+  expected for this build configuration, not the intended final product.
+- The chapter title appears over a black rectangle. `CL_DrawCharacter` requests
+  the font's render mode through `GL_SetRenderMode`; that callback remains a
+  null-renderer stub, while `RefAgcDrawStretchPic` hardcodes kRenderTransTexture.
+  The missing blend-state propagation is a concrete suspect. Preserve requested
+  2D modes, test additive versus alpha/opaque ordering, and validate the chapter
+  title and MainUI on hardware before closing this defect. No transparency fix
+  is claimed by the current integration.
+
+The initial integration closure run above naturally completed 10,995 frames,
+reclaimed nine resources and emitted exact renderer and engine teardown with
+zero errors. Independent post-run status found no BigApp and four healthy
+services. Its validator rejected stale texture-summary metadata: the new arena
+was 80 MiB but the summary still labeled descriptors only bilinear and the
+validator required 64 MiB. Neither logs nor that failed result were rewritten.
+The code now emits the mixed descriptor family, and the validator accepts only
+the explicit legacy/new budget-family pairs and also bounds peak residency by
+arena size. Host tests preserve the legacy case, accept the new case and reject
+an invalid budget. A fresh natural-exit run is required for the corrected marker.

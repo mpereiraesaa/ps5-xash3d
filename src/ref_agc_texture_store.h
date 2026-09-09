@@ -37,6 +37,7 @@ typedef struct RefAgcTextureInput {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int generate_mips; /* owned GPU minification chain, independent of source mips */
     int sampler_clamp;
     const void *pixels;
     size_t pixel_bytes;
@@ -50,6 +51,7 @@ typedef struct RefAgcTextureView {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int generate_mips;
     int sampler_clamp;
     uint64_t revision;
     uint64_t content_hash;
@@ -85,6 +87,7 @@ typedef struct RefAgcTextureEntry {
     uint32_t format;
     uint32_t flags;
     uint32_t mip_count;
+    int generate_mips;
     int sampler_clamp;
     int active;
 } RefAgcTextureEntry;

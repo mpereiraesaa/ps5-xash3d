@@ -233,7 +233,9 @@ enum {
 #endif
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
 #ifdef PS5_REF_AGC_LIVE_PHASE7
-    REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u,
+    /* c1a0 baseline 60,644,864 bytes + Studio mip delta 7,072,256 bytes
+     * exceeds 64 MiB. Reserve 80 MiB including headroom, within the owned pool. */
+    REF_AGC_GPU_TEXTURE_ARENA_BYTES = 80u * 1024u * 1024u,
     REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u,
     REF_AGC_GPU_STUDIO_ARENA_BYTES = 32u * 1024u * 1024u,
 #endif
@@ -519,6 +521,7 @@ struct native_renderer {
     RefAgcLiveStudioFrame live_studio_frames[2];
     uint64_t live_studio_draw_frames, live_studio_draws, live_studio_indices;
     uint64_t live_studio_pose_hash, live_studio_pose_changes;
+    uint32_t live_sampling_probe_seen;
     RefAgcLive2DFrame live_2d_frames[2];
     Ps5CpuToGpuPlan live_texture_cache_plan;
     Ps5CpuToGpuPlan live_world_cache_plan;
@@ -556,6 +559,15 @@ static int sync_live_texture(const RefAgcTextureView *view, void *user)
     struct live_texture_sync_context *context = user;
     context->cache_result = ref_agc_gpu_texture_cache_apply(
         context->cache, view, context->prior_use_retired);
+    if (context->cache_result == REF_AGC_GPU_TEXTURE_OK && view->active && view->generate_mips) {
+        RefAgcGpuTextureEntry texture;
+        if (ref_agc_gpu_texture_cache_get(context->cache, view->handle, &texture) != 0)
+            return -1;
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_STUDIO_MIP_RESOURCE schema=1 handle=%u width=%u height=%u levels=%u bytes=%llu filter=trilinear name=%s",
+            view->handle, texture.width, texture.height, texture.mip_count,
+            (unsigned long long)texture.allocation_bytes, view->name ? view->name : "unknown");
+    }
     return context->cache_result == REF_AGC_GPU_TEXTURE_OK ? 0 : -1;
 }
 
@@ -1414,8 +1426,23 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     };
     const int resource_frame_result = bsp_resource_frame_build_configured(
 #elif defined(PS5_REF_AGC_LIVE_PHASE7)
+    uint32_t sampling_probe_mode = 0;
+#if PS5_REF_AGC_SAMPLING_PROBE
+    if (ref_agc_live_world_view_ready(&state->live_frame)) {
+        sampling_probe_mode = state->live_frame.view.sampling_probe_mode;
+        if (sampling_probe_mode > 3u) sampling_probe_mode = 0u;
+        if (state->live_sampling_probe_seen != sampling_probe_mode + 1u) {
+            static const char *names[] = {"normal", "base-only", "lightmap-only", "solid-cyan"};
+            state->live_sampling_probe_seen = sampling_probe_mode + 1u;
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_SAMPLING_PROBE schema=2 serial=%llu mode=%u name=%s scope=root-world+brush control=touchpad hold=until-next-press",
+                (unsigned long long)state->live_frame.serial, sampling_probe_mode,
+                names[sampling_probe_mode]);
+        }
+    }
+#endif
     const BspResourceGoldSrcConstants live_constants = {
-        .render_color = {1.0f, 1.0f, 1.0f, 1.0f},
+        .render_color = {1.0f, 1.0f + sampling_probe_mode, 1.0f, 1.0f},
         .animation_time = (float)state->live_frame.view.time_seconds,
         .camera_position = {
             state->noclip.position[0], state->noclip.position[1],
@@ -2138,12 +2165,27 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     BspResourceComposeResult resource_composed = {0};
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "live-world-clear";
-    result = bsp_resource_compose_clear(
+    /* Background is color-only. Its clip z=0.999 must never occlude the map. */
+    result = ps5_native_set_indirect(
+        &cursor, (uint32_t)(end - cursor), state->overlay_depth_disabled,
+        PS5_DEPTH_DISABLED_REGISTER_COUNT, state->resources->shader,
+        SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    if (result == 0)
+        result = bsp_resource_compose_clear(
         &cursor, end, &state->resource_frames[resource_slot],
         state->clear_indices, state->resources->resource_heap,
         state->resources->resource_heap_bytes, state->draw_modifier,
         ps5_native_set_sh_direct, ps5_native_draw_index,
         &resource_composed);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            &cursor, (uint32_t)(end - cursor), state->depth_registers,
+            PS5_DEPTH_REGISTER_COUNT, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    if (result == 0 && frame->frame_index % 600u == 0u)
+        (void)ps5log_printf(PS5LOG_MARK,
+            "REF_AGC_BACKGROUND_DEPTH schema=1 frame=%llu clear_test=0 clear_write=0 world_depth=restored",
+            (unsigned long long)frame->frame_index);
     RefAgcGpuWorldStats live_world_stats = {0};
     if (result == 0 && ref_agc_gpu_world_cache_stats(
             &state->live_world_cache, &live_world_stats) !=
@@ -6187,7 +6229,7 @@ int main(void)
         "REF_AGC_GPU_TEXTURE_COMPLETE revision=%llu creates=%llu "
         "updates=%llu deletes=%llu active=%u peak=%u resident_bytes=%llu "
         "peak_bytes=%llu source_bytes=%llu flushes=%llu "
-        "descriptor_hash=%016llx arena_bytes=%u descriptors=rgba8+bilinear "
+        "descriptor_hash=%016llx arena_bytes=%u descriptors=rgba8+bilinear+studio-trilinear "
         "memory=direct ownership=fence+videoout-before-reuse errors=0",
         (unsigned long long)live_texture_stats.revision,
         (unsigned long long)live_texture_stats.creates,

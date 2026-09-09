@@ -39,8 +39,20 @@ layout(location = 2) in vec4 render_color;
 layout(location = 3) in vec4 fog_color_density;
 layout(location = 0) out vec4 color;
 void main() {
+    if (render_color.g > 3.5) {
+        color = vec4(0.0, 1.0, 1.0, render_color.a);
+        return;
+    }
     vec4 base = texture(base_texture, base_uv);
 @MASK_BLOCK@
+    if (render_color.g > 2.5) {
+        color = vec4(@QA_LIGHTMAP_EXPR@, base.a * render_color.a);
+        return;
+    }
+    if (render_color.g > 1.5) {
+        color = vec4(base.rgb, base.a * render_color.a);
+        return;
+    }
     vec3 surface = @LIGHTMAP_EXPR@;
     surface *= render_color.rgb;
 @FOG_BLOCK@

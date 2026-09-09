@@ -8,6 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> int:
+    native = (ROOT / "native/main.c").read_text(encoding="utf-8")
+    clear = native.split('state->live_compose_stage = "live-world-clear";', 1)[1]
+    clear = clear.split("RefAgcGpuWorldStats live_world_stats", 1)[0]
+    assert clear.index("state->overlay_depth_disabled") < clear.index("bsp_resource_compose_clear(")
+    assert clear.index("bsp_resource_compose_clear(") < clear.index("state->depth_registers")
+    assert "clear_test=0 clear_write=0 world_depth=restored" in clear
     text = (ROOT / "shaders/gears_lit.pipe").read_text(encoding="utf-8")
     required = (
         "version = 65",

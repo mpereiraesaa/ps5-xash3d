@@ -68,6 +68,8 @@ hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
+sampling_probe=${XASH_SAMPLING_PROBE:-0}
+[[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
@@ -237,6 +239,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_BOOT_MAP "$boot_map"
 #define PS5_XASH_GATE_SECONDS $gate_seconds
 #define PS5_XASH_GATE_FROM_MAP $gate_from_map
+#define PS5_XASH_SAMPLING_PROBE $sampling_probe
 #define PS5_XASH_TITLE_ID "$title_id"
 #define PS5_XASH_MODE "$mode"
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)
@@ -897,6 +900,7 @@ if [[ $ref_agc_prx == 1 ]]; then
     ref_agc_defines=(
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
         -DPS5_REF_AGC_LIVE_PHASE7=1
+        -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
         -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1

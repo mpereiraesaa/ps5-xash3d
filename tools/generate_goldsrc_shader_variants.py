@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "shaders/goldsrc_surface.template.pipe"
-TOKENS = ("@MASK_BLOCK@", "@LIGHTMAP_EXPR@", "@FOG_BLOCK@")
+TOKENS = ("@MASK_BLOCK@", "@LIGHTMAP_EXPR@", "@FOG_BLOCK@", "@QA_LIGHTMAP_EXPR@")
 
 
 def render(template: str, *, masked: bool, lightmap: bool, fog: bool) -> str:
@@ -17,6 +17,9 @@ def render(template: str, *, masked: bool, lightmap: bool, fog: bool) -> str:
         if template.count(token) != 1:
             raise ValueError(f"template must contain exactly one {token}")
     values = {
+        "@QA_LIGHTMAP_EXPR@": (
+            "texture(lightmap_texture, light_uv).rgb" if lightmap else "vec3(1.0)"
+        ),
         "@MASK_BLOCK@": "    if (base.a < 0.5)\n        discard;" if masked else "",
         "@LIGHTMAP_EXPR@": (
             "base.rgb * texture(lightmap_texture, light_uv).rgb"

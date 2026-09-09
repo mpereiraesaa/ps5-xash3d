@@ -31,6 +31,7 @@ callbacks below are always the project-owned AGC implementation.
 #include "../../third_party/xash3d-fwgs/ref/null/r_context.c"
 #undef GetRefAPI
 #include "ref_params.h"
+#include "enginefeatures.h"
 
 int ps5_ref_agc_native_main(void);
 
@@ -636,6 +637,13 @@ static qboolean RefAgcInit(void)
 	const RefAgcStudioAllocator studio_allocator = {
 		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
 	unsigned attempt;
+#if PS5_REF_AGC_SAMPLING_PROBE
+	if( !ref_agc_engine.Cvar_Get || !ref_agc_engine.Cvar_SetValue ||
+		!ref_agc_engine.Cvar_Get( "r_agc_qa_mode", "0", 0,
+			"Manual wall QA: normal/base/light/solid; touchpad advances" ))
+		return false;
+	ref_agc_engine.Cvar_SetValue( "r_agc_qa_mode", 0.0f );
+#endif
 	memset( ref_agc_draw_color, 255, sizeof(ref_agc_draw_color) );
 	if( ref_agc_thread_created )
 		return ref_agc_runtime_state == REF_AGC_READY ||
@@ -851,6 +859,11 @@ static int RefAgcStoreImage(const char *name, const rgbdata_t *image,
 	input.format = source->type;
 	input.flags = (uint32_t)flags;
 	input.mip_count = source->numMips ? source->numMips : 1u;
+	/* Isolate the Studio minification experiment from world/UI/sky and masks. */
+	const size_t texture_name_bytes = strlen( name );
+	input.generate_mips = name[0] == '#' && texture_name_bytes >= 4u &&
+		!strcmp( name + texture_name_bytes - 4u, ".mdl" ) &&
+		!(flags & (TF_NOMIPMAP | TF_NEAREST | TF_HAS_ALPHA | TF_NORMALMAP));
 	input.sampler_clamp = (flags & TF_CLAMP) != 0;
 	input.pixels = source->buffer;
 	input.pixel_bytes = source->size;
@@ -1218,6 +1231,13 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 			PARM_GET_CLIENT_PTR, 0 ) : NULL;
 	live.time_seconds = client ? client->time : 0.0;
 	live.paused = client ? (uint32_t)(client->paused != false) : 0u;
+#if PS5_REF_AGC_SAMPLING_PROBE
+	if( ref_agc_engine.pfnGetCvarFloat )
+	{
+		float mode = ref_agc_engine.pfnGetCvarFloat( "r_agc_qa_mode" );
+		live.sampling_probe_mode = mode >= 0.0f && mode <= 3.0f ? (uint32_t)mode : 0u;
+	}
+#endif
 	ref_agc_live_set_view( &ref_agc_live, &live, ref_agc_scene_calls );
 	viewmodel = ref_agc_engine.EngineGetParm ?
 		(const cl_entity_t *)ref_agc_engine.EngineGetParm(
@@ -1337,6 +1357,23 @@ static void RefAgcClearScene(void)
 
 /* Evaluate on the engine thread: external sequence groups remain engine-owned.
  * Only finished world-space matrices cross the immutable frame boundary. */
+static void RefAgcStudioLerpMovement(cl_entity_t *entity, double time,
+	vec3_t origin, vec3_t angles)
+{
+	const float fraction = ref_agc_studio_movement_fraction(time,
+		entity->curstate.animtime, entity->latched.prevanimtime);
+	VectorLerp(entity->latched.prevorigin, fraction, entity->curstate.origin, origin);
+	if( !VectorCompareEpsilon(entity->curstate.angles, entity->latched.prevangles, ON_EPSILON) )
+	{
+		vec4_t q, previous, current;
+		AngleQuaternion(entity->latched.prevangles, previous, false);
+		AngleQuaternion(entity->curstate.angles, current, false);
+		QuaternionSlerp(previous, current, fraction, q);
+		QuaternionAngle(q, angles);
+	}
+	else VectorCopy(entity->curstate.angles, angles);
+}
+
 static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 {
 	studiohdr_t *h = entity->model->cache.data;
@@ -1357,6 +1394,21 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	mstudioanim_t *anim = ref_agc_engine.R_StudioGetAnim(h, entity->model, seq);
 	const ref_client_t *client = (void *)ref_agc_engine.EngineGetParm(PARM_GET_CLIENT_PTR, 0);
 	if( !anim || !client ) return -3;
+	const ref_host_t *host = (void *)ref_agc_engine.EngineGetParm(PARM_GET_HOST_PTR, 0);
+	/* The engine calls our callback when it owns STEP interpolation. Otherwise
+	 * the renderer must do it here, exactly once, before building world bones. */
+	if( entity->curstate.movetype == MOVETYPE_STEP && host &&
+		!(host->features & ENGINE_COMPUTE_STUDIO_LERP) )
+		RefAgcStudioLerpMovement(entity, client->time, live->origin, live->angles);
+	if( entity->curstate.movetype == MOVETYPE_STEP && f->studio_pose_count == 0u &&
+		(ref_agc_scene_calls < 3u || ref_agc_scene_calls % 600u == 0u) && ref_agc_engine.Con_Printf )
+		ref_agc_engine.Con_Printf(
+			"REF_AGC_STUDIO_MOVEMENT schema=1 entity=%d owner=%s time=%.6f animtime=%.6f prevtime=%.6f fraction=%.6f raw=%.3f,%.3f,%.3f rendered=%.3f,%.3f,%.3f\n",
+			entity->index, host && (host->features & ENGINE_COMPUTE_STUDIO_LERP) ? "engine-callback" : "renderer",
+			client->time, (double)entity->curstate.animtime, (double)entity->latched.prevanimtime,
+			(double)ref_agc_studio_movement_fraction(client->time, entity->curstate.animtime, entity->latched.prevanimtime),
+			(double)entity->curstate.origin[0], (double)entity->curstate.origin[1], (double)entity->curstate.origin[2],
+			(double)live->origin[0], (double)live->origin[1], (double)live->origin[2]);
 	/* GoldSrc normalized network frame plus local elapsed animation time.
 	 * The null renderer's estimate callback returns zero and is not usable. */
 	float frame = seq->numframes > 1 ? entity->curstate.frame * (seq->numframes-1) / 256.0f : 0;
@@ -1603,6 +1655,7 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 		return 0;
 	ref_agc_engine = *engfuncs;
 	funcs->R_Init = RefAgcInit;
+	funcs->R_StudioLerpMovement = RefAgcStudioLerpMovement;
 	funcs->R_Shutdown = RefAgcShutdown;
 	funcs->R_GetConfigName = RefAgcConfigName;
 	funcs->R_BeginFrame = RefAgcBeginFrame;

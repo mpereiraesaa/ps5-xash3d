@@ -4,6 +4,19 @@
 #include <pthread.h>
 #include <stdint.h>
 
+/* Upstream R_StudioLerpMovement timing; preserve its bounded-time extrapolation
+ * rather than clamping to [0,1]. Stale/equal timestamps select current state. */
+static inline float ref_agc_studio_movement_fraction(
+    double time, double animtime, double previous_animtime)
+{
+    if (!__builtin_isfinite(time) || !__builtin_isfinite(animtime) ||
+        !__builtin_isfinite(previous_animtime))
+        return 1.0f;
+    if (time < animtime + 1.0 && animtime != previous_animtime)
+        return (float)((time - animtime) / (animtime - previous_animtime));
+    return 1.0f;
+}
+
 enum {
     REF_AGC_LIVE_MAX_ENTITIES = 2048,
     REF_AGC_LIVE_MAX_2D_COMMANDS = 4096,
@@ -35,6 +48,7 @@ typedef struct RefAgcLiveView {
     uint32_t flags;
     double time_seconds;
     uint32_t paused;
+    uint32_t sampling_probe_mode; /* opt-in QA: 0 normal, 1 base, 2 light, 3 solid */
     uint32_t valid;
 } RefAgcLiveView;
 

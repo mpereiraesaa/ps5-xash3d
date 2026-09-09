@@ -103,6 +103,41 @@ int main(void)
     assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) ==
            REF_AGC_GPU_TEXTURE_STALE);
     ref_agc_gpu_texture_cache_destroy(&cache);
+    /* 4x4 checker: reversed linear layout: 1x1, 2x2, 4x4. */
+    uint8_t checker[64];
+    for (unsigned y = 0; y < 4; ++y)
+        for (unsigned x = 0; x < 4; ++x) {
+            for (unsigned c = 0; c < 3; ++c)
+                checker[(y*4+x)*4+c] = (x+y)%2 ? 255 : 0;
+            checker[(y*4+x)*4+3] = 255;
+        }
+    assert(ref_agc_gpu_texture_cache_init(&cache, arena, UINT64_C(0x200000000),
+        sizeof(arena), flush_memory, &flush) == 0);
+    view = (RefAgcTextureView){.handle=1, .revision=1, .width=4, .height=4,
+        .depth=1, .mip_count=1, .generate_mips=1, .active=1,
+        .pixels=checker, .pixel_bytes=sizeof(checker)};
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == 0);
+    assert(ref_agc_gpu_texture_cache_get(&cache, 1, &entry) == 0);
+    assert(entry.mip_count == 3 && entry.allocation_bytes == 1792);
+    assert(memcmp(arena+768, checker, 16) == 0);
+    assert(arena[0] == 128 && arena[3] == 255 && arena[256] == 128);
+    assert(((entry.descriptor[3] >> 16) & 15) == 2);
+    assert(((entry.descriptor[10] >> 26) & 3) == 2);
+    assert(ref_agc_gpu_texture_cache_validate(&cache) == 0);
+    /* Odd dimensions include the last row/column rather than dropping them. */
+    view.width=3; view.height=2; view.revision=2;
+    uint8_t odd[24]; memset(odd, 60, sizeof(odd)); odd[20]=120;
+    view.pixels=odd; view.pixel_bytes=sizeof(odd);
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 0) ==
+        REF_AGC_GPU_TEXTURE_RETIREMENT_REQUIRED);
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == 0);
+    assert(ref_agc_gpu_texture_cache_get(&cache, 1, &entry) == 0);
+    assert(entry.mip_count == 2 && entry.allocation_bytes == 768 && arena[0] == 70);
+    view.width=1; view.height=1; view.revision=3; view.pixel_bytes=4;
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == 0);
+    assert(ref_agc_gpu_texture_cache_get(&cache, 1, &entry) == 0);
+    assert(entry.mip_count == 1 && entry.allocation_bytes == 256);
+    ref_agc_gpu_texture_cache_destroy(&cache);
     puts("ref_agc GPU texture cache tests passed");
     return 0;
 }

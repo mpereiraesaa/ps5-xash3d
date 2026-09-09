@@ -336,7 +336,7 @@ def main() -> None:
         "live-frame-retire-or-ownership-failure",
         "REF_AGC_LIVE_TEXTURE_SYNC", "REF_AGC_GPU_TEXTURE_COMPLETE",
         "live-texture-arena-retirement-failure",
-        "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u",
+        "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 80u * 1024u * 1024u",
         "REF_AGC_LIVE_WORLD_SYNC", "REF_AGC_GPU_WORLD_COMPLETE",
         "REF_AGC_LIVE_2D_FRAME", "REF_AGC_LIVE_2D_COMPLETE",
         "REF_AGC_LIVE_COMPOSE_FAILURE_DETAIL",

@@ -275,15 +275,17 @@ def validate_renderer(
                    for field in positive) \
                     or texture.get("descriptor_hash") in (
                         None, "0000000000000000") \
-                    or texture.get("arena_bytes") != "67108864" \
-                    or texture.get("descriptors") != "rgba8+bilinear" \
+                    or (texture.get("arena_bytes"), texture.get("descriptors")) not in (
+                        ("67108864", "rgba8+bilinear"),
+                        ("83886080", "rgba8+bilinear+studio-trilinear")) \
                     or texture.get("memory") != "direct" \
                     or texture.get("ownership") != \
                     "fence+videoout-before-reuse" \
                     or texture.get("errors") != "0" \
                     or int(texture["active"], 10) > int(texture["peak"], 10) \
                     or int(texture["resident_bytes"], 10) > int(
-                        texture["peak_bytes"], 10):
+                        texture["peak_bytes"], 10) \
+                    or int(texture["peak_bytes"], 10) > int(texture["arena_bytes"], 10):
                 fail("Phase 7 GPU texture cache contract mismatch")
         world_markers = [parse_fields(message) for message in messages
                          if message.startswith("REF_AGC_GPU_WORLD_COMPLETE ")]
