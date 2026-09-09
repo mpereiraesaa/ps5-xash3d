@@ -34,6 +34,19 @@ callbacks below are always the project-owned AGC implementation.
 #include "ref_params.h"
 #include "enginefeatures.h"
 
+static ref_api_t ref_agc_engine;
+/* Owner-thread-only staging, consumed before publish. Engine model pointers
+ * here are never copied into RefAgcLiveFrame or read by the GPU worker. */
+static cl_entity_t ref_agc_studio_light_entities[REF_AGC_LIVE_MAX_STUDIO_POSES];
+int PS5_StudioLightStyles(const ref_api_t *, lightstyle_t *);
+int PS5_StudioCaptureLighting(const ref_api_t *, cl_entity_t *, const float *,
+    int, RefAgcStudioLighting *, uint16_t *);
+static void RefAgcRunLightStyles(lightstyle_t *styles)
+{
+    if(PS5_StudioLightStyles(&ref_agc_engine, styles))
+        ref_agc_engine.Host_Error("ref_agc: missing Studio lightstyle dependencies");
+}
+
 _Static_assert(kRenderNormal == 0 && kRenderTransColor == 1 &&
 	kRenderTransTexture == 2 && kRenderGlow == 3 &&
 	kRenderTransAlpha == 4 && kRenderTransAdd == 5 &&
@@ -52,7 +65,6 @@ enum
 	REF_AGC_JOINED = 5,
 };
 
-static ref_api_t ref_agc_engine;
 static volatile int ref_agc_runtime_state;
 static volatile int ref_agc_runtime_result;
 static volatile int ref_agc_teardown_result;
@@ -644,6 +656,11 @@ static qboolean RefAgcInit(void)
 	const RefAgcStudioAllocator studio_allocator = {
 		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
 	unsigned attempt;
+#if PS5_REF_AGC_STUDIO_AB
+	if(!ref_agc_engine.Cvar_Get || !ref_agc_engine.Cvar_SetValue ||
+		!ref_agc_engine.Cvar_Get("r_agc_studio_unlit", "0", 0, "Studio CPU-only A/B")) return false;
+	ref_agc_engine.Cvar_SetValue("r_agc_studio_unlit", 0);
+#endif
 #if PS5_REF_AGC_SAMPLING_PROBE
 	if( !ref_agc_engine.Cvar_Get || !ref_agc_engine.Cvar_SetValue ||
 		!ref_agc_engine.Cvar_Get( "r_agc_qa_mode", "0", 0,
@@ -1216,6 +1233,7 @@ static void RefAgcRenderScene(void)
 	++ref_agc_scene_calls;
 }
 
+static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live);
 static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 {
 	RefAgcLiveView live;
@@ -1238,6 +1256,12 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 			PARM_GET_CLIENT_PTR, 0 ) : NULL;
 	live.time_seconds = client ? client->time : 0.0;
 	live.paused = client ? (uint32_t)(client->paused != false) : 0u;
+#if PS5_REF_AGC_STUDIO_AB
+	/* Existing reserved QA word; no frame ABI or shader-interface change.
+	 * World/brush QA recognizes only 1..3, never this Studio-only value. */
+	if(ref_agc_engine.pfnGetCvarFloat)
+		live.sampling_probe_mode=ref_agc_engine.pfnGetCvarFloat("r_agc_studio_unlit")!=0 ? 4u : 0u;
+#endif
 #if PS5_REF_AGC_SAMPLING_PROBE
 	if( ref_agc_engine.pfnGetCvarFloat )
 	{
@@ -1249,7 +1273,15 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 	viewmodel = ref_agc_engine.EngineGetParm ?
 		(const cl_entity_t *)ref_agc_engine.EngineGetParm(
 			PARM_GET_VIEWENT_PTR, 0 ) : NULL;
-	if( viewmodel && viewmodel->model )
+	if( viewmodel && viewmodel->model && viewmodel->model->type==mod_studio &&
+		client && client->viewentity==client->playernum+1 &&
+		(view->flags & RF_DRAW_WORLD) && !(view->flags & RF_DRAW_CUBEMAP) &&
+		!ref_agc_engine.EngineGetParm(PARM_THIRDPERSON,0) &&
+		ref_agc_engine.EngineGetParm(PARM_LOCAL_HEALTH,0)>0 &&
+		(!ref_agc_engine.pfnGetCvarPointer ||
+		 !ref_agc_engine.pfnGetCvarPointer("r_drawviewmodel") ||
+		 ref_agc_engine.pfnGetCvarFloat("r_drawviewmodel")!=0) &&
+		(viewmodel->curstate.rendermode==0 || viewmodel->curstate.renderamt>0))
 	{
 		memset( &live_viewmodel, 0, sizeof(live_viewmodel) );
 		live_viewmodel.index = viewmodel->index;
@@ -1286,6 +1318,15 @@ static void RefAgcRenderFrame(const struct ref_viewpass_s *view)
 		live_viewmodel.radius = viewmodel->model->radius;
 		strncpy( live_viewmodel.model_name, viewmodel->model->name,
 			sizeof(live_viewmodel.model_name) - 1u );
+		/* Match the upstream viewmodel pitch compensation without modifying
+		 * the engine-owned entity or the accepted NPC pose path. */
+		const ref_host_t *vm_host=(const ref_host_t *)ref_agc_engine.EngineGetParm(PARM_GET_HOST_PTR,0);
+		if(vm_host && !(vm_host->features & ENGINE_COMPENSATE_QUAKE_BUG))
+			live_viewmodel.angles[0]=-live_viewmodel.angles[0];
+		if(RefAgcCaptureStudioPose((cl_entity_t *)viewmodel,&live_viewmodel)) {
+			ref_agc_engine.Host_Error("ref_agc: viewmodel pose capture failed");
+			return;
+		}
 		ref_agc_live_set_viewmodel( &ref_agc_live, &live_viewmodel );
 	}
 	else ref_agc_live_set_viewmodel( &ref_agc_live, NULL );
@@ -1313,6 +1354,23 @@ static void RefAgcEndFrame(void)
 	int wait_result;
 	uint64_t view_hash;
 	++ref_agc_end_calls;
+	/* R_AddEntity may precede GL_RenderFrame. Only now is this frame's
+	 * RF_DRAW_WORLD known; sampling at pose capture would select fullbright. */
+	RefAgcLiveFrame *pending=&ref_agc_live.building;
+	for(uint32_t i=0;i<pending->entity_count+pending->viewmodel_valid;++i) {
+		RefAgcLiveEntity *entity=i<pending->entity_count ? &pending->entities[i] : &pending->viewmodel;
+		if(entity->model_type!=REF_AGC_LIVE_MODEL_STUDIO) continue;
+		if(!entity->studio_pose||entity->studio_pose>pending->studio_pose_count||
+			entity->studio_pose>REF_AGC_LIVE_MAX_STUDIO_POSES ||
+			PS5_StudioCaptureLighting(&ref_agc_engine,
+				&ref_agc_studio_light_entities[entity->studio_pose-1],entity->origin,
+				(pending->view.flags & REF_AGC_LIVE_RF_DRAW_WORLD)!=0,
+				&pending->studio_poses[entity->studio_pose-1].lighting,
+				pending->studio_light_gamma)) {
+			ref_agc_engine.Host_Error("ref_agc: Studio lighting capture failed");
+			return;
+		}
+	}
 	if( ref_agc_live_publish( &ref_agc_live, ref_agc_end_calls ) != 0 )
 	{
 		ref_agc_runtime_result = -3;
@@ -1479,6 +1537,7 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	}
 	pose->bones = h->numbones;
 	pose->frame = frame;
+	ref_agc_studio_light_entities[f->studio_pose_count]=*entity;
 	live->studio_pose = ++f->studio_pose_count;
 	return 0;
 }
@@ -1671,6 +1730,7 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 		return 0;
 	ref_agc_engine = *engfuncs;
 	funcs->R_Init = RefAgcInit;
+	funcs->CL_RunLightStyles = RefAgcRunLightStyles;
 	funcs->R_StudioLerpMovement = RefAgcStudioLerpMovement;
 	funcs->R_Shutdown = RefAgcShutdown;
 	funcs->R_GetConfigName = RefAgcConfigName;

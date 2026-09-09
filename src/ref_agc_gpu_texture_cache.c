@@ -90,6 +90,7 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
     uint32_t mip_count = 1u;
     size_t mip_offsets[15] = {0}, mip_pitches[15] = {0};
     uint32_t mip_widths[15] = {0}, mip_heights[15] = {0};
+    uint32_t storage_widths[15] = {0}, storage_heights[15] = {0};
     if (!cache || !cache->initialized || !view || view->handle == 0u ||
         view->handle > REF_AGC_TEXTURE_MAX || view->revision == 0u)
         return REF_AGC_GPU_TEXTURE_INVALID;
@@ -139,12 +140,16 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
         mip_heights[level] = view->height >> level;
         if (!mip_widths[level]) mip_widths[level] = 1u;
         if (!mip_heights[level]) mip_heights[level] = 1u;
-        if (align_size((size_t)mip_widths[level] * 4u, 256u,
+        /* AddrLib GFX10 linear storage uses ShiftCeil, whereas sampled mip
+         * dimensions use floor shifts. NPOT images require both extents. */
+        storage_widths[level] = (view->width + (1u << level) - 1u) >> level;
+        storage_heights[level] = (view->height + (1u << level) - 1u) >> level;
+        if (align_size((size_t)storage_widths[level] * 4u, 256u,
                        &mip_pitches[level]) != 0 ||
-            mip_heights[level] > (SIZE_MAX - allocation_bytes) / mip_pitches[level])
+            storage_heights[level] > (SIZE_MAX - allocation_bytes) / mip_pitches[level])
             return REF_AGC_GPU_TEXTURE_INVALID;
         mip_offsets[level] = allocation_bytes;
-        allocation_bytes += mip_pitches[level] * mip_heights[level];
+        allocation_bytes += mip_pitches[level] * storage_heights[level];
     }
     if (replacing && !prior_use_retired)
         return REF_AGC_GPU_TEXTURE_RETIREMENT_REQUIRED;
@@ -193,6 +198,20 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
                         (uint8_t)((sum + samples / 2u) / samples);
                 }
             }
+    }
+    /* Initialize the NPOT storage-only fringe by edge extension. Never feed
+     * padding back into downsampling of logical texels. */
+    for (uint32_t level = 0; level < mip_count; ++level) {
+        uint8_t *current = destination + mip_offsets[level];
+        for (uint32_t y = 0; y < storage_heights[level]; ++y) {
+            uint32_t sy = y < mip_heights[level] ? y : mip_heights[level] - 1u;
+            for (uint32_t x = 0; x < storage_widths[level]; ++x) {
+                if (y < mip_heights[level] && x < mip_widths[level]) continue;
+                uint32_t sx = x < mip_widths[level] ? x : mip_widths[level] - 1u;
+                memcpy(current + y * mip_pitches[level] + x * 4u,
+                       current + sy * mip_pitches[level] + sx * 4u, 4u);
+            }
+        }
     }
     cache->flush(destination, allocation_bytes, cache->flush_user);
 

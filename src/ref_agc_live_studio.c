@@ -5,6 +5,12 @@
 #include "ps5_transient_table.h"
 #include <math.h>
 #include <string.h>
+#include <stddef.h>
+
+_Static_assert(sizeof(BspBundleVertex)==32 && offsetof(BspBundleVertex,face_id)==28,
+    "Studio packed vertex light must match GoldSrc surface attribute 3");
+_Static_assert(offsetof(BspResourceConstants,debug_values)+11*sizeof(float)==124,
+    "Studio lighting opt-in must match draw_state.debug_values[1].w");
 
 /* Read the engine-decoded v10 layout, never cast unaligned file structures.
  * Texture index is already an engine texture handle, not a file offset. */
@@ -19,6 +25,39 @@ static float f32(ModelBytes *m, size_t at)
 { float v=0; if(span(m,at,4)) memcpy(&v,m->p+at,4); if(!isfinite(v)) m->bad=1; return v; }
 static uint64_t hash(uint64_t h, const void *p, size_t n)
 { const uint8_t *b=p; while(n--) { h^=*b++; h*=UINT64_C(1099511628211); } return h; }
+static void chrome_cross(const float a[3],const float b[3],float out[3])
+{ out[0]=a[1]*b[2]-a[2]*b[1];out[1]=a[2]*b[0]-a[0]*b[2];out[2]=a[0]*b[1]-a[1]*b[0]; }
+static int chrome_normalize(float v[3])
+{
+    float length=sqrtf(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+    if(!isfinite(length)) return -1;
+    if(length>0) for(int k=0;k<3;++k) v[k]/=length;
+    return 0;
+}
+/* R_StudioSetupChrome from the pinned GL path. Dotting world-normal with
+ * world axes equals dotting model-normal with inverse-rotated bone axes.
+ * Retain the original normal magnitude, 32-texel scale and zero-vector case. */
+static int chrome_uv(const RefAgcLiveView *view,const float bone[3][4],
+                     const float normal[3],int width,int height,float uv[2])
+{
+    float a[3],delta[3],up[3],right[3];
+    for(int k=0;k<3;++k) {
+        if(!isfinite(view->angles[k])||!isfinite(view->origin[k])) return -1;
+        a[k]=view->angles[k]*(3.14159265358979323846f/180.0f);
+        delta[k]=bone[k][3]-view->origin[k];
+    }
+    float sp=sinf(a[0]),sy=sinf(a[1]),cy=cosf(a[1]),sr=sinf(a[2]),cr=cosf(a[2]);
+    float view_right[3]={-sr*sp*cy+cr*sy,-sr*sp*sy-cr*cy,-sr*cosf(a[0])};
+    if(chrome_normalize(delta)) return -1;
+    chrome_cross(delta,view_right,up);
+    if(chrome_normalize(up)) return -1;
+    chrome_cross(up,delta,right);
+    if(chrome_normalize(right)) return -1;
+    float s=0,t=0;
+    for(int k=0;k<3;++k) { s+=normal[k]*right[k];t+=normal[k]*up[k]; }
+    uv[0]=(s+1)*32.0f/width;uv[1]=(t+1)*32.0f/height;
+    return isfinite(uv[0])&&isfinite(uv[1]) ? 0 : -1;
+}
 static void *allocate(Ps5TransientRing *r, uint32_t s, size_t n, size_t align,
                       const void *mapping, size_t bytes)
 {
@@ -42,8 +81,13 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
     if(bsp_flat_camera_matrix(projection,camera,forward,aspect)) return -1;
     out->pose_hash=UINT64_C(14695981039346656037);
     out->normal_hash=UINT64_C(14695981039346656037);
-    for(uint32_t ei=0;ei<live->entity_count;++ei) {
-        const RefAgcLiveEntity *e=&live->entities[ei];
+    out->light_hash=UINT64_C(14695981039346656037);
+    out->chrome_uv_hash=UINT64_C(14695981039346656037);
+    out->light_min=255;
+    if(live->viewmodel_valid>1u) return -1;
+    for(uint32_t ei=0;ei<live->entity_count+live->viewmodel_valid;++ei) {
+        const int viewmodel=ei==live->entity_count;
+        const RefAgcLiveEntity *e=viewmodel ? &live->viewmodel : &live->entities[ei];
         if(e->model_type!=REF_AGC_LIVE_MODEL_STUDIO) continue;
         out->failed_entity=e->index;
         RefAgcGpuStudioEntry entry;
@@ -86,6 +130,7 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                 if(tex<0||tex>=textures_n) goto failed;
                 size_t tx=(size_t)tex_at+tex*80;
                 int flags=i16(&m,tx+64), width=i32(&m,tx+68), height=i32(&m,tx+72), handle=i32(&m,tx+76);
+                if(flags&2) ++out->chrome_draws;
                 RefAgcGpuTextureEntry texture;
                 if(width<1||height<1||handle<1||ref_agc_gpu_texture_cache_get(textures,handle,&texture)) goto failed;
                 uint32_t vertices=0, indices=0;
@@ -111,8 +156,16 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                    ps5_transient_table_allocate(ring,slot,12,mapping,mapping_bytes,&tt)) goto failed;
                 rc=-2;
                 memset(constants,0,sizeof(*constants)); memcpy(constants->mvp,projection,sizeof(projection));
+                /* D3D [0,1] clip depth: equivalent to upstream glDepthRange
+                 * (0,0.3). Local matrix change cannot leak into later HUD. */
+                if(viewmodel)
+                    for(unsigned column=0;column<4;++column)
+                        constants->mvp[column*4+2]*=0.3f;
                 constants->control[0]=constants->control[1]=constants->control[2]=1;
                 constants->control[3]=e->render_mode==0?1:e->render_amount/255.0f;
+                /* GoldSrc surface VS: explicit Studio vertex-light opt-in.
+                 * debug_values[11] aliases draw_state.debug_values[1].w. */
+                constants->debug_values[11]=-1.0f;
                 memcpy(tt.words,texture.descriptor,sizeof(texture.descriptor));
                 if(ps5_gfx1013_build_constant_vsharp(ct.words,(uintptr_t)constants,sizeof(*constants))||
                    ps5_gfx1013_build_vsharp(vt.words,(uintptr_t)v,sizeof(*v),vertices)) goto failed;
@@ -152,6 +205,25 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                         }
                         v[vi]=(BspBundleVertex){.position={world[0],world[2],-world[1]},
                             .base_uv={i16(&m,cursor+4)/(float)width,i16(&m,cursor+6)/(float)height}};
+                        if(flags&2) {
+                            if(chrome_uv(&live->view,pose->matrices[normal_bone],
+                                world_normal,width,height,v[vi].base_uv)) goto failed;
+                            ++out->chrome_vertices;
+                            out->chrome_uv_hash=hash(out->chrome_uv_hash,v[vi].base_uv,sizeof(v[vi].base_uv));
+                        }
+                        if(ref_agc_studio_vertex_light(&pose->lighting,
+                            live->studio_light_gamma,world_normal,(uint32_t)flags,
+                            &v[vi].face_id)) goto failed;
+                        /* CPU-only diagnostic: leave every shader/constant,
+                         * vertex position, UV, alpha and index unchanged. */
+                        if(live->view.sampling_probe_mode==4u)
+                            v[vi].face_id=UINT32_C(0xffffffff);
+                        out->light_hash=hash(out->light_hash,&v[vi].face_id,4);
+                        for(unsigned channel=0;channel<3;++channel) {
+                            unsigned value=(v[vi].face_id>>(channel*8))&255;
+                            if(value<out->light_min) out->light_min=value;
+                            if(value>out->light_max) out->light_max=value;
+                        }
                         ++vi; cursor+=8;
                     }
                     for(int j=2;j<n;++j) {
@@ -162,7 +234,8 @@ int ref_agc_live_studio_build(RefAgcLiveStudioFrame *out,
                     }
                 }
                 if(m.bad||ii!=indices||vi!=vertices) goto failed;
-                out->draws[out->count++]=(RefAgcLiveStudioDraw){ct.words,vt.words,tt.words,ix,indices,(uint32_t)handle,ei,(uint32_t)flags};
+                out->draws[out->count++]=(RefAgcLiveStudioDraw){ct.words,vt.words,tt.words,ix,indices,(uint32_t)handle,viewmodel?UINT32_MAX:ei,(uint32_t)flags};
+                if(viewmodel) { ++out->viewmodel_draws;out->viewmodel_vertices+=vertices; }
                 out->vertices+=vertices; out->indices+=indices;
             }
         }
@@ -175,6 +248,10 @@ failed:
     out->count=0;
     out->normals=0;
     out->normal_hash=0;
+    out->light_hash=0;
+    out->chrome_draws=out->chrome_vertices=0;
+    out->chrome_uv_hash=0;
+    out->viewmodel_draws=out->viewmodel_vertices=0;
     return rc;
 }
 

@@ -1564,6 +1564,17 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     const int resource_frame_result = bsp_resource_frame_build_configured(
 #elif defined(PS5_REF_AGC_LIVE_PHASE7)
     uint32_t sampling_probe_mode = 0;
+#if PS5_REF_AGC_STUDIO_AB
+    if(ref_agc_live_world_view_ready(&state->live_frame)) {
+        uint32_t unlit=state->live_frame.view.sampling_probe_mode==4u;
+        if(state->live_sampling_probe_seen!=unlit+1u) {
+            state->live_sampling_probe_seen=unlit+1u;
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_STUDIO_AB schema=1 serial=%llu unlit=%u scope=studio-vertex-rgb shader=unchanged",
+                (unsigned long long)state->live_frame.serial,unlit);
+        }
+    }
+#endif
 #if PS5_REF_AGC_SAMPLING_PROBE
     if (ref_agc_live_world_view_ready(&state->live_frame)) {
         sampling_probe_mode = state->live_frame.view.sampling_probe_mode;
@@ -2617,7 +2628,9 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
     RefAgcLiveStudioFrame *studio = &state->live_studio_frames[resource_slot];
     for (uint32_t i = 0; result == 0 && i < studio->count; ++i) {
         RefAgcLiveStudioDraw *draw = &studio->draws[i];
-        GoldSrcRenderMode mode = (GoldSrcRenderMode)state->live_frame.entities[draw->entity].render_mode;
+        const RefAgcLiveEntity *draw_entity=draw->entity==UINT32_MAX ?
+            &state->live_frame.viewmodel : &state->live_frame.entities[draw->entity];
+        GoldSrcRenderMode mode = (GoldSrcRenderMode)draw_entity->render_mode;
         if (mode == GOLDSRC_RENDER_NORMAL && (draw->flags & 0x40u))
             mode = GOLDSRC_RENDER_TRANS_ALPHA;
         if (draw->flags & 0x20u) mode = GOLDSRC_RENDER_TRANS_ADD;
@@ -2641,13 +2654,25 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         state->live_studio_pose_hash = studio->pose_hash;
         if (state->live_studio_draw_frames == 1 || frame->frame_index % 600 == 0) {
             (void)ps5log_printf(PS5LOG_MARK,
-                "REF_AGC_STUDIO_NORMALS schema=1 serial=%llu normals=%u normal_hash=%016llx source=mdl-normal-bones space=engine-world lighting=not-applied",
+                "REF_AGC_VIEWMODEL schema=1 serial=%llu valid=%u draws=%u vertices=%u model=%s sequence=%d frame=%.3f depth=0..0.3 order=after-npc-before-hud",
+                (unsigned long long)state->live_frame.serial,state->live_frame.viewmodel_valid,
+                studio->viewmodel_draws,studio->viewmodel_vertices,state->live_frame.viewmodel.model_name,
+                state->live_frame.viewmodel.sequence,
+                state->live_frame.viewmodel.studio_pose ?
+                    state->live_frame.studio_poses[state->live_frame.viewmodel.studio_pose-1].frame : 0.0f);
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_STUDIO_CHROME schema=1 serial=%llu draws=%u vertices=%u uv_hash=%016llx source=normal-bone+camera scale=32 shader=unchanged",
+                (unsigned long long)state->live_frame.serial,studio->chrome_draws,
+                studio->chrome_vertices,(unsigned long long)studio->chrome_uv_hash);
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_STUDIO_NORMALS schema=1 serial=%llu normals=%u normal_hash=%016llx source=mdl-normal-bones space=engine-world lighting=engine-bsp-dynamic",
                 (unsigned long long)state->live_frame.serial, studio->normals,
                 (unsigned long long)studio->normal_hash);
             (void)ps5log_printf(PS5LOG_MARK,
-                "REF_AGC_LIVE_STUDIO_FRAME schema=1 serial=%llu entities=%u draws=%u vertices=%u indices=%u pose_hash=%016llx ownership=transient-slot lighting=unlit",
+                "REF_AGC_LIVE_STUDIO_FRAME schema=2 serial=%llu entities=%u draws=%u vertices=%u indices=%u pose_hash=%016llx ownership=transient-slot lighting=engine-bsp-dynamic normals=%u light_hash=%016llx light_min=%u light_max=%u",
                 (unsigned long long)state->live_frame.serial, studio->entities,
-                studio->count, studio->vertices, studio->indices, (unsigned long long)studio->pose_hash);
+                studio->count, studio->vertices, studio->indices, (unsigned long long)studio->pose_hash,
+                studio->normals,(unsigned long long)studio->light_hash,studio->light_min,studio->light_max);
             for (uint32_t i = 0; i < state->live_frame.entity_count; ++i) {
                 const RefAgcLiveEntity *e = &state->live_frame.entities[i];
                 if (e->model_type == REF_AGC_LIVE_MODEL_STUDIO)
@@ -6094,11 +6119,26 @@ int main(void)
             RefAgcGpuWorldStats world_stats;
             if (ref_agc_gpu_world_cache_stats(
                     &renderer.live_world_cache, &world_stats) !=
-                REF_AGC_GPU_WORLD_OK || !world_stats.active ||
-                world_stats.draw_count == 0u ||
-                world_stats.vertex_count == 0u ||
-                world_stats.index_count == 0u)
+                REF_AGC_GPU_WORLD_OK ||
+                (world_stats.active &&
+                 (world_stats.draw_count == 0u ||
+                  world_stats.vertex_count == 0u ||
+                  world_stats.index_count == 0u)) ||
+                (!world_stats.active &&
+                 (world_stats.draw_count != 0u ||
+                  world_stats.vertex_count != 0u ||
+                  world_stats.index_count != 0u ||
+                  world_stats.resident_bytes != 0u)))
                 park("live-world-stats-failure");
+            /* A retired world removal is valid during disconnect/error recovery.
+             * Do not report it as a populated-world upload. */
+            if (!world_stats.active) {
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "REF_AGC_LIVE_WORLD_CLEAR schema=1 serial=%llu "
+                    "revision=%llu resident_bytes=0 ownership=retired-before-reuse",
+                    (unsigned long long)renderer.live_frame.serial,
+                    (unsigned long long)next_world_revision);
+            } else {
             (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_LIVE_WORLD_SYNC serial=%llu revision=%llu "
                 "first_surface=%u surface_count=%u "
@@ -6133,6 +6173,7 @@ int main(void)
                 (unsigned long long)world_stats.source_hash,
                 (unsigned long long)world_stats.upload_hash,
                 REF_AGC_GPU_WORLD_ARENA_BYTES);
+            }
             renderer.live_world_revision = next_world_revision;
         }
         if (renderer.live_texture_revision != 0u &&
@@ -6382,7 +6423,7 @@ int main(void)
         (unsigned long long)live_studio_stats.flushes,
         REF_AGC_GPU_STUDIO_ARENA_BYTES);
     (void)ps5log_printf(PS5LOG_MARK,
-        "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=%llu draws=%llu indices=%llu pose_hash=%016llx pose_changes=%llu ownership=fence+videoout+ack lighting=unlit errors=0",
+        "REF_AGC_LIVE_STUDIO_COMPLETE schema=2 frames=%llu draws=%llu indices=%llu pose_hash=%016llx pose_changes=%llu ownership=fence+videoout+ack lighting=engine-bsp-dynamic errors=0",
         (unsigned long long)renderer.live_studio_draw_frames,
         (unsigned long long)renderer.live_studio_draws,
         (unsigned long long)renderer.live_studio_indices,

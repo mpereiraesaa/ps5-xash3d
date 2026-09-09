@@ -143,6 +143,17 @@ int main(void)
     assert(ref_agc_gpu_world_cache_apply(world, &cleared, textures, 1) == 0);
     assert(ref_agc_gpu_world_cache_stats(world, &stats) == 0);
     assert(!stats.active && stats.clears == 1u && stats.resident_bytes == 0u);
+    assert(stats.vertex_count == 0u && stats.index_count == 0u &&
+           stats.draw_count == 0u);
+    assert(ref_agc_gpu_world_cache_validate(world) == 0);
+    assert(ref_agc_gpu_world_cache_draw(world, 0u) == NULL);
+    /* Error recovery may publish the removal again, then load a new world. */
+    assert(ref_agc_gpu_world_cache_apply(world, &cleared, textures, 0) == 0);
+    replacement.revision = 4u;
+    assert(ref_agc_gpu_world_cache_apply(world, &replacement, textures, 0) == 0);
+    assert(ref_agc_gpu_world_cache_validate(world) == 0);
+    assert(ref_agc_gpu_world_cache_stats(world, &stats) == 0);
+    assert(stats.active && stats.revision == 4u && stats.draw_count == 2u);
 
     ref_agc_gpu_world_cache_destroy(world);
     ref_agc_gpu_texture_cache_destroy(textures);

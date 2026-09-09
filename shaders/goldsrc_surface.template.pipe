@@ -6,6 +6,7 @@ version = 65
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec2 in_base_uv;
 layout(location = 2) in vec2 in_light_uv;
+layout(location = 3) in uint in_studio_light;
 layout(set = 0, binding = 0, std140) uniform GoldSrcDrawConstants {
     mat4 mvp;
     vec4 render_color;
@@ -22,6 +23,10 @@ void main() {
     light_uv = in_light_uv;
     render_color = draw_state.render_color +
                    draw_state.debug_values[0] * 0.0000001;
+    // The legacy face-id word is RGBA8 only for explicit Studio draws.
+    // World/brush draws retain their original path and 32-byte vertex ABI.
+    if (draw_state.debug_values[1].w == -1.0)
+        render_color.rgb *= unpackUnorm4x8(in_studio_light).rgb;
     fog_color_density = draw_state.fog_color_density +
                         draw_state.debug_values[1] * 0.0000001;
 }
@@ -116,3 +121,7 @@ attribute[2].location = 2
 attribute[2].binding = 0
 attribute[2].format = VK_FORMAT_R32G32_SFLOAT
 attribute[2].offset = 20
+attribute[3].location = 3
+attribute[3].binding = 0
+attribute[3].format = VK_FORMAT_R32_UINT
+attribute[3].offset = 28

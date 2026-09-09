@@ -34,6 +34,9 @@ int main(void)
     live.entity_count=1;live.studio_pose_count=1;
     live.entities[0]=(RefAgcLiveEntity){.index=42,.model_type=3,.studio_handle=1,.studio_pose=1};
     live.studio_poses[0].bones=1;
+    live.studio_poses[0].lighting=(RefAgcStudioLighting){
+        .ambient=128,.shade=64,.color={1,1,1},.direction={0,0,-1},.scale=1,.valid=1};
+    for(unsigned i=0;i<1024;++i) live.studio_light_gamma[i]=i;
     for(int k=0;k<3;++k){live.studio_poses[0].matrices[0][k][k]=1;live.studio_poses[0].matrices[0][k][3]=10*(k+1);}
     uint8_t *memory=aligned_alloc(256,16384);assert(memory);
     Ps5TransientRing ring;
@@ -46,6 +49,23 @@ int main(void)
     const uint32_t *w=out.draws[0].vertices;
     const BspBundleVertex *v=(void *)(uintptr_t)((uint64_t)w[0]|((uint64_t)(w[1]&65535)<<32));
     assert(v[0].position[0]==10&&v[0].position[1]==30&&v[0].position[2]==-20);
+    assert((v[0].face_id>>24)==255&&out.light_hash&&out.light_max>0);
+    const uint32_t *ct=out.draws[0].constants;
+    const BspResourceConstants *constant=(void *)(uintptr_t)((uint64_t)ct[0]|((uint64_t)(ct[1]&65535)<<32));
+    assert(constant->debug_values[11]==-1.0f);
+    BspBundleVertex original_vertex=v[0];
+    BspResourceConstants original_constants=*constant;
+    uint64_t original_pose=out.pose_hash;
+    live.view.sampling_probe_mode=4;ring.slots[0].used=0;assert(!BUILD());
+    w=out.draws[0].vertices;
+    v=(void *)(uintptr_t)((uint64_t)w[0]|((uint64_t)(w[1]&65535)<<32));
+    ct=out.draws[0].constants;
+    constant=(void *)(uintptr_t)((uint64_t)ct[0]|((uint64_t)(ct[1]&65535)<<32));
+    assert(v[0].face_id==0xffffffffu&&out.pose_hash==original_pose);
+    original_vertex.face_id=0xffffffffu;
+    assert(!memcmp(v,&original_vertex,sizeof(original_vertex)));
+    assert(!memcmp(constant,&original_constants,sizeof(original_constants)));
+    live.view.sampling_probe_mode=0;ring.slots[0].used=0;assert(!BUILD());
     const uint16_t strip[]={0,1,2,2,1,3};assert(!memcmp(out.draws[0].indices,strip,sizeof(strip)));
     uint64_t h=out.pose_hash;live.studio_poses[0].matrices[0][0][3]=11;ring.slots[0].used=0;
     uint64_t nh=out.normal_hash;assert(out.normals==4);
@@ -77,6 +97,43 @@ int main(void)
     assert(BUILD()<0);assert(ring.slots[0].used==checkpoint);
     arena[536]=0;p16(arena,588,-4);ring.slots[0].used=0;
     assert(!BUILD());const uint16_t fan[]={0,1,2,0,2,3};assert(!memcmp(out.draws[0].indices,fan,sizeof(fan)));
+    checkpoint=ring.slots[0].used;live.studio_poses[0].lighting.valid=0;
+    assert(BUILD()<0&&!out.count&&!out.light_hash&&ring.slots[0].used==checkpoint);
+    live.studio_poses[0].lighting.valid=1;
+    /* Chrome ignores authored UVs, uses normal bone and viewer in engine
+     * coordinates; all geometry and lighting stay intact. */
+    p32(arena,308,2);p32(arena,312,64);p32(arena,316,64);
+    live.view.origin[0]=11;live.view.origin[1]=20;live.view.origin[2]=40;
+    ring.slots[0].used=0;assert(!BUILD());
+    assert(out.chrome_draws==1&&out.chrome_vertices==4);
+    w=out.draws[0].vertices;
+    v=(void *)(uintptr_t)((uint64_t)w[0]|((uint64_t)(w[1]&65535)<<32));
+    assert(fabsf(v[0].base_uv[0]-.5f)<1e-6f&&fabsf(v[0].base_uv[1])<1e-6f);
+    uint64_t chrome_hash=out.chrome_uv_hash,chrome_pose=out.pose_hash;
+    live.view.origin[0]=31;live.view.origin[2]=30;
+    ring.slots[0].used=0;assert(!BUILD());
+    assert(out.chrome_uv_hash!=chrome_hash&&out.pose_hash==chrome_pose);
+    live.view.origin[0]=11;live.view.origin[1]=20;live.view.origin[2]=30;
+    ring.slots[0].used=0;assert(!BUILD()); /* coincident viewer/bone: finite center */
+    w=out.draws[0].vertices;
+    v=(void *)(uintptr_t)((uint64_t)w[0]|((uint64_t)(w[1]&65535)<<32));
+    assert(v[0].base_uv[0]==.5f&&v[0].base_uv[1]==.5f);
+    live.view.angles[1]=NAN;checkpoint=ring.slots[0].used;
+    assert(BUILD()<0&&!out.chrome_vertices&&!out.chrome_uv_hash&&ring.slots[0].used==checkpoint);
+    live.view.angles[1]=0;p32(arena,308,0);ring.slots[0].used=0;
+    assert(!BUILD()&&!out.chrome_draws&&!out.chrome_vertices);
+    live.viewmodel=live.entities[0];live.viewmodel_valid=1;
+    ring.slots[0].used=0;assert(!BUILD());
+    assert(out.count==2&&out.viewmodel_draws==1&&out.viewmodel_vertices==4);
+    assert(out.draws[0].entity==0&&out.draws[1].entity==UINT32_MAX);
+    const uint32_t *wc=out.draws[0].constants,*vc=out.draws[1].constants;
+    const BspResourceConstants *world_c=(void *)(uintptr_t)((uint64_t)wc[0]|((uint64_t)(wc[1]&65535)<<32));
+    const BspResourceConstants *view_c=(void *)(uintptr_t)((uint64_t)vc[0]|((uint64_t)(vc[1]&65535)<<32));
+    for(unsigned j=0;j<16;++j)
+        assert(fabsf(view_c->mvp[j]-world_c->mvp[j]*(j%4==2?.3f:1.0f))<1e-6f);
+    live.viewmodel.studio_pose=0;checkpoint=ring.slots[0].used;
+    assert(BUILD()<0&&!out.viewmodel_draws&&ring.slots[0].used==checkpoint);
+    live.viewmodel_valid=0;
     p32(arena,520,1024);checkpoint=ring.slots[0].used;
     assert(BUILD()<0);assert(ring.slots[0].used==checkpoint);
     free(memory);puts("ref_agc live Studio geometry tests passed");

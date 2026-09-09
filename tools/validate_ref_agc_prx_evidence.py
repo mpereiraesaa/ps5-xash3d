@@ -160,7 +160,9 @@ def validate_live_studio(messages: list[str], views: int) -> dict:
     complete = one(messages, "REF_AGC_LIVE_STUDIO_COMPLETE")
     samples = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_FRAME ")]
     entities = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_ENTITY ")]
-    if not exact(complete, {"schema": "1", "errors": "0", "lighting": "unlit",
+    schema = complete.get("schema")
+    lighting = "engine-bsp-dynamic" if schema == "2" else "unlit"
+    if schema not in ("1", "2") or not exact(complete, {"errors": "0", "lighting": lighting,
                            "ownership": "fence+videoout+ack"}) or not samples:
         fail("missing live Studio completion/samples")
     frames = int(complete["frames"])
@@ -172,12 +174,18 @@ def validate_live_studio(messages: list[str], views: int) -> dict:
     observed = set()
     for sample in samples:
         selected = [e for e in entities if e.get("serial") == sample.get("serial")]
-        if sample.get("ownership") != "transient-slot" or sample.get("lighting") != "unlit" \
+        if sample.get("schema") != schema or sample.get("ownership") != "transient-slot" or sample.get("lighting") != lighting \
                 or len(selected) != int(sample["entities"]) or not selected \
                 or len({e["index"] for e in selected}) != len(selected) \
                 or any(int(sample[k]) <= 0 for k in ("draws", "vertices", "indices")) \
                 or int(sample["indices"]) % 3:
             fail("invalid live Studio sample accounting")
+        if schema == "2" and (
+            int(sample.get("normals", -1)) != int(sample["vertices"])
+            or sample.get("light_hash") in (None, "0000000000000000")
+            or not 0 <= int(sample.get("light_min", -1)) <= int(sample.get("light_max", -1)) <= 255
+        ):
+            fail("invalid live Studio lighting evidence")
         for entity in selected:
             if not 0 < int(entity["bones"]) <= 128 or int(entity["sequence"]) < 0 \
                     or int(entity["frame_milli"]) < 0 or not entity["model"].endswith(".mdl"):
@@ -188,7 +196,7 @@ def validate_live_studio(messages: list[str], views: int) -> dict:
             fail("live Studio samples exceed completion")
     return {"frames": frames, "draws": int(complete["draws"]),
             "indices": int(complete["indices"]), "pose_changes": int(complete["pose_changes"]),
-            "models": sorted(observed), "lighting": "unlit"}
+            "models": sorted(observed), "lighting": lighting}
 
 
 def validate_renderer(

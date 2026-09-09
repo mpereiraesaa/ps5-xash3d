@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "PUBLICATION_ALLOWLIST.txt"
 TEXT_SUFFIXES = {
     "", ".c", ".cpp", ".example", ".h", ".json", ".map", ".md",
-    ".pipe", ".py", ".s", ".sh", ".txt", ".yml",
+    ".pipe", ".py", ".s", ".sh", ".txt", ".yml", ".cfg",
 }
 PINNED_BINARY_SHA256 = {
     "assets/branding/icon-master.png":
