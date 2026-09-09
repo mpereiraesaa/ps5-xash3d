@@ -3,6 +3,28 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include "bsp_flat_scene.h"
+
+static const BspResourceConstants *constants(const RefAgcLiveBrushEntry *entry)
+{
+    const uint32_t *words = entry->constant_table;
+    return (const BspResourceConstants *)(uintptr_t)(
+        (uint64_t)words[0] | ((uint64_t)(words[1] & 0xffffu) << 32));
+}
+
+static void expect_point(const float matrix[16], const float camera[16],
+                         const float local[3], const float world[3])
+{
+    for (unsigned row = 0; row < 4; ++row) {
+        float actual = matrix[12 + row], expected = camera[12 + row];
+        for (unsigned column = 0; column < 3; ++column) {
+            actual += matrix[column * 4 + row] * local[column];
+            expected += camera[column * 4 + row] * world[column];
+        }
+        assert(fabsf(actual - expected) < 0.0001f);
+    }
+}
 
 int main(void)
 {
@@ -28,7 +50,7 @@ int main(void)
         .render_mode = REF_AGC_LIVE_RENDER_TRANS_TEXTURE,
         .render_amount = 128,
         .render_color = {64u, 128u, 255u, 128u},
-        .angles = {10.0f, 20.0f, 30.0f},
+        .angles = {0.0f, 90.0f, 0.0f},
     };
     live.entities[2] = (RefAgcLiveEntity){
         .model_type = REF_AGC_LIVE_MODEL_BRUSH,
@@ -54,6 +76,15 @@ int main(void)
            frame.entries[2].render_class == REF_AGC_LIVE_BRUSH_ADDITIVE);
     for (uint32_t i = 0u; i < frame.count; ++i)
         assert(frame.entries[i].constant_table != NULL);
+    float camera_matrix[16];
+    assert(bsp_flat_camera_matrix(camera_matrix, camera, forward, 16.0f / 9.0f) == 0);
+    /* GoldSrc (10,20,30) maps to AGC (10,30,-20). */
+    expect_point(constants(&frame.entries[0])->mvp, camera_matrix,
+                 (float[3]){0,0,0}, (float[3]){10,30,-20});
+    /* A 90-degree GoldSrc yaw rotates +X onto +Y, hence AGC -Z. */
+    expect_point(constants(&frame.entries[1])->mvp, camera_matrix,
+                 (float[3]){1,0,0}, (float[3]){0,0,-1});
+    assert(fabsf(constants(&frame.entries[1])->control[3] - 128.0f/255.0f) < 0.0001f);
 
     Ps5TransientRing second_ring;
     assert(ps5_transient_ring_init(&second_ring, memory, 16384u, 1u, 256u) ==

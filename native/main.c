@@ -2378,7 +2378,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                       },
                       2u * sizeof(uint64_t));
         if (state->live_brush_frames_rendered == 1u ||
-            frame->frame_index % 600u == 0u)
+            frame->frame_index % 600u == 0u) {
             (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_LIVE_BRUSH_FRAME schema=1 frame=%llu serial=%llu "
                 "input_entities=%u instances=%u opaque=%u alpha=%u "
@@ -2392,6 +2392,22 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                 live_brush->additive_count, live_brush_composed.draws,
                 live_brush_composed.indices,
                 (unsigned long long)live_brush->transform_hash);
+            for (uint32_t i = 0; i < live_brush->count; ++i) {
+                const RefAgcLiveBrushEntry *entry = &live_brush->entries[i];
+                const RefAgcLiveEntity *entity =
+                    &state->live_frame.entities[entry->live_entity];
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "REF_AGC_LIVE_BRUSH_ENTITY schema=1 serial=%llu index=%d "
+                    "model=%s first_surface=%u surface_count=%u mode=%u "
+                    "origin_milli=%d,%d,%d angles_milli=%d,%d,%d",
+                    (unsigned long long)state->live_frame.serial, entity->index,
+                    entity->model_name, entry->first_surface, entry->surface_count,
+                    entry->render_mode,
+                    (int)(entity->origin[0]*1000), (int)(entity->origin[1]*1000),
+                    (int)(entity->origin[2]*1000), (int)(entity->angles[0]*1000),
+                    (int)(entity->angles[1]*1000), (int)(entity->angles[2]*1000));
+            }
+        }
     }
     RefAgcLive2DComposeResult live_2d_composed = {0};
     RefAgcLive2DFrame *const live_2d =
@@ -6033,6 +6049,15 @@ int main(void)
     if (live_first_hash == 0u || live_second_hash == 0u ||
         live_first_bright == 0u || live_second_bright == 0u)
         park("live-readback-visibility-failure");
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_LIVE_BRUSH_COMPLETE schema=1 frames=%llu instances=%llu "
+        "draws=%llu indices=%llu transform_hash=%016llx "
+        "ownership=fence+videoout+ack errors=0",
+        (unsigned long long)renderer.live_brush_frames_rendered,
+        (unsigned long long)renderer.live_brush_instances,
+        (unsigned long long)renderer.live_brush_draws,
+        (unsigned long long)renderer.live_brush_indices,
+        (unsigned long long)renderer.live_brush_transform_hash);
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_GPU_STUDIO_CACHE_COMPLETE schema=1 revision=%llu "
         "creates=%llu updates=%llu deletes=%llu active=%u peak=%u "

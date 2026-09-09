@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import sys
 from pathlib import Path
 
 
@@ -14,6 +15,30 @@ ENGINE = "9aa39ad"
 HLSDK = "e277ffa"
 BUNDLE = "1" * 64
 STUDIO = "2" * 64
+
+sys.path.insert(0, str(ROOT / "tools"))
+from validate_ref_agc_prx_evidence import validate_live_brush, EvidenceError
+
+
+def test_brush_validation():
+    sample = "REF_AGC_LIVE_BRUSH_FRAME serial=1 instances=1 input_entities=1 opaque=1 alpha=0 additive=0 rejected=0 draws=2 indices=6 ownership=transient-slot"
+    entity = "REF_AGC_LIVE_BRUSH_ENTITY serial=1 index=5 model=*2 first_surface=10 surface_count=2 mode=0 origin_milli=0,0,0 angles_milli=0,0,0"
+    complete = "REF_AGC_LIVE_BRUSH_COMPLETE schema=1 frames=2 instances=2 draws=4 indices=12 transform_hash=123456789abcdef0 ownership=fence+videoout+ack errors=0"
+    valid = [sample, entity, sample.replace("serial=1", "serial=2"),
+             entity.replace("serial=1", "serial=2").replace("angles_milli=0,0,0", "angles_milli=0,90000,0"), complete]
+    assert validate_live_brush(valid, 2, 20)["moving_entities"] == [["5", "*2"]]
+    for bad in (
+        [m.replace("surface_count=2", "surface_count=21") for m in valid],
+        [m.replace("instances=1", "instances=2") for m in valid],
+        [m.replace("draws=4", "draws=1") for m in valid],
+        valid[:-1],
+    ):
+        try:
+            validate_live_brush(bad, 2, 20)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("accepted invalid brush evidence")
 
 
 def write_run(directory: Path, name: str, app: str, messages: list[str], *,
@@ -652,4 +677,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    test_brush_validation()
     main()

@@ -74,6 +74,55 @@ def exact(fields: dict[str, str], expected: dict[str, str]) -> bool:
     return all(fields.get(key) == value for key, value in expected.items())
 
 
+def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
+    complete = one(messages, "REF_AGC_LIVE_BRUSH_COMPLETE")
+    samples = [parse_fields(m) for m in messages
+               if m.startswith("REF_AGC_LIVE_BRUSH_FRAME ")]
+    entities = [parse_fields(m) for m in messages
+                if m.startswith("REF_AGC_LIVE_BRUSH_ENTITY ")]
+    if not exact(complete, {"schema": "1", "errors": "0",
+                           "ownership": "fence+videoout+ack"}) \
+            or not samples or not entities \
+            or not 0 < int(complete.get("frames", "0")) <= views \
+            or any(int(complete.get(k, "0")) <= 0 for k in ("instances", "draws", "indices")) \
+            or complete.get("transform_hash") in (None, "0000000000000000"):
+        fail("live brush completion missing or invalid")
+    prior = {}
+    moved = set()
+    for sample in samples:
+        selected = [e for e in entities if e.get("serial") == sample.get("serial")]
+        count = int(sample.get("instances", "0"))
+        if count <= 0 or len(selected) != count or len({e["index"] for e in selected}) != count \
+                or int(sample.get("input_entities", "0")) < count \
+                or sample.get("rejected") != "0" \
+                or sample.get("ownership") != "transient-slot" \
+                or sum(int(sample.get(k, "0")) for k in ("opaque", "alpha", "additive")) != count \
+                or int(sample.get("draws", "0")) <= 0 \
+                or int(sample.get("indices", "0")) <= 0:
+            fail("live brush sample accounting mismatch")
+        for entity in selected:
+            first, length = int(entity["first_surface"]), int(entity["surface_count"])
+            if first < 0 or length <= 0 or first + length > surfaces \
+                    or not entity.get("model", "").startswith("*") \
+                    or int(entity["mode"]) not in range(6):
+                fail("live brush entity range/model mismatch")
+            pose = tuple(int(v) for k in ("origin_milli", "angles_milli")
+                         for v in entity[k].split(","))
+            if len(pose) != 6:
+                fail("live brush pose mismatch")
+            key = (entity["index"], entity["model"])
+            if key in prior and prior[key] != pose:
+                moved.add(key)
+            prior[key] = pose
+    for key in ("instances", "draws", "indices"):
+        if sum(int(s[key]) for s in samples) > int(complete[key]):
+            fail("live brush sample totals exceed completion")
+    return {"frames": int(complete["frames"]), "instances": int(complete["instances"]),
+            "draws": int(complete["draws"]), "indices": int(complete["indices"]),
+            "samples": len(samples), "entities_observed": len(prior),
+            "moving_entities": [list(k) for k in sorted(moved)]}
+
+
 def validate_renderer(
     manifest_path: Path, *, bundle_sha256: str, bundle_bytes: int,
     studio_sha256: str, studio_bytes: int,
@@ -81,6 +130,7 @@ def validate_renderer(
     require_live_special_surfaces: bool = False,
     require_live_2d: bool = False,
     require_live_menu: bool = False,
+    require_live_brush: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -482,6 +532,11 @@ def validate_renderer(
                 "map_serial": map_serial,
                 "presentation": "native-agc",
             }
+        brush_summary = None
+        if require_live_brush:
+            if world is None:
+                fail("live brush requires a live world cache")
+            brush_summary = validate_live_brush(messages, views, int(world["draws"]))
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -504,6 +559,7 @@ def validate_renderer(
             "special_surfaces": special_summary,
             "live_2d": live_2d_summary,
             "live_menu": live_menu_summary,
+            "live_brush": brush_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -639,6 +695,7 @@ def main() -> int:
     parser.add_argument("--require-live-special-surfaces", action="store_true")
     parser.add_argument("--require-live-2d", action="store_true")
     parser.add_argument("--require-live-menu", action="store_true")
+    parser.add_argument("--require-live-brush", action="store_true")
     parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
@@ -657,6 +714,7 @@ def main() -> int:
                 args.require_live_special_surfaces,
             require_live_2d=args.require_live_2d,
             require_live_menu=args.require_live_menu,
+            require_live_brush=args.require_live_brush,
         )
         engine_menu = validate_engine_menu(
             args.engine_manifest, boot_map=args.map,
@@ -733,6 +791,7 @@ def main() -> int:
             "special_surfaces": renderer.get("special_surfaces"),
             "live_2d": renderer.get("live_2d"),
             "live_menu": renderer.get("live_menu"),
+            "live_brush": renderer.get("live_brush"),
             "engine_menu": engine_menu,
             "ownership": "exact",
             "pass": True,

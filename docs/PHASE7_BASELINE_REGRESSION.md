@@ -3,8 +3,9 @@
 The bounded FW 12.02 regression passed on 2026-09-09. Native MainUI fills the
 1920x1080 output, the engine queues `map c1a0`, and the map becomes visible
 through AGC before exact teardown. This closes the recovery regression only.
-Brush entities, Studio drawing, viewmodel, gameplay and release gates remain
-open. The tested branch includes preliminary brush and Studio resource work;
+The recovery alone does not close brush entities, Studio drawing, viewmodel,
+gameplay or release gates. The subsequent bounded brush validation is recorded
+below. The tested branch includes preliminary brush and Studio resource work;
 resource storage is not evidence of complete Studio rendering.
 
 ## Failure and correction
@@ -60,5 +61,61 @@ The private lab stores `phase7-baseline-coherent-deploy-20260909.jsonl` and
 `phase7-baseline-coherent-launch-20260909.jsonl` under `research/xash3d/`.
 The video is `phase7-baseline-coherent-20260909T0934Z.mp4` under the ignored
 Remote Play captures tree. Its 10-second frame shows fullscreen MainUI; the
-independent live screenshot shows the c1a0 tram interior. No joystick input
+independent live screenshot shows the c1a0 airlock facing reception (Anomalous
+Materials, not the c0a0 tram). No joystick input
 was required for this bounded regression. It auto-quits after 25 seconds.
+
+## Brush entities: accepted c1a0 validation, 2026-09-09
+
+This follow-up validates the existing native brush submission for c1a0 normal
+and alpha-test entities, including translation and rotation. It does not close
+all Phase 7 rendering modes, Studio drawing, viewmodel or gameplay.
+
+- Engine run: `20260909T094643623Z_PPSA99996_xash3d-engine_0x14000af1ef631`.
+- Renderer run: `20260909T094643679Z_PPSA99996_ps5-xash3d_0x14000b282f6bb`.
+- Paired validator passes with `--require-live-lightmaps --require-live-2d
+  --require-live-menu --require-live-brush --map c1a0`; engine `9aa39ad`,
+  HLSDK `e277ffa`, bundle identities and sizes unchanged from the recovery.
+- 1,214 matched frames, 988 valid-view/brush frames, 17,784 accumulated
+  instances, 201,552 brush draws and 1,636,128 submitted brush indices.
+- Three sampled poses (serials 227, 601, 1201) each report 18 accepted entities,
+  204 draws and 1,656 indices, with zero rejections. Fifteen are normal;
+  the three classified as `alpha` are mode 4 (alpha-test), not translucent glass.
+- Eleven entities change their actual origin/angles: chair `68/*17`, door leaves
+  `120/*30` and `123/*32`, bars `121/*31`, `124/*33`, `125/*34`, `126/*35`,
+  wheels `127/*36` through `130/*39`. Camera changes are zero, so this is not
+  merely an MVP hash change caused by moving the camera.
+- The private CLI video at 20 seconds shows the closed airlock; at 29 seconds
+  the leaves are open and bars displaced, revealing reception. No joystick
+  input was required. These are frames of the same run, not separate builds.
+- Menu still precedes the map (221 pre-map frames). Both clean BYEs, zero
+  structured errors, nine resource reclaims, intact guards and exact teardown.
+- Independent post-run status at 09:50:56 UTC: no BigApp; FTP, shsrv, elfldr
+  and ps5debug healthy (`phase7-brush-validation-postrun-20260909.jsonl`).
+- Host `make all` passes, including publication audit (402 files). Added tests
+  exercise GoldSrc-to-AGC translation, 90-degree yaw, alpha constants and
+  rejection of invalid brush evidence/ranges/accounting/missing completion.
+
+The instrumentation now emits `REF_AGC_LIVE_BRUSH_ENTITY` sampled poses and
+`REF_AGC_LIVE_BRUSH_COMPLETE` totals/ownership. The validator checks bounds,
+unique instance indices, pose shape, class counts and sampled vs final totals;
+it reports moving identities rather than assuming every map must animate.
+
+| Follow-up artifact | SHA-256 |
+| --- | --- |
+| ref_agc ELF | `0325729fb70502dea40dd9dbf2dd976e8018a8bfca0d2012c6eac9d4ad3ae22a` |
+| ref_agc PRX | `4f3493813317bee5f30494e92dd33ce3a5f3968f731eafc6bc9eebdf2d3ef971` |
+| Engine transcript | `f860e6bf91d0922186e1843dde9bf4c6efc8f15570aa16438def9662f65783b4` |
+| Renderer transcript | `c3da67783364f45d8be6d48dd97aa2c062468cfbdc56a33d064cc4bc6fa66422` |
+| Private CLI video | `7b6a1e97f523e95118f23d0a77bc4ce904ae883d9656efe77858fb8339eba08f` |
+
+Private lab journals: `research/xash3d/phase7-brush-validation-{deploy,launch}-20260909.jsonl`.
+The video is `research/gpu/captures/remoteplay/phase7-brush-validation-20260909T0947Z.mp4`.
+The canonical deployment staged and read-back verified the engine SELF, six
+PRXs and both assets as one coherent set. This turn does not change the engine
+SELF or asset identities in the recovery table.
+
+Still unvalidated here: additive/transcolor brush blending, turbulent/water
+brushes and their ordering. No such coverage may be inferred from the generic
+`alpha` counter. Studio cache residency is also not Studio draw evidence;
+that is the next separate rendering checkpoint.
