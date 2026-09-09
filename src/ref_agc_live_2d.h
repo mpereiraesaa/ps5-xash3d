@@ -38,6 +38,8 @@ typedef struct RefAgcLive2DFrame {
     uint32_t alpha_batches;
     uint32_t additive_batches;
     uint32_t opaque_batches;
+    uint32_t masked_batches;
+    uint32_t modulate_batches;
     uint32_t unresolved_textures;
     uint32_t failed_command;
     int32_t failed_texture;

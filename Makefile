@@ -113,6 +113,7 @@ $(eval $(call test_rule,test_ref_agc_studio_store,tests/test_ref_agc_studio_stor
 $(eval $(call test_rule,test_ref_agc_gpu_studio_cache,tests/test_ref_agc_gpu_studio_cache.c src/ref_agc_gpu_studio_cache.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_texture_store,tests/test_ref_agc_texture_store.c src/ref_agc_texture_store.c,-Isrc -lpthread))
 $(eval $(call test_rule,test_ref_agc_memory_budget,tests/test_ref_agc_memory_budget.c src/ref_agc_memory_budget.c,-Isrc))
+$(eval $(call test_rule,test_ref_agc_2d_state,tests/test_ref_agc_2d_state.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_gpu_texture_cache,tests/test_ref_agc_gpu_texture_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_world_store,tests/test_ref_agc_world_store.c src/ref_agc_world_store.c,-Isrc -lpthread))
 $(eval $(call test_rule,test_ref_agc_lightmap_atlas,tests/test_ref_agc_lightmap_atlas.c src/ref_agc_lightmap_atlas.c,-Isrc))
@@ -149,7 +150,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
 	test_ref_agc_live_brush test_ref_agc_live_studio test_ref_agc_studio_store \
 	test_ref_agc_gpu_studio_cache \
-	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache test_ref_agc_memory_budget \
+	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache test_ref_agc_memory_budget test_ref_agc_2d_state \
 	test_ref_agc_world_store test_ref_agc_lightmap_atlas \
 	test_ref_agc_gpu_world_cache \
 	test_ref_agc_gpu_world_draw test_ref_agc_skybox
@@ -166,6 +167,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_generate_bsp_build_metadata.py
 	python3 tests/test_generate_studio_build_metadata.py
 	python3 tests/test_native_contract.py
+	python3 tests/test_hud_probe.py
 	python3 tests/test_title_identity.py
 	python3 tests/test_bake_bsp.py
 	python3 tests/test_bake_studio.py
@@ -244,7 +246,7 @@ shaders:
 	@set -e; for name in goldsrc_surface goldsrc_surface_lightmap \
 		goldsrc_surface_fog goldsrc_surface_lightmap_fog goldsrc_masked \
 		goldsrc_masked_lightmap goldsrc_masked_fog \
-		goldsrc_masked_lightmap_fog; do \
+		goldsrc_masked_lightmap_fog goldsrc_screen_2d_masked; do \
 		python3 tools/build_shader.py \
 			--pipe "build/generated-shaders/$$name.pipe" --name "$$name" \
 			--amdllpc "$(AMDLLPC)" --readelf "$(LLVM_READELF)" \
@@ -296,6 +298,7 @@ shaders:
 	python3 tools/generate_pipeline_table.py
 	python3 tools/validate_goldsrc_shader_manifests.py
 	python3 tools/generate_goldsrc_shader_assets.py
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_screen_2d_masked.manifest.json --output build/generated/goldsrc_screen_2d_masked_shader_metadata.h --prefix GOLDSRC_SCREEN_2D_MASKED --symbol-prefix ps5_goldsrc_screen_2d_masked
 	python3 tools/generate_goldsrc_shader_catalog.py
 
 native:

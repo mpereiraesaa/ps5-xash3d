@@ -505,6 +505,7 @@ struct native_renderer {
     uint64_t live_2d_indices;
     uint64_t live_2d_frames_with_draws;
     uint64_t live_2d_command_hash;
+    uint32_t live_hud_trace_records;
     uint32_t live_2d_peak_batches;
     uint64_t live_menu_frames;
     uint64_t live_menu_quads;
@@ -1283,6 +1284,26 @@ static int resource_compose_fail(struct native_renderer *state,
 }
 
 #ifdef PS5_REF_AGC_LIVE_PHASE7
+static int bind_native_opaque_blend(
+    struct native_renderer *state, uint32_t **cursor, uint32_t *end)
+{
+    /* The base shader pipeline does not own CB_BLEND0_CONTROL. Reuse the
+     * immutable GPU-visible opaque register so HUD state cannot leak into
+     * next-frame clear/world draws. Do not change depth or raster here. */
+    const GoldSrcRenderState opaque = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+    };
+    Ps5GoldSrcPipelineBinding binding;
+    if (ps5_goldsrc_pipeline_runtime_bind(&state->goldsrc_pipeline_runtime,
+            &opaque, 0u, &binding) != 0 ||
+        binding.dynamic_cx[0].offset != PS5_GOLDSRC_CB_BLEND0_CONTROL ||
+        binding.dynamic_cx[0].value != 0u)
+        return -1;
+    return ps5_native_set_indirect(
+        cursor, (uint32_t)(end - *cursor), binding.dynamic_cx, 1u,
+        state->resources->shader, SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+}
+
 static int bind_native_pipeline(
     struct native_renderer *state, uint32_t **cursor, uint32_t *end,
     const struct ps5_pipeline_registers *pipeline)
@@ -1303,6 +1324,8 @@ static int bind_native_pipeline(
             cursor, (uint32_t)(end - *cursor), pipeline->sh,
             PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
             SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+    if (result == 0)
+        result = bind_native_opaque_blend(state, cursor, end);
     return result;
 }
 #endif
@@ -2280,7 +2303,9 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "live-world-clear";
     /* Background is color-only. Its clip z=0.999 must never occlude the map. */
-    result = ps5_native_set_indirect(
+    result = bind_native_opaque_blend(state, &cursor, end);
+    if (result == 0)
+        result = ps5_native_set_indirect(
         &cursor, (uint32_t)(end - cursor), state->overlay_depth_disabled,
         PS5_DEPTH_DISABLED_REGISTER_COUNT, state->resources->shader,
         SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
@@ -2298,7 +2323,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
     if (result == 0 && frame->frame_index % 600u == 0u)
         (void)ps5log_printf(PS5LOG_MARK,
-            "REF_AGC_BACKGROUND_DEPTH schema=1 frame=%llu clear_test=0 clear_write=0 world_depth=restored",
+            "REF_AGC_BACKGROUND_DEPTH schema=1 frame=%llu clear_test=0 clear_write=0 world_depth=restored opaque_blend=explicit",
             (unsigned long long)frame->frame_index);
     RefAgcGpuWorldStats live_world_stats = {0};
     if (result == 0 && ref_agc_gpu_world_cache_stats(
@@ -2648,6 +2673,57 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                 state, &cursor, end, &screen_state, frame->buffer,
                 &screen_binding);
         state->live_compose_stage = "live-screen-2d-draw";
+#if PS5_REF_AGC_HUD_TRACE
+        /* Opt-in diagnostics, not performance evidence. Bound both time and
+         * records, and expose truncation rather than silently losing it. */
+        if (result == 0 && state->live_frame.map_serial != 0u &&
+            state->live_frame.view.valid &&
+            state->live_frame.view.time_seconds >= 0.0 &&
+            state->live_frame.view.time_seconds <= 30.0 &&
+            state->live_hud_trace_records < 4096u) {
+            const uint32_t first_vertex = batch->first_index / 6u * 4u;
+            const uint32_t vertices = batch->index_count / 6u * 4u;
+            const GoldSrc2DVertex *v = live_2d->vertices + first_vertex;
+            float lo[4], hi[4];
+            float xy_lo[2] = {v[0].position[0], v[0].position[1]};
+            float xy_hi[2] = {xy_lo[0], xy_lo[1]};
+            memcpy(lo, v[0].color, sizeof(lo));
+            memcpy(hi, lo, sizeof(hi));
+            for (uint32_t j = 0; j < vertices; ++j) {
+                for (unsigned c = 0; c < 4; ++c) {
+                    if (v[j].color[c] < lo[c]) lo[c] = v[j].color[c];
+                    if (v[j].color[c] > hi[c]) hi[c] = v[j].color[c];
+                }
+                for (unsigned c = 0; c < 2; ++c) {
+                    if (v[j].position[c] < xy_lo[c]) xy_lo[c] = v[j].position[c];
+                    if (v[j].position[c] > xy_hi[c]) xy_hi[c] = v[j].position[c];
+                }
+            }
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_HUD_BATCH schema=1 serial=%llu time_ms=%llu batch=%u "
+                "texture=%u fill=%u first_index=%u indices=%u key=%u shader=%u "
+                "blend_reg=%08x rgba_min=%u,%u,%u,%u rgba_max=%u,%u,%u,%u "
+                "bounds=%d,%d,%d,%d first_uv_milli=%d,%d,%d,%d "
+                "vertex_hash=%016llx diagnostic=1",
+                (unsigned long long)state->live_frame.serial,
+                (unsigned long long)(state->live_frame.view.time_seconds * 1000.0),
+                batch_index, batch->texture_handle, batch->fill,
+                batch->first_index, batch->index_count,
+                screen_binding.permutation->key, screen_binding.permutation->shader,
+                screen_binding.dynamic_cx[0].value,
+                (unsigned)(lo[0]*255.0f+0.5f), (unsigned)(lo[1]*255.0f+0.5f),
+                (unsigned)(lo[2]*255.0f+0.5f), (unsigned)(lo[3]*255.0f+0.5f),
+                (unsigned)(hi[0]*255.0f+0.5f), (unsigned)(hi[1]*255.0f+0.5f),
+                (unsigned)(hi[2]*255.0f+0.5f), (unsigned)(hi[3]*255.0f+0.5f),
+                (int)xy_lo[0], (int)xy_lo[1], (int)xy_hi[0], (int)xy_hi[1],
+                (int)(v[0].uv[0]*1000.0f), (int)(v[0].uv[1]*1000.0f),
+                (int)(v[2].uv[0]*1000.0f), (int)(v[2].uv[1]*1000.0f),
+                (unsigned long long)readback_hash(v, vertices*sizeof(*v)));
+            if (++state->live_hud_trace_records == 4096u)
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "REF_AGC_HUD_TRACE_LIMIT records=4096 truncated=1 diagnostic=1");
+        }
+#endif
         if (result == 0)
             result = ref_agc_live_2d_compose_batch(
                 &cursor, end, live_2d, batch_index,
@@ -2721,10 +2797,11 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
          live_2d->index_count != 0u ||
          state->live_frame.serial % 600u == 0u))
         (void)ps5log_printf(PS5LOG_MARK,
-            "REF_AGC_LIVE_2D_FRAME schema=1 frame=%llu serial=%llu "
+            "REF_AGC_LIVE_2D_FRAME schema=2 frame=%llu serial=%llu "
             "input_commands=%u mode_commands=%u stretch_quads=%u "
             "fill_quads=%u batches=%u alpha_batches=%u "
-            "additive_batches=%u opaque_batches=%u draws=%u indices=%u "
+            "additive_batches=%u opaque_batches=%u masked_batches=%u "
+            "modulate_batches=%u draws=%u indices=%u "
             "texture_binds=%u unresolved=0 command_hash=%016llx "
             "layout_hash=%016llx transient_bytes=%llu "
             "order=source-exact geometry=transient-slot "
@@ -2735,6 +2812,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             live_2d->stretch_quads, live_2d->fill_quads,
             live_2d->batch_count, live_2d->alpha_batches,
             live_2d->additive_batches, live_2d->opaque_batches,
+            live_2d->masked_batches, live_2d->modulate_batches,
             live_2d_composed.draws, live_2d_composed.indices,
             live_2d_composed.texture_binds,
             (unsigned long long)live_2d->command_hash,

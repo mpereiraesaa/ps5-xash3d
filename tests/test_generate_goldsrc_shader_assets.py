@@ -19,8 +19,8 @@ SPEC.loader.exec_module(MODULE)
 
 def main() -> int:
     assembly = MODULE.render()
-    assert len(MODULE.VARIANTS) == 9 and len(set(MODULE.VARIANTS)) == 9
-    assert assembly.count(".incbin ") == 18
+    assert len(MODULE.VARIANTS) == 10 and len(set(MODULE.VARIANTS)) == 10
+    assert assembly.count(".incbin ") == 20
     for name in MODULE.VARIANTS:
         for stage in ("gs", "ps"):
             assert assembly.count(f"ps5_{name}_{stage}_start") == 2

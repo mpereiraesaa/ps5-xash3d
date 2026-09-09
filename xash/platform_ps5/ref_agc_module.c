@@ -20,6 +20,7 @@ callbacks below are always the project-owned AGC implementation.
 #include <time.h>
 
 #include "ref_agc_live_frame.h"
+#include "ref_agc_2d_state.h"
 #include "ref_agc_lightmap_atlas.h"
 #include "ref_agc_studio_store.h"
 #include "ref_agc_texture_store.h"
@@ -32,6 +33,12 @@ callbacks below are always the project-owned AGC implementation.
 #undef GetRefAPI
 #include "ref_params.h"
 #include "enginefeatures.h"
+
+_Static_assert(kRenderNormal == 0 && kRenderTransColor == 1 &&
+	kRenderTransTexture == 2 && kRenderGlow == 3 &&
+	kRenderTransAlpha == 4 && kRenderTransAdd == 5 &&
+	kRenderScreenFadeModulate == REF_AGC_2D_SCREEN_FADE_MODULATE,
+	"RefAPI render modes must match the captured 2D state");
 
 int ps5_ref_agc_native_main(void);
 
@@ -93,7 +100,7 @@ static int ref_agc_studios_initialized;
 static int ref_agc_world_capture_pending;
 static uint64_t ref_agc_world_capture_attempts;
 static poolhandle_t ref_agc_storage_pool;
-static uint8_t ref_agc_draw_color[4] = { 255u, 255u, 255u, 255u };
+static RefAgc2DState ref_agc_2d_state;
 
 static void RefAgcStudioLoadTextures(model_t *model, void *data);
 static void RefAgcStudioUnloadTextures(model_t *model);
@@ -644,7 +651,7 @@ static qboolean RefAgcInit(void)
 		return false;
 	ref_agc_engine.Cvar_SetValue( "r_agc_qa_mode", 0.0f );
 #endif
-	memset( ref_agc_draw_color, 255, sizeof(ref_agc_draw_color) );
+	ref_agc_2d_reset( &ref_agc_2d_state );
 	if( ref_agc_thread_created )
 		return ref_agc_runtime_state == REF_AGC_READY ||
 			ref_agc_runtime_state == REF_AGC_COMPLETE;
@@ -1527,6 +1534,7 @@ static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 
 static void RefAgcSet2DMode(qboolean enable)
 {
+	ref_agc_2d_set_mode( &ref_agc_2d_state, enable != false );
 	RefAgcLive2DCommand command;
 	memset( &command, 0, sizeof(command) );
 	command.type = REF_AGC_LIVE_2D_MODE;
@@ -1542,17 +1550,22 @@ static void RefAgcColor4f(float r, float g, float b, float a)
 		float value = values[channel];
 		if( value < 0.0f ) value = 0.0f;
 		if( value > 1.0f ) value = 1.0f;
-		ref_agc_draw_color[channel] = (uint8_t)(value * 255.0f + 0.5f);
+		ref_agc_2d_state.color[channel] = (uint8_t)(value * 255.0f + 0.5f);
 	}
 }
 
 static void RefAgcColor4ub(unsigned char r, unsigned char g,
 	unsigned char b, unsigned char a)
 {
-	ref_agc_draw_color[0] = r;
-	ref_agc_draw_color[1] = g;
-	ref_agc_draw_color[2] = b;
-	ref_agc_draw_color[3] = a;
+	ref_agc_2d_state.color[0] = r;
+	ref_agc_2d_state.color[1] = g;
+	ref_agc_2d_state.color[2] = b;
+	ref_agc_2d_state.color[3] = a;
+}
+
+static void RefAgcSetRenderMode(int mode)
+{
+	ref_agc_2d_set_render_mode( &ref_agc_2d_state, mode );
 }
 
 static void RefAgcDrawStretchPic(float x, float y, float w, float h,
@@ -1561,11 +1574,12 @@ static void RefAgcDrawStretchPic(float x, float y, float w, float h,
 	RefAgcLive2DCommand command;
 	memset( &command, 0, sizeof(command) );
 	command.type = REF_AGC_LIVE_2D_STRETCH_PIC;
-	command.render_mode = kRenderTransTexture;
+	command.render_mode = ref_agc_2d_state.render_mode;
+	command.enabled = ref_agc_2d_state.alpha_test;
 	command.texture = texture;
 	command.x = x; command.y = y; command.width = w; command.height = h;
 	command.s1 = s1; command.t1 = t1; command.s2 = s2; command.t2 = t2;
-	memcpy( command.color, ref_agc_draw_color, sizeof(command.color) );
+	memcpy( command.color, ref_agc_2d_state.color, sizeof(command.color) );
 	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
 }
 
@@ -1575,11 +1589,13 @@ static void RefAgcFillRGBA(int render_mode, float x, float y, float w,
 	RefAgcLive2DCommand command;
 	memset( &command, 0, sizeof(command) );
 	command.type = REF_AGC_LIVE_2D_FILL_RGBA;
+	command.enabled = ref_agc_2d_state.alpha_test;
 	command.render_mode = render_mode;
 	command.x = x; command.y = y; command.width = w; command.height = h;
 	command.color[0] = r; command.color[1] = g;
 	command.color[2] = b; command.color[3] = a;
 	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
+	ref_agc_2d_after_fill( &ref_agc_2d_state, r, g, b, a );
 }
 
 int PS5_RefAgcTakeLiveFrame(uint64_t after_serial, RefAgcLiveFrame *out)
@@ -1667,6 +1683,7 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_ClearScene = RefAgcClearScene;
 	funcs->R_AddEntity = RefAgcAddEntity;
 	funcs->R_Set2DMode = RefAgcSet2DMode;
+	funcs->GL_SetRenderMode = RefAgcSetRenderMode;
 	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
 	funcs->FillRGBA = RefAgcFillRGBA;
 	funcs->Color4f = RefAgcColor4f;

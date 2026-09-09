@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate assembly embeddings for the nine Phase 4 shader pipelines."""
+"""Generate assembly embeddings for the GoldSrc shader pipelines."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ VARIANTS = (
     "goldsrc_masked", "goldsrc_masked_lightmap",
     "goldsrc_masked_fog", "goldsrc_masked_lightmap_fog",
     "goldsrc_screen_2d",
+    "goldsrc_screen_2d_masked",
 )
 
 

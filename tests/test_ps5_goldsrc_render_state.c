@@ -52,6 +52,20 @@ int main(void)
     assert(regs[1].value == 0x80000080u);
     assert(regs[2].value == 0x00a80244u);
 
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_SCREEN_MODULATE, &draw) == 0);
+    assert(ps5_goldsrc_render_registers_build(
+        regs, &draw, 0x800000b6u, 0x00a80247u) == 0);
+    assert(regs[0].value == 0x64000200u);
+    assert(regs[1].value == 0x80000080u);
+    assert(regs[2].value == 0x00a80244u);
+
+    assert(goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA_TEST, &draw) == 0);
+    assert(ps5_goldsrc_render_registers_build(
+        regs, &draw, 0x800000b6u, 0x00a80247u) == 0);
+    assert(regs[0].value == 0u);
+    assert(regs[1].value == 0x80000080u);
+    assert(regs[2].value == 0x00a80244u);
+
     draw.screen_space = 2u;
     assert(ps5_goldsrc_render_registers_build(
         regs, &draw, 0u, 0u) == -1);

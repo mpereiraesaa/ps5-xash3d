@@ -113,7 +113,7 @@ typedef struct RefAgcLive2DCommand {
     uint32_t type;
     int32_t render_mode;
     int32_t texture;
-    uint32_t enabled;
+    uint32_t enabled; /* MODE: enable 2D; draw commands: independent alpha test */
     float x;
     float y;
     float width;

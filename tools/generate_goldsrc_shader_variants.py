@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "shaders/goldsrc_surface.template.pipe"
+SCREEN_SOURCE = ROOT / "shaders/goldsrc_screen_2d.pipe"
 TOKENS = ("@MASK_BLOCK@", "@LIGHTMAP_EXPR@", "@FOG_BLOCK@", "@QA_LIGHTMAP_EXPR@")
 
 
@@ -58,6 +59,15 @@ def variants(template: str) -> dict[str, str]:
     }
 
 
+def screen_masked(source: str) -> str:
+    assignment = "    out_color = texture(image, uv) * color;"
+    if source.count(assignment) != 1:
+        raise ValueError("screen shader must contain exactly one color assignment")
+    # Pinned GL_DEFAULT_ALPHATEST is zero; do not reuse the 3D 0.5 cutoff.
+    return source.replace(assignment, assignment +
+                          "\n    if (out_color.a <= 0.0)\n        discard;")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -67,6 +77,8 @@ def main() -> int:
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rendered = variants(TEMPLATE.read_text(encoding="utf-8"))
+    rendered["goldsrc_screen_2d_masked"] = screen_masked(
+        SCREEN_SOURCE.read_text(encoding="utf-8"))
     for name, source in sorted(rendered.items()):
         (args.output_dir / f"{name}.pipe").write_text(source, encoding="utf-8")
     print(f"generated {len(rendered)} GoldSrc shader variants")
