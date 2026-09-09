@@ -1132,6 +1132,35 @@ manifests, the assets, callback state, GPU readbacks and ownership chain agree.
 The complete command and rejected diagnostic runs are recorded in
 `REF_AGC_PRX_PHASE6.md`.
 
+## Phase 7 compositor-visible live-world gate
+
+- Accepted paired runs:
+  `20260909T005027224Z_PPSA99996_xash3d-engine_0x122bd226f4e00` and
+  `20260909T005027279Z_PPSA99996_ps5-xash3d_0x122bd25b72b53`
+- Host ELF / fSELF SHA-256:
+  `8256012d69c65d8d3680c6cf8429e358ec009d557c6ec01a7cbb9dd02865de31` /
+  `dbe3cd647c381bf679980c1888f96d88889ab43fd14cb5150e6936a442e4e329`
+- Renderer ELF / PRX fSELF SHA-256:
+  `a28574b13c63c2a95771888769a855f886c23070680ee1aca2616ea7970627e3` /
+  `4132e6574b64de14982b1b4b80c7c00815dae932fe1395fda059d004caf1e8e1`
+- Compositor-visible capture SHA-256:
+  `1ee3578b517bee368f72805d3a9ecd339a5f7de65de462bbefd7a6d7a19c1850`
+- The capture was taken only after serial launch verification showed
+  `PPSA99996` active. It shows the textured `c1a0` tram interior at 1920x1080.
+- Exact A/B captures with no scheduler handoff and with the handoff immediately
+  after bundle load were both black and byte-identical, SHA-256
+  `e95c0eda406aab59485803a024616ea5f0c68293f83a67969d2916f1218d57b8`.
+  The accepted 10 ms handoff is after live-camera fallback initialization and
+  before command/pipeline planning. This records an observed FW 12.02 boundary,
+  not a speculative firmware-internal explanation.
+- The paired validator passed 1,076 frames, 1,067 views, 3,695 live draws,
+  164/164 texture references, exact fence/VideoOut/ACK ownership, eight exact
+  reclaims, zero renderer errors and ordered five-module teardown to zero.
+
+This gate upgrades live base-texture sampling and compositor presentation from
+inference to hardware evidence. Lightmaps, native sky/turbulent semantics,
+entities, viewmodel and 2D/menu/HUD translation remain open Phase 7 gates.
+
 ## Timing interpretation
 
 The historical deadline counter measured a frame from preparation until

@@ -244,9 +244,61 @@ reclaims for this form. It retains compatibility with the immutable 16-, 26-,
 {"engine_frame_hash":"5724000629ec5fa0","frames":1076,"gpu_bright_pixels":4066868,"gpu_buffers":["553ced9a3817b91b","0218ed9c11fbe6bb"],"ownership":"exact","pass":true,"phase":7,"ref_agc_world_texture_refs":164,"ref_agc_world_textures_resolved":164,"start_skew_ms":55}
 ```
 
-This is deliberately a world draw-and-descriptor-binding gate. The nonzero
-readbacks do not, by themselves, isolate texture sampling from the clear pass;
-that stronger claim still needs visual or differential evidence. Live lightmap
-atlas sampling, native sky/turbulent semantics, translated entity draws and
-translated 2D/menu/HUD lists also remain Phase 7 work rather than being
-inferred from captured entity or 2D counts.
+This is deliberately a world draw-and-descriptor-binding gate. Its original
+nonzero readbacks did not, by themselves, isolate texture sampling from the
+clear pass. The compositor-visible A/B gate below supplies that stronger
+evidence. Live lightmap atlas sampling, native sky/turbulent semantics,
+translated entity draws and translated 2D/menu/HUD lists remain Phase 7 work
+rather than being inferred from captured entity or 2D counts.
+
+## Accepted FW 12.02 compositor-visible world gate
+
+The original live-world artifact submitted and retired cleanly but Remote Play
+captured a completely black 1920x1080 frame. A magenta-clear diagnostic proved
+that the live world covered the clear, and a no-log `nanosleep` probe isolated
+the presentation difference to a scheduler handoff rather than to logging.
+Three serial launch/capture trials then fixed the placement boundary:
+
+| Placement | Result | Capture SHA-256 |
+| --- | --- | --- |
+| No handoff (`ref_agc.prx` `01349df2...`) | black | `e95c0eda406aab59485803a024616ea5f0c68293f83a67969d2916f1218d57b8` |
+| 10 ms after `load_bsp_bundle` | black | `e95c0eda406aab59485803a024616ea5f0c68293f83a67969d2916f1218d57b8` |
+| 10 ms after bundle load and `REF_AGC_LIVE_CAMERA_READY` | textured `c1a0` tram interior | `1ee3578b517bee368f72805d3a9ecd339a5f7de65de462bbefd7a6d7a19c1850` |
+
+The accepted implementation performs that bounded handoff before command and
+pipeline planning, retries `nanosleep` only for `EINTR`, reports
+`live_camera_settle_ns=10000000`, and fails before submit on any other error.
+A host source contract fixes this placement and rejects the temporary visual
+probe and the failed post-bundle placement. This is a hardware-proven boundary,
+not a claim about an unobserved firmware-internal cause.
+
+The final artifact was captured only after `launch-xash3d` had verified
+`PPSA99996` active. Correlated runs began 55 ms apart:
+
+- Engine: `20260909T005027224Z_PPSA99996_xash3d-engine_0x122bd226f4e00`
+- Renderer: `20260909T005027279Z_PPSA99996_ps5-xash3d_0x122bd25b72b53`
+
+The fail-closed paired validator accepted 1,076 matched frames, 1,067 live
+views, 17,245 vertices, 29,565 indices, 3,695 draws and all 164 world texture
+references. Both streams were clean and gap-free, all eight parent allocations
+were reclaimed, the five modules unloaded to zero, and renderer errors were
+zero. The visible capture therefore closes base-texture sampling and
+compositor presentation for the live world; it does not close lightmaps,
+special-surface semantics, entities, viewmodel or 2D/UI.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Engine ELF | `8256012d69c65d8d3680c6cf8429e358ec009d557c6ec01a7cbb9dd02865de31` |
+| Engine fSELF | `dbe3cd647c381bf679980c1888f96d88889ab43fd14cb5150e6936a442e4e329` |
+| `ref_agc` ELF | `a28574b13c63c2a95771888769a855f886c23070680ee1aca2616ea7970627e3` |
+| `ref_agc.prx` | `4132e6574b64de14982b1b4b80c7c00815dae932fe1395fda059d004caf1e8e1` |
+| Engine transcript | `f3127207da6f7ced41c88771a30d3667e15f0d3da4854d5b9943718ee1928318` |
+| Renderer transcript | `b54fd915b19be59848fbdd73224a8947762eff7f117f4afb0b7f3040bdfd1034` |
+| Engine manifest | `ad0f869f962d2226ad19c7f499e34fda2472eadf45a410eec443470d4341850b` |
+| Renderer manifest | `dfc40743871bb10a0dc0464854df074be6a8628d180f83dbebe5ba9d88d5e209` |
+
+The accepted validator result is:
+
+```json
+{"engine_frame_hash":"5724000629ec5fa0","frames":1076,"gpu_bright_pixels":4066868,"gpu_buffers":["553ced9a3817b91b","0218ed9c11fbe6bb"],"ownership":"exact","pass":true,"phase":7,"ref_agc_world_texture_refs":164,"ref_agc_world_textures_resolved":164,"start_skew_ms":55}
+```

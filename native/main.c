@@ -51,6 +51,8 @@
 
 #define PS5_XASH3D_TITLE_ID "PPSA99996"
 #define PS5_XASH3D_APP_NAME "ps5-xash3d"
+#define PS5_LIVE_CAMERA_SETTLE_NS 10000000L
+#define PS5_LIVE_CAMERA_SETTLE_TELEMETRY " live_camera_settle_ns=10000000"
 
 #ifdef PS5_BSP_VIEWER
 #include "bsp_build_metadata.h"
@@ -74,6 +76,7 @@
 #endif
 #endif
 
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
@@ -105,6 +108,21 @@ int PS5_RefAgcVisitTextures(uint64_t after_revision,
 int PS5_RefAgcVisitWorld(uint64_t after_revision,
                          RefAgcWorldVisitor visitor, void *user,
                          uint64_t *out_revision);
+#endif
+
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+static int ps5_live_camera_settle(void)
+{
+    struct timespec delay = {
+        .tv_sec = 0,
+        .tv_nsec = PS5_LIVE_CAMERA_SETTLE_NS,
+    };
+    while (nanosleep(&delay, &delay) != 0) {
+        if (errno != EINTR)
+            return -1;
+    }
+    return 0;
+}
 #endif
 
 #if defined(PS5_TEXTURE_ACCOUNTING_GATE) || \
@@ -3478,6 +3496,12 @@ int main(void)
     (void)ps5log_line(PS5LOG_MARK,
         "REF_AGC_LIVE_CAMERA_READY source=engine-view "
         "startup_fallback=bundle-camera pad_owner=engine");
+    /* FW 12.02 hardware A/B runs show that a bounded scheduler handoff is
+     * required after the 193 MiB resource heap is loaded and the live camera
+     * fallback is initialized.  Delays before the load or immediately after
+     * it still present only the clear; this exact boundary presents geometry. */
+    if (ps5_live_camera_settle() != 0)
+        return fail_pre_submit("live_camera_settle", -1);
 #else
     result = open_noclip_pad();
     if (result != 0)
@@ -4047,7 +4071,11 @@ int main(void)
     (void)ps5log_printf(PS5LOG_MARK,
         "GOLDSRC_PIPELINES_READY schema=1 semantic_permutations=%u "
         "shader_variants=%u native_slots=%u base_depth=000000b6 "
-        "base_raster=00000240 state_register_bytes=%llu target=gfx1013",
+        "base_raster=00000240 state_register_bytes=%llu target=gfx1013"
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+        PS5_LIVE_CAMERA_SETTLE_TELEMETRY
+#endif
+        ,
         renderer.goldsrc_pipeline_cache.count,
         GOLDSRC_SHADER_VARIANT_COUNT, GOLDSRC_SHADER_VARIANT_COUNT,
         (unsigned long long)phase4_state_bytes);
