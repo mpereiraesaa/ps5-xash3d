@@ -1189,8 +1189,34 @@ still open Phase 7 gates.
   Remote Play process stale; no renderer conclusion uses those frames.
 
 This gate closes live lightmap atlas sampling and visible native composition.
-Native sky/turbulent semantics, entities, viewmodel and 2D/menu/HUD translation
-remain open Phase 7 gates.
+Later accepted gates close native sky/turbulent semantics and source-ordered
+2D; their detailed evidence is recorded in `REF_AGC_LIVE_PHASE7.md`.
+
+## Phase 7 native MainUI-to-map gate
+
+- Accepted paired runs:
+  `20260909T065237749Z_PPSA99996_xash3d-engine_0x1368098fcc1b8` and
+  `20260909T065237800Z_PPSA99996_ps5-xash3d_0x136809c13ba99`
+- Engine ELF / fSELF SHA-256:
+  `1d76cd4fdd767798e2a5e8eeec52b121c02a4688e2b471eef0d9733d9cdff76e` /
+  `ba08913cfa2f9d7bdbed28edfaacb50af214607ede5de5efc8915720a825d7fa`
+- Renderer ELF / PRX fSELF SHA-256:
+  `370badf979c5f1dfe39fdbb0d5027b923ad0e2ee673b5f8d675a4fc245db380f` /
+  `c13ccc42a59ebb48827de211b33fe68bb721271aba9d097f780561765d746fa8`
+- 35-second launch recording SHA-256:
+  `bfff803bbd69d91e067220ff178b3771720125b17f45a151b20a5370662c22c9`
+- A decoded Home preflight rejected stale/black Remote Play evidence. The
+  accepted video visibly shows MainUI at 23 seconds and `c1a0` at 25 seconds.
+- `--require-live-menu` plus live-lightmap and live-2D validation accepted
+  1,339 paired frames. Serial 1 carried 423 MainUI quads and 128 draws; map
+  serial 1 first appeared at renderer serial 224 after 223 pre-map frames,
+  94,918 quads and 27,929 native draws.
+- The raw engine transition uniquely preceded `Spawn Server: c1a0`, all eight
+  resources were reclaimed, both transcripts closed cleanly and the complete
+  five-PRX stack unwound exactly with zero errors.
+
+This closes MainUI presentation and its in-process engine-command-buffer map
+transition. Entities, viewmodel, gameplay, performance and release remain open.
 
 ## Timing interpretation
 

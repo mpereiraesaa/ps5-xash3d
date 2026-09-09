@@ -32,6 +32,9 @@ def main() -> None:
     ).read_text(encoding="utf-8")
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     engine_boot = (ROOT / "xash/platform_ps5/boot_ps5.c").read_text(encoding="utf-8")
+    system_backend = (
+        ROOT / "xash/platform_ps5/sys_ps5.c"
+    ).read_text(encoding="utf-8")
     engine_library = (ROOT / "xash/platform_ps5/lib_ps5.c").read_text(encoding="utf-8")
     client_prx_module = (
         ROOT / "xash/platform_ps5/client_prx_module.cpp"
@@ -180,12 +183,48 @@ def main() -> None:
     ):
         if item not in engine_library:
             raise SystemExit(f"menu PRX runtime contract missing: {item}")
-    if "#if !PS5_XASH_MENU_PRX" not in engine_boot or \
+    if "#if (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX)" not in engine_boot or \
             '"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d "' not in engine_boot:
         raise SystemExit("menu PRX bounded menu-only boot contract missing")
     if "engine-menu-prx-native-release" not in makefile or \
             "XASH_MENU_PRX=1" not in makefile:
         raise SystemExit("menu PRX release target missing")
+    for item in (
+        "XASH_PHASE7_MENU_GATE", "XASH_PHASE7_MENU_SECONDS",
+        "#define PS5_XASH_PHASE7_MENU_GATE $phase7_menu_gate",
+        "#define PS5_XASH_PHASE7_MENU_SECONDS $phase7_menu_seconds",
+        "complete client/ref_agc PRX stack",
+    ):
+        if item not in engine_builder:
+            raise SystemExit(f"Phase 7 native-menu build contract missing: {item}")
+    for item in (
+        "XASH_PHASE7_MENU_GATE_BEGIN schema=1",
+        "XASH_PHASE7_MENU_GATE_COMPLETE schema=1",
+        "PS5_Phase7MenuGateMapQueued",
+        "!PS5_XASH_PHASE7_MENU_GATE",
+    ):
+        if item not in engine_boot:
+            raise SystemExit(f"Phase 7 native-menu boot contract missing: {item}")
+    for item in (
+        "XASH_PHASE7_MENU_GATE_TRANSITION",
+        'Cbuf_AddText( "map " PS5_XASH_BOOT_MAP "\\n" )',
+        "PS5_XASH_PHASE7_MENU_SECONDS",
+    ):
+        if item not in system_backend:
+            raise SystemExit(f"Phase 7 native-menu transition missing: {item}")
+    if "engine-phase7-menu-native-release" not in makefile or \
+            "XASH_PHASE7_MENU_GATE=1" not in makefile:
+        raise SystemExit("Phase 7 native-menu release target missing")
+    for item in (
+        "REF_AGC_LIVE_MENU_FIRST schema=1",
+        "REF_AGC_LIVE_MENU_TRANSITION schema=1",
+        "REF_AGC_LIVE_MENU_COMPLETE schema=1",
+        "live_menu_frames", "live_menu_quads", "live_menu_draws",
+        "live_map_first_serial <= renderer.live_menu_first_serial",
+        "presentation=native-agc", "order=menu-then-map",
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 7 native-menu renderer contract missing: {item}")
     for item in (
         "XASH_CLIENT_PRX", "#define PS5_XASH_CLIENT_PRX $client_prx",
         "client.shared.elf", "client.prx", "client_prx_descriptor.c",

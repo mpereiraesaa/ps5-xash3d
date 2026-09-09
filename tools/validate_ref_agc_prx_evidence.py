@@ -80,6 +80,7 @@ def validate_renderer(
     require_live_lightmaps: bool = False,
     require_live_special_surfaces: bool = False,
     require_live_2d: bool = False,
+    require_live_menu: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -388,6 +389,80 @@ def validate_renderer(
                 "frame_samples": len(live_2d_markers),
                 "draw_samples": draw_samples,
             }
+        live_menu_summary = None
+        if require_live_menu:
+            if not require_live_2d:
+                fail("Phase 7 live menu requires live 2D validation")
+            first = one(messages, "REF_AGC_LIVE_MENU_FIRST")
+            transition = one(messages, "REF_AGC_LIVE_MENU_TRANSITION")
+            menu_complete = one(messages, "REF_AGC_LIVE_MENU_COMPLETE")
+            if not exact(first, {
+                "schema": "1", "map_serial": "0", "source": "mainui-2d",
+                "ownership": "fence+videoout",
+            }):
+                fail("Phase 7 live menu first-frame contract mismatch")
+            first_serial = int(first.get("serial", "0"), 10)
+            first_quads = int(first.get("quads", "0"), 10)
+            first_draws = int(first.get("draws", "0"), 10)
+            map_first_serial = int(transition.get("serial", "0"), 10)
+            map_serial = int(transition.get("map_serial", "0"), 10)
+            premap_frames = int(transition.get("premap_frames", "0"), 10)
+            premap_quads = int(transition.get("premap_quads", "0"), 10)
+            premap_draws = int(transition.get("premap_draws", "0"), 10)
+            if first_serial <= 0 or first_quads <= 0 or first_draws <= 0 \
+                    or map_first_serial <= first_serial or map_serial <= 0 \
+                    or premap_frames != map_first_serial - 1 \
+                    or premap_quads < first_quads \
+                    or premap_draws < first_draws \
+                    or not exact(transition, {
+                        "schema": "1", "order": "menu-then-map",
+                    }):
+                fail("Phase 7 live menu transition contract mismatch")
+            complete_values = {
+                field: int(menu_complete.get(field, "0"), 10)
+                for field in (
+                    "frames", "quads", "draws", "first_serial",
+                    "map_first_serial",
+                )
+            }
+            if complete_values != {
+                    "frames": premap_frames,
+                    "quads": premap_quads,
+                    "draws": premap_draws,
+                    "first_serial": first_serial,
+                    "map_first_serial": map_first_serial,
+            } or map_first_serial > frames \
+                    or live_2d_summary is None \
+                    or premap_frames > live_2d_summary["frames_with_draws"] \
+                    or premap_quads > live_2d_summary["quads"] \
+                    or premap_draws > live_2d_summary["draws"] \
+                    or not exact(menu_complete, {
+                "schema": "1", "order": "menu-then-map",
+                "presentation": "native-agc", "ownership": "exact",
+                "errors": "0", "pass": "1",
+            }):
+                fail("Phase 7 live menu completion contract mismatch")
+            order = [
+                next(index for index, message in enumerate(messages)
+                     if message.startswith(prefix + " "))
+                for prefix in (
+                    "REF_AGC_LIVE_MENU_FIRST",
+                    "REF_AGC_LIVE_MENU_TRANSITION",
+                    "REF_AGC_LIVE_MENU_COMPLETE",
+                    "REF_AGC_LIVE_COMPLETE",
+                )
+            ]
+            if order != sorted(order) or len(set(order)) != len(order):
+                fail("Phase 7 live menu marker order mismatch")
+            live_menu_summary = {
+                "frames": premap_frames,
+                "quads": premap_quads,
+                "draws": premap_draws,
+                "first_serial": first_serial,
+                "map_first_serial": map_first_serial,
+                "map_serial": map_serial,
+                "presentation": "native-agc",
+            }
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -408,6 +483,7 @@ def validate_renderer(
             "gpu_world": world,
             "special_surfaces": special_summary,
             "live_2d": live_2d_summary,
+            "live_menu": live_menu_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -473,6 +549,62 @@ def started_at(path: Path) -> datetime:
     return datetime.fromisoformat(str(manifest["started_utc"]))
 
 
+def validate_engine_menu(manifest_path: Path, *, boot_map: str,
+                         gate_seconds: int) -> dict[str, int | str]:
+    """Validate the engine half of the native MainUI-to-map transition."""
+    manifest_path = manifest_path.resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    log_path = manifest_path.parent / str(manifest["log_path"])
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    records, raw = split_transcript(lines[1:-1])
+    messages = [message for _, _, message in records]
+    begin = one(messages, "XASH_PHASE7_MENU_GATE_BEGIN")
+    complete = one(messages, "XASH_PHASE7_MENU_GATE_COMPLETE")
+    begin_index = next(index for index, message in enumerate(messages)
+                       if message.startswith("XASH_PHASE7_MENU_GATE_BEGIN "))
+    complete_index = next(index for index, message in enumerate(messages)
+                          if message.startswith(
+                              "XASH_PHASE7_MENU_GATE_COMPLETE "))
+    if begin_index >= complete_index:
+        fail("Phase 7 engine menu marker order mismatch")
+    if not exact(begin, {
+        "schema": "1", "map": boot_map, "boot": "mainui",
+        "transition": "engine-command-buffer",
+    }):
+        fail("Phase 7 engine menu begin contract mismatch")
+    menu_seconds = int(begin.get("menu_seconds", "0"), 10)
+    if menu_seconds <= 0 or menu_seconds >= gate_seconds:
+        fail("Phase 7 engine menu interval is outside the bounded gate")
+    if not exact(complete, {
+        "schema": "1", "map": boot_map, "map_queued": "1",
+        "host_result": "0", "ownership": "engine-command-buffer",
+        "pass": "1",
+    }):
+        fail("Phase 7 engine menu completion contract mismatch")
+    transition_matches = [
+        (index, line[line.index("XASH_PHASE7_MENU_GATE_TRANSITION"):])
+        for index, line in enumerate(raw)
+        if "XASH_PHASE7_MENU_GATE_TRANSITION" in line
+    ]
+    spawn_matches = [
+        index for index, line in enumerate(raw)
+        if f"Spawn Server: {boot_map}" in line
+    ]
+    if len(transition_matches) != 1 or len(spawn_matches) != 1:
+        fail("Phase 7 engine menu transition/spawn proof is not unique")
+    transition_index, transition_message = transition_matches[0]
+    transition = parse_fields(transition_message)
+    if not exact(transition, {
+        "seconds": str(menu_seconds), "action": "map", "map": boot_map,
+    }) or transition_index >= spawn_matches[0]:
+        fail("Phase 7 engine menu transition did not precede map spawn")
+    return {
+        "menu_seconds": menu_seconds,
+        "map": boot_map,
+        "map_queued": 1,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("engine_manifest", type=Path)
@@ -486,6 +618,7 @@ def main() -> int:
     parser.add_argument("--require-live-lightmaps", action="store_true")
     parser.add_argument("--require-live-special-surfaces", action="store_true")
     parser.add_argument("--require-live-2d", action="store_true")
+    parser.add_argument("--require-live-menu", action="store_true")
     parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
@@ -503,7 +636,12 @@ def main() -> int:
             require_live_special_surfaces=
                 args.require_live_special_surfaces,
             require_live_2d=args.require_live_2d,
+            require_live_menu=args.require_live_menu,
         )
+        engine_menu = validate_engine_menu(
+            args.engine_manifest, boot_map=args.map,
+            gate_seconds=engine["gate_seconds"],
+        ) if args.require_live_menu else None
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
             fail("engine/renderer phase mismatch")
@@ -573,6 +711,8 @@ def main() -> int:
             "gpu_world": renderer.get("gpu_world"),
             "special_surfaces": renderer.get("special_surfaces"),
             "live_2d": renderer.get("live_2d"),
+            "live_menu": renderer.get("live_menu"),
+            "engine_menu": engine_menu,
             "ownership": "exact",
             "pass": True,
         }

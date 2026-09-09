@@ -444,6 +444,25 @@ teardown invariants. Pass `--require-live-lightmaps` to make all atlas fields
 and the `live-atlas` marker mandatory; earlier immutable checkpoints remain
 valid without that opt-in.
 
+### Native MainUI-to-map transition
+
+The additive menu gate omits the boot-time `+map` argument and emits
+`XASH_PHASE7_MENU_GATE_BEGIN` before `Host_Main`. After a positive bounded
+interval, the engine owner thread emits the raw
+`XASH_PHASE7_MENU_GATE_TRANSITION` line and queues `map <name>` through
+`Cbuf_AddText`. `XASH_PHASE7_MENU_GATE_COMPLETE` requires that command to have
+been queued, a zero host result and exact engine-command-buffer ownership.
+The raw transition must be unique and precede the unique `Spawn Server` line.
+
+The renderer records the first pre-map MainUI draw in
+`REF_AGC_LIVE_MENU_FIRST`, the first nonzero map serial in
+`REF_AGC_LIVE_MENU_TRANSITION`, and aggregate pre-map totals in
+`REF_AGC_LIVE_MENU_COMPLETE`. Acceptance requires positive frames, quads and
+draws, `map_serial=0` for the first MainUI frame, a later positive map serial,
+matching transition/completion totals, `presentation=native-agc`, exact
+ownership and zero errors. `--require-live-menu` is valid only together with
+`--require-live-2d`; video evidence must independently show both states.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

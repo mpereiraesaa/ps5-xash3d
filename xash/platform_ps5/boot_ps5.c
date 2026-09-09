@@ -41,6 +41,9 @@ the exit the shell accepts without an error dialog.
 typedef void ( *pfnChangeGame )( const char *progname );
 int Host_Main( int argc, char **argv, const char *progname, int bChangeGame, pfnChangeGame pChangeGame );
 void Sys_SetupCrashHandler( const char *argv0 );
+#if PS5_XASH_PHASE7_MENU_GATE
+int PS5_Phase7MenuGateMapQueued( void );
+#endif
 void PS5_LogModuleMap( void );
 
 void PS5_SetCwd( const char *dir );
@@ -417,6 +420,12 @@ int main( int argc, char **argv )
 		PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX,
 		PS5_XASH_REF_AGC_PRX,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
+#if PS5_XASH_PHASE7_MENU_GATE
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_PHASE7_MENU_GATE_BEGIN schema=1 menu_seconds=%d map=%s "
+		"boot=mainui transition=engine-command-buffer",
+		PS5_XASH_PHASE7_MENU_SECONDS, PS5_XASH_BOOT_MAP );
+#endif
 
 	engine_argv[engine_argc++] = "eboot.bin";
 	/* developer 1 keeps the Con_DPrintf proofs (filesystem load, spawn)
@@ -438,7 +447,7 @@ int main( int argc, char **argv )
 	engine_argv[engine_argc++] = PS5_XASH_REF;
 	engine_argv[engine_argc++] = "-nosound";
 #endif
-#if !PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX
+#if (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX) && !PS5_XASH_PHASE7_MENU_GATE
 	engine_argv[engine_argc++] = "+map";
 	engine_argv[engine_argc++] = PS5_XASH_BOOT_MAP;
 #endif
@@ -448,6 +457,14 @@ int main( int argc, char **argv )
 	fflush( stdout );
 	fflush( stderr );
 	PS5_ConsoleFlush( );
+#if PS5_XASH_PHASE7_MENU_GATE
+	(void)ps5log_printf(
+		result == 0 && PS5_Phase7MenuGateMapQueued( ) ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_PHASE7_MENU_GATE_COMPLETE schema=1 map=%s map_queued=%d "
+		"host_result=%d ownership=engine-command-buffer pass=%d",
+		PS5_XASH_BOOT_MAP, PS5_Phase7MenuGateMapQueued( ), result,
+		result == 0 && PS5_Phase7MenuGateMapQueued( ));
+#endif
 	PS5_UnloadDirIndex( );
 	if( PS5_PrxLibraryShutdown( ) != 0 )
 		prx_pass = 0;

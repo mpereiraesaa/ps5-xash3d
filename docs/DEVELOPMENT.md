@@ -62,9 +62,12 @@ python3 xash/tools/deploy_engine_bundle.py --host <console-ip> \
   --journal /absolute/private/deploy.jsonl --apply
 ```
 
-The helper uploads hidden, content-tagged staging files, verifies each stored
-artifact, retains exact prior paths until every rename succeeds, rolls back a
-partial promotion, and deletes backups only after commit. A cleanup failure
+The helper first disables ftpsrv's connection-local SELF transformation, then
+uploads hidden, content-tagged staging files and streams every staged SELF,
+PRX and regular asset back through FTP. Both size and SHA-256 must match the
+exact local bytes before promotion. It retains exact prior paths until every
+rename succeeds, rolls back a partial promotion, and deletes backups only after
+commit. A cleanup failure
 never rolls back an already committed live bundle; it is journaled and leaves
 the explicit backup for manual recovery. Omit `--apply` to print the immutable
 local/remote/hash plan without changing the console.

@@ -53,6 +53,9 @@
 #define PS5_XASH3D_APP_NAME "ps5-xash3d"
 #define PS5_LIVE_CAMERA_SETTLE_NS 10000000L
 #define PS5_LIVE_CAMERA_SETTLE_TELEMETRY " live_camera_settle_ns=10000000"
+#ifndef PS5_XASH_PHASE7_MENU_GATE
+#define PS5_XASH_PHASE7_MENU_GATE 0
+#endif
 
 #ifdef PS5_BSP_VIEWER
 #include "bsp_build_metadata.h"
@@ -485,6 +488,11 @@ struct native_renderer {
     uint64_t live_2d_frames_with_draws;
     uint64_t live_2d_command_hash;
     uint32_t live_2d_peak_batches;
+    uint64_t live_menu_frames;
+    uint64_t live_menu_quads;
+    uint64_t live_menu_draws;
+    uint64_t live_menu_first_serial;
+    uint64_t live_map_first_serial;
     RefAgcGpuTextureCache live_texture_cache;
     uint64_t live_texture_revision;
     RefAgcGpuWorldCache live_world_cache;
@@ -2177,6 +2185,38 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
                           live_2d->command_hash,
                       },
                       2u * sizeof(uint64_t));
+#if PS5_XASH_PHASE7_MENU_GATE
+        if (state->live_frame.map_serial == 0u &&
+            live_2d_composed.draws != 0u) {
+            if (state->live_menu_frames == 0u) {
+                state->live_menu_first_serial = state->live_frame.serial;
+                (void)ps5log_printf(PS5LOG_MARK,
+                    "REF_AGC_LIVE_MENU_FIRST schema=1 serial=%llu "
+                    "quads=%u draws=%u map_serial=0 source=mainui-2d "
+                    "ownership=fence+videoout",
+                    (unsigned long long)state->live_frame.serial,
+                    live_2d->stretch_quads + live_2d->fill_quads,
+                    live_2d_composed.draws);
+            }
+            ++state->live_menu_frames;
+            state->live_menu_quads +=
+                live_2d->stretch_quads + live_2d->fill_quads;
+            state->live_menu_draws += live_2d_composed.draws;
+        }
+        if (state->live_frame.map_serial != 0u &&
+            state->live_map_first_serial == 0u) {
+            state->live_map_first_serial = state->live_frame.serial;
+            (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_LIVE_MENU_TRANSITION schema=1 serial=%llu "
+                "map_serial=%llu premap_frames=%llu premap_quads=%llu "
+                "premap_draws=%llu order=menu-then-map",
+                (unsigned long long)state->live_frame.serial,
+                (unsigned long long)state->live_frame.map_serial,
+                (unsigned long long)state->live_menu_frames,
+                (unsigned long long)state->live_menu_quads,
+                (unsigned long long)state->live_menu_draws);
+        }
+#endif
     }
     if (result == 0 &&
         (state->live_frame.serial == 1u ||
@@ -5546,6 +5586,14 @@ int main(void)
         live_world_stats.lightmap_rgb_max == 0u ||
         live_world_stats.upload_hash == 0u)
         park("live-world-final-accounting-failure");
+#if PS5_XASH_PHASE7_MENU_GATE
+    if (renderer.live_menu_frames == 0u ||
+        renderer.live_menu_quads == 0u ||
+        renderer.live_menu_draws == 0u ||
+        renderer.live_menu_first_serial == 0u ||
+        renderer.live_map_first_serial <= renderer.live_menu_first_serial)
+        park("live-menu-final-accounting-failure");
+#endif
 #endif
 #ifdef PS5_TEXTURE_PATH
     if (ps5_resource_pool_release_deferred(
@@ -5677,6 +5725,18 @@ int main(void)
         (unsigned long long)renderer.live_2d_indices,
         renderer.live_2d_peak_batches,
         (unsigned long long)renderer.live_2d_command_hash);
+#if PS5_XASH_PHASE7_MENU_GATE
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_LIVE_MENU_COMPLETE schema=1 frames=%llu quads=%llu "
+        "draws=%llu first_serial=%llu map_first_serial=%llu "
+        "order=menu-then-map presentation=native-agc ownership=exact "
+        "errors=0 pass=1",
+        (unsigned long long)renderer.live_menu_frames,
+        (unsigned long long)renderer.live_menu_quads,
+        (unsigned long long)renderer.live_menu_draws,
+        (unsigned long long)renderer.live_menu_first_serial,
+        (unsigned long long)renderer.live_map_first_serial);
+#endif
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_LIVE_COMPLETE frames=%llu serial=%llu view_frames=%llu "
         "camera_hash=%016llx camera_changes=%llu "
