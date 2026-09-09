@@ -1284,6 +1284,26 @@ static int resource_compose_fail(struct native_renderer *state,
 }
 
 #ifdef PS5_REF_AGC_LIVE_PHASE7
+static int bind_native_opaque_blend(
+    struct native_renderer *state, uint32_t **cursor, uint32_t *end)
+{
+    /* The base shader pipeline does not own CB_BLEND0_CONTROL. Reuse the
+     * immutable GPU-visible opaque register so HUD state cannot leak into
+     * next-frame clear/world draws. Do not change depth or raster here. */
+    const GoldSrcRenderState opaque = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+    };
+    Ps5GoldSrcPipelineBinding binding;
+    if (ps5_goldsrc_pipeline_runtime_bind(&state->goldsrc_pipeline_runtime,
+            &opaque, 0u, &binding) != 0 ||
+        binding.dynamic_cx[0].offset != PS5_GOLDSRC_CB_BLEND0_CONTROL ||
+        binding.dynamic_cx[0].value != 0u)
+        return -1;
+    return ps5_native_set_indirect(
+        cursor, (uint32_t)(end - *cursor), binding.dynamic_cx, 1u,
+        state->resources->shader, SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+}
+
 static int bind_native_pipeline(
     struct native_renderer *state, uint32_t **cursor, uint32_t *end,
     const struct ps5_pipeline_registers *pipeline)
@@ -1304,6 +1324,8 @@ static int bind_native_pipeline(
             cursor, (uint32_t)(end - *cursor), pipeline->sh,
             PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
             SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+    if (result == 0)
+        result = bind_native_opaque_blend(state, cursor, end);
     return result;
 }
 #endif
@@ -2281,7 +2303,9 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
 #ifdef PS5_REF_AGC_LIVE_PHASE7
     state->live_compose_stage = "live-world-clear";
     /* Background is color-only. Its clip z=0.999 must never occlude the map. */
-    result = ps5_native_set_indirect(
+    result = bind_native_opaque_blend(state, &cursor, end);
+    if (result == 0)
+        result = ps5_native_set_indirect(
         &cursor, (uint32_t)(end - cursor), state->overlay_depth_disabled,
         PS5_DEPTH_DISABLED_REGISTER_COUNT, state->resources->shader,
         SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
@@ -2299,7 +2323,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
     if (result == 0 && frame->frame_index % 600u == 0u)
         (void)ps5log_printf(PS5LOG_MARK,
-            "REF_AGC_BACKGROUND_DEPTH schema=1 frame=%llu clear_test=0 clear_write=0 world_depth=restored",
+            "REF_AGC_BACKGROUND_DEPTH schema=1 frame=%llu clear_test=0 clear_write=0 world_depth=restored opaque_blend=explicit",
             (unsigned long long)frame->frame_index);
     RefAgcGpuWorldStats live_world_stats = {0};
     if (result == 0 && ref_agc_gpu_world_cache_stats(

@@ -6,6 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main() -> None:
     source = (ROOT / "native/main.c").read_text(encoding="utf-8")
+    native_bind = source.split("static int bind_native_pipeline(", 1)[1].split(
+        "static int bind_goldsrc_pipeline(", 1)[0]
+    assert "bind_native_opaque_blend(state, cursor, end)" in native_bind
+    clear_path = source.split('state->live_compose_stage = "live-world-clear";', 1)[1]
+    assert clear_path.index("bind_native_opaque_blend(state, &cursor, end)") < \
+        clear_path.index("bsp_resource_compose_clear(")
     builder = (ROOT / "tools/build_native.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assets = (ROOT / "native/shader_assets.S").read_text(encoding="utf-8")

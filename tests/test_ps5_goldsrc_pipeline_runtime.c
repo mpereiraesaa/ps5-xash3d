@@ -52,6 +52,29 @@ int main(void)
                   PS5_GOLDSRC_RENDER_REGISTER_COUNT *
                       sizeof(ps5_agc_register)) == 0);
 
+    /* A native world/clear pipeline must explicitly overwrite inherited HUD
+     * blending. The reset source remains GPU-visible and immutable. */
+    GoldSrcRenderState hud;
+    const GoldSrcRenderState opaque = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+    };
+    const GoldSrcBlendMode previous[] = {
+        GOLDSRC_BLEND_ALPHA, GOLDSRC_BLEND_ADDITIVE,
+        GOLDSRC_BLEND_SCREEN_MODULATE,
+    };
+    for (unsigned i = 0; i < 3u; ++i) {
+        assert(goldsrc_render_state_2d(previous[i], &hud) == 0);
+        assert(ps5_goldsrc_pipeline_runtime_bind(&runtime, &hud, 1u, &binding) == 0);
+        const ps5_agc_register *hud_registers = binding.dynamic_cx;
+        const uint32_t previous_value = hud_registers[0].value;
+        assert(previous_value != 0u);
+        assert(ps5_goldsrc_pipeline_runtime_bind(&runtime, &opaque, 0u, &binding) == 0);
+        assert(binding.dynamic_cx >= gpu_registers &&
+               binding.dynamic_cx < gpu_registers + sizeof(gpu_registers)/sizeof(*gpu_registers));
+        assert(binding.dynamic_cx[0].offset == PS5_GOLDSRC_CB_BLEND0_CONTROL);
+        assert(binding.dynamic_cx[0].value == 0u);
+        assert(hud_registers[0].value == previous_value);
+    }
     assert(ps5_goldsrc_pipeline_runtime_bind(
         &runtime, &state, 2u, &binding) != 0);
     assert(ps5_goldsrc_pipeline_runtime_init(

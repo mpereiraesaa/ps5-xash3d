@@ -170,6 +170,30 @@ services. Visual reproduction of the flash in this run remains unconfirmed.
 
 ## Operator QA handoff (pending)
 
+### White-scene screenshot and blend-state correction
+
+The operator's subsequent screenshot shows most of the world becoming white
+while the door remains textured and the chapter lettering remains visible.
+This is broader than a text-background rectangle; the earlier HUD-only
+interpretation was too narrow.
+
+Source inspection found that the native base pipeline does not include
+CB_BLEND0_CONTROL in its render-target/viewport/link/shader register plan.
+Unlike the GoldSrc entity pipeline, `bind_native_pipeline` did not apply a
+dynamic blend reset. The next frame's background clear likewise inherited
+blend state. An additive title draw can therefore leave additive blending
+active for subsequent base clear/world draws, while brush entities such as
+the door explicitly bind their own opaque state. This is a demonstrated state
+ownership omission and a plausible explanation of the screenshot, pending
+hardware confirmation.
+
+The correction binds the existing immutable GPU-visible opaque blend register
+before the background clear and after every native base-pipeline bind. It
+does not alter depth/cull or the HUD's requested blend modes. Host regression
+tests verify the register source, preservation of prior HUD state tables and
+both native reset call sites. The upcoming native validation build disables
+the diagnostic trace. Do not claim the visual flash fixed until operator QA.
+
 Do not interpret a timer, draw count or clean exit as visual acceptance.
 Confirm operator availability before the launch; use the existing 5-second
 menu / 180-second map-relative build. Do not require another movement test
