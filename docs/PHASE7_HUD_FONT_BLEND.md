@@ -63,13 +63,27 @@ pre-raster ISA is 372 bytes, SHA-256
 `98c1f5e2d57d705f1699a11d5feb5a9a8d210cc81bb14c1fb8aec675bfbe5ce9`.
 The compiled ten-variant manifest validator and `make all` pass.
 
-This remains preparation, not hardware or visual acceptance. Inspection also
-found that the live compositor reads render mode only for fills: stretch-pic
-batches still default to alpha regardless of their captured mode. Next:
-update that translation and preflight validation, distinct masked/modulate
-batch telemetry, and fill/state side effects before building the complete
-engine/PRX bundle and running paired hardware QA. Do not deploy this partial
-checkpoint.
+The live compositor now translates captured stretch-pic modes, including
+masked and modulate, instead of defaulting to alpha. Preflight rejects an
+invalid stretch mode before allocating transient storage. Fill commands use
+additive only for TransAdd and alpha otherwise, matching `CL_FillRGBA`'s
+argument semantics. Host tests exercise all modes, contiguous merging of
+equivalent alpha modes, order/vertex preservation, opaque restore after
+modulate and unchanged transient usage on invalid-mode rejection.
+
+Live 2D telemetry is schema 2 with distinct masked/modulate counters; the
+paired evidence validator requires both counters and includes them in exact
+batch accounting. Historical schema 1 remains supported. Tests accept a
+mixed schema-2 sample and reject missing, negative, overcounted counters and
+unknown schemas. `make all` passes.
+
+This remains preparation, not hardware or visual acceptance. Next: complete
+adapter state/color side effects around FillRGBA and entering/leaving 2D,
+then build the complete engine/PRX bundle and run paired hardware QA. In
+particular, upstream FillRGBA leaves its color active and disables blending;
+R_Set2DMode enables alpha test and resets white only on an actual transition
+into 2D. These effects must not be confused with explicit GL_SetRenderMode.
+Do not deploy this partial checkpoint.
 
 ## Required closure
 

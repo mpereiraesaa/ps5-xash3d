@@ -1,4 +1,5 @@
 #include "ref_agc_live_2d.h"
+#include "ref_agc_2d_state.h"
 
 #include <assert.h>
 #include <math.h>
@@ -149,6 +150,57 @@ int main(void)
             &composed) == REF_AGC_LIVE_2D_OK);
     assert(composed.draws == 3u && composed.indices == 24u &&
            composed.command_dwords == 39u && composed.texture_binds == 3u);
+
+    assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);
+    assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
+    const int32_t modes[] = {0, 1, 2, 3, 4, 5,
+                            REF_AGC_2D_SCREEN_FADE_MODULATE, 0};
+    const GoldSrcBlendMode blends[] = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_BLEND_ALPHA, GOLDSRC_BLEND_ALPHA,
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_BLEND_ALPHA_TEST,
+        GOLDSRC_BLEND_ADDITIVE, GOLDSRC_BLEND_SCREEN_MODULATE,
+        GOLDSRC_BLEND_OPAQUE,
+    };
+    RefAgcLiveFrame ordered = {0};
+    ordered.commands_2d[ordered.command_2d_count++] = mode(1u);
+    for (unsigned i = 0; i < 8u; ++i) {
+        RefAgcLive2DCommand pic = stretch((float)i * 10.0f, 128u);
+        pic.render_mode = modes[i];
+        ordered.commands_2d[ordered.command_2d_count++] = pic;
+    }
+    assert(ref_agc_live_2d_frame_build(
+        &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
+        &ordered, &textures) == REF_AGC_LIVE_2D_OK);
+    assert(frame.batch_count == 7u && frame.opaque_batches == 2u &&
+           frame.alpha_batches == 1u && frame.additive_batches == 2u &&
+           frame.masked_batches == 1u && frame.modulate_batches == 1u);
+    for (unsigned i = 0; i < 8u; ++i) {
+        const unsigned batch = i < 2u ? i : i - 1u;
+        assert(frame.batches[batch].blend == blends[i]);
+        assert(frame.vertices[i * 4u].position[0] == (float)i * 10.0f);
+    }
+    assert(frame.batches[1].index_count == 12u);
+    assert(frame.batches[6].first_index == 42u);
+    const size_t used_before_invalid = ring.slots[0].used;
+    ordered.commands_2d[1].render_mode = 6;
+    assert(ref_agc_live_2d_frame_build(
+        &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
+        &ordered, &textures) == REF_AGC_LIVE_2D_SEQUENCE_INVALID);
+    assert(ring.slots[0].used == used_before_invalid);
+
+    /* FillRGBA's mode argument is not GL_SetRenderMode: only TransAdd adds. */
+    for (unsigned i = 0; i < 8u; ++i) {
+        assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);
+        assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
+        RefAgcLiveFrame filled = {0};
+        filled.commands_2d[filled.command_2d_count++] = mode(1u);
+        filled.commands_2d[filled.command_2d_count++] = fill(10.0f, modes[i]);
+        assert(ref_agc_live_2d_frame_build(
+            &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
+            &filled, &textures) == REF_AGC_LIVE_2D_OK);
+        assert(frame.batches[0].blend == (modes[i] == 5 ?
+            GOLDSRC_BLEND_ADDITIVE : GOLDSRC_BLEND_ALPHA));
+    }
 
     assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);
     assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);

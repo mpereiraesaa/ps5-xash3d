@@ -513,6 +513,33 @@ def main() -> None:
             menu_engine, menu_renderer, require_live_lightmaps=True,
             require_live_2d=True, require_live_menu=True)
         assert menu_valid.returncode == 0, menu_valid.stderr
+        extended_messages = []
+        for message in phase7_renderer_messages(
+                resources=True, world=True, live_2d=True, live_menu=True):
+            if message.startswith("REF_AGC_LIVE_2D_FRAME "):
+                message = message.replace("schema=1", "schema=2")
+                message = message.replace("alpha_batches=1", "alpha_batches=0 masked_batches=1")
+                message = message.replace("opaque_batches=1", "opaque_batches=0 modulate_batches=1")
+                if "masked_batches=" not in message:
+                    message += " masked_batches=0 modulate_batches=0"
+            extended_messages.append(message)
+        extended_renderer = write_run(
+            directory, "extended-2d-renderer", "ps5-xash3d", extended_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        extended_valid = run(menu_engine, extended_renderer,
+                             require_live_2d=True, require_live_menu=True)
+        assert extended_valid.returncode == 0, extended_valid.stderr
+        for label, old, new in (
+                ("missing", " masked_batches=1", ""),
+                ("negative", "masked_batches=1", "masked_batches=-1"),
+                ("overcount", "modulate_batches=1", "modulate_batches=2"),
+                ("schema", "schema=2", "schema=3")):
+            bad_extended = write_run(
+                directory, "bad-2d-" + label, "ps5-xash3d",
+                [message.replace(old, new) for message in extended_messages],
+                started="2026-09-08T19:13:27.984+00:00")
+            rejected = run(menu_engine, bad_extended, require_live_2d=True)
+            assert rejected.returncode != 0, label
         menu_summary = json.loads(menu_valid.stdout)
         assert menu_summary["engine_menu"]["menu_seconds"] == 5
         assert menu_summary["live_menu"] == {

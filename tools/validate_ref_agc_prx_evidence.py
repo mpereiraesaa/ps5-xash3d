@@ -450,6 +450,9 @@ def validate_renderer(
             sampled_draws = 0
             sampled_indices = 0
             for marker in live_2d_markers:
+                schema = marker.get("schema")
+                if schema not in ("1", "2"):
+                    fail("unsupported live 2D frame schema")
                 numeric = {
                     field: int(marker.get(field, "-1"), 10)
                     for field in (
@@ -460,6 +463,9 @@ def validate_renderer(
                         "transient_bytes",
                     )
                 }
+                for field in ("masked_batches", "modulate_batches"):
+                    numeric[field] = int(marker.get(
+                        field, "0" if schema == "1" else "-1"), 10)
                 quads = numeric["stretch_quads"] + numeric["fill_quads"]
                 if any(value < 0 for value in numeric.values()) \
                         or numeric["input_commands"] != \
@@ -470,7 +476,9 @@ def validate_renderer(
                         or numeric["batches"] != (
                             numeric["alpha_batches"]
                             + numeric["additive_batches"]
-                            + numeric["opaque_batches"]) \
+                            + numeric["opaque_batches"]
+                            + numeric["masked_batches"]
+                            + numeric["modulate_batches"]) \
                         or numeric["unresolved"] != 0 \
                         or (quads == 0) != (numeric["transient_bytes"] == 0) \
                         or marker.get("command_hash") in (
@@ -478,7 +486,7 @@ def validate_renderer(
                         or marker.get("layout_hash") in (
                             None, "0000000000000000") \
                         or not exact(marker, {
-                            "schema": "1", "order": "source-exact",
+                            "schema": schema, "order": "source-exact",
                             "geometry": "transient-slot",
                             "ownership": "fence+videoout",
                         }):

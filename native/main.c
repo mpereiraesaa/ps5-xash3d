@@ -2721,10 +2721,11 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
          live_2d->index_count != 0u ||
          state->live_frame.serial % 600u == 0u))
         (void)ps5log_printf(PS5LOG_MARK,
-            "REF_AGC_LIVE_2D_FRAME schema=1 frame=%llu serial=%llu "
+            "REF_AGC_LIVE_2D_FRAME schema=2 frame=%llu serial=%llu "
             "input_commands=%u mode_commands=%u stretch_quads=%u "
             "fill_quads=%u batches=%u alpha_batches=%u "
-            "additive_batches=%u opaque_batches=%u draws=%u indices=%u "
+            "additive_batches=%u opaque_batches=%u masked_batches=%u "
+            "modulate_batches=%u draws=%u indices=%u "
             "texture_binds=%u unresolved=0 command_hash=%016llx "
             "layout_hash=%016llx transient_bytes=%llu "
             "order=source-exact geometry=transient-slot "
@@ -2735,6 +2736,7 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
             live_2d->stretch_quads, live_2d->fill_quads,
             live_2d->batch_count, live_2d->alpha_batches,
             live_2d->additive_batches, live_2d->opaque_batches,
+            live_2d->masked_batches, live_2d->modulate_batches,
             live_2d_composed.draws, live_2d_composed.indices,
             live_2d_composed.texture_binds,
             (unsigned long long)live_2d->command_hash,

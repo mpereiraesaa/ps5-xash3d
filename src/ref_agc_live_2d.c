@@ -5,6 +5,7 @@
 #include "ps5_gfx1013_descriptor.h"
 #include "ps5_gpu_span.h"
 #include "ps5_transient_table.h"
+#include "ref_agc_2d_state.h"
 
 #include <math.h>
 #include <string.h>
@@ -47,13 +48,18 @@ static int blend_from_render_mode(int32_t render_mode,
                                   GoldSrcBlendMode *out)
 {
     if (!out || render_mode < GOLDSRC_RENDER_NORMAL ||
-        render_mode >= GOLDSRC_RENDER_MODE_COUNT)
+        (render_mode >= GOLDSRC_RENDER_MODE_COUNT &&
+         render_mode != REF_AGC_2D_SCREEN_FADE_MODULATE))
         return -1;
     if (render_mode == GOLDSRC_RENDER_NORMAL)
         *out = GOLDSRC_BLEND_OPAQUE;
     else if (render_mode == GOLDSRC_RENDER_GLOW ||
              render_mode == GOLDSRC_RENDER_TRANS_ADD)
         *out = GOLDSRC_BLEND_ADDITIVE;
+    else if (render_mode == GOLDSRC_RENDER_TRANS_ALPHA)
+        *out = GOLDSRC_BLEND_ALPHA_TEST;
+    else if (render_mode == REF_AGC_2D_SCREEN_FADE_MODULATE)
+        *out = GOLDSRC_BLEND_SCREEN_MODULATE;
     else
         *out = GOLDSRC_BLEND_ALPHA;
     return 0;
@@ -132,6 +138,9 @@ int ref_agc_live_2d_frame_build(
         if (!mode_enabled || !finite_quad(command))
             return REF_AGC_LIVE_2D_SEQUENCE_INVALID;
         if (command->type == REF_AGC_LIVE_2D_STRETCH_PIC) {
+            GoldSrcBlendMode blend;
+            if (blend_from_render_mode(command->render_mode, &blend) != 0)
+                return REF_AGC_LIVE_2D_SEQUENCE_INVALID;
             RefAgcGpuTextureEntry texture;
             if (command->texture <= 0 ||
                 ref_agc_gpu_texture_cache_get(
@@ -142,9 +151,6 @@ int ref_agc_live_2d_frame_build(
             }
             ++out->stretch_quads;
         } else if (command->type == REF_AGC_LIVE_2D_FILL_RGBA) {
-            GoldSrcBlendMode blend;
-            if (blend_from_render_mode(command->render_mode, &blend) != 0)
-                return REF_AGC_LIVE_2D_SEQUENCE_INVALID;
             ++out->fill_quads;
             ++fill_count;
         } else {
@@ -241,13 +247,16 @@ int ref_agc_live_2d_frame_build(
         uint32_t fill = command.type == REF_AGC_LIVE_2D_FILL_RGBA;
         uint32_t descriptor[BSP_GFX1013_COMBINED_DWORDS];
         if (fill) {
+            /* CL_FillRGBA uses additive only for TransAdd, alpha otherwise. */
+            blend = command.render_mode == GOLDSRC_RENDER_TRANS_ADD ?
+                GOLDSRC_BLEND_ADDITIVE : GOLDSRC_BLEND_ALPHA;
+            command.s1 = command.t1 = command.s2 = command.t2 = 0.5f;
+            memcpy(descriptor, white_descriptor, sizeof(descriptor));
+        } else {
             if (blend_from_render_mode(command.render_mode, &blend) != 0) {
                 ring->slots[slot_index].used = checkpoint;
                 return REF_AGC_LIVE_2D_SEQUENCE_INVALID;
             }
-            command.s1 = command.t1 = command.s2 = command.t2 = 0.5f;
-            memcpy(descriptor, white_descriptor, sizeof(descriptor));
-        } else {
             RefAgcGpuTextureEntry texture;
             texture_handle = (uint32_t)command.texture;
             if (ref_agc_gpu_texture_cache_get(
@@ -284,6 +293,10 @@ int ref_agc_live_2d_frame_build(
                 ++out->alpha_batches;
             else if (blend == GOLDSRC_BLEND_ADDITIVE)
                 ++out->additive_batches;
+            else if (blend == GOLDSRC_BLEND_ALPHA_TEST)
+                ++out->masked_batches;
+            else if (blend == GOLDSRC_BLEND_SCREEN_MODULATE)
+                ++out->modulate_batches;
             else
                 ++out->opaque_batches;
         }
