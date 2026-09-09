@@ -50,6 +50,8 @@ def main() -> int:
              "gs_application_words": 2, "ps_application_words": 1},
             {"id": "bsp_sky", "pipe": "shaders/bsp_sky.pipe",
              "gs_application_words": 2, "ps_application_words": 1},
+            {"id": "bsp_turbulent", "pipe": "shaders/bsp_turbulent.pipe",
+             "gs_application_words": 2, "ps_application_words": 1},
             {"id": "bsp_overlay", "pipe": "shaders/bsp_overlay.pipe",
              "gs_application_words": 1, "ps_application_words": 0},
         ],
@@ -62,12 +64,12 @@ def main() -> int:
                 json.dumps(value), encoding="utf-8"
             )
         header = MODULE.render(specification, manifests)
-        assert "PS5_PIPELINE_PERMUTATION_COUNT = 4" in header
+        assert "PS5_PIPELINE_PERMUTATION_COUNT = 5" in header
         assert all(name in header for name in (
             '"bsp_resource"', '"bsp_alpha_test"', '"bsp_sky"',
-            '"bsp_overlay"'
+            '"bsp_turbulent"', '"bsp_overlay"'
         ))
-        specification["pipelines"][3]["id"] = "bsp_resource"
+        specification["pipelines"][4]["id"] = "bsp_resource"
         try:
             MODULE.render(specification, manifests)
         except SystemExit:

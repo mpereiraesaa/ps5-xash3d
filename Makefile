@@ -110,6 +110,7 @@ $(eval $(call test_rule,test_ref_agc_world_store,tests/test_ref_agc_world_store.
 $(eval $(call test_rule,test_ref_agc_lightmap_atlas,tests/test_ref_agc_lightmap_atlas.c src/ref_agc_lightmap_atlas.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_gpu_world_cache,tests/test_ref_agc_gpu_world_cache.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_gpu_world_draw,tests/test_ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c src/ps5_gpu_span.c,-Isrc))
+$(eval $(call test_rule,test_ref_agc_skybox,tests/test_ref_agc_skybox.c src/ref_agc_skybox.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,inspect_bsp_bundle,tools/inspect_bsp_bundle.c src/bsp_bundle.c src/bsp_dynamic_lightmap.c src/goldsrc_lightmap_lighting.c src/goldsrc_brush_entities.c src/goldsrc_visibility.c src/bsp_flat_scene.c src/bsp_alpha_test.c src/bsp_sky.c src/bsp_texture_descriptor.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_gpu_span.c src/ps5_transient_ring.c,-Isrc -lm))
 
@@ -141,7 +142,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache \
 	test_ref_agc_world_store test_ref_agc_lightmap_atlas \
 	test_ref_agc_gpu_world_cache \
-	test_ref_agc_gpu_world_draw
+	test_ref_agc_gpu_world_draw test_ref_agc_skybox
 
 test: $(addprefix $(BUILD)/,$(TESTS))
 	@set -e; for test in $^; do $$test; done
@@ -222,6 +223,9 @@ shaders:
 	python3 tools/build_shader.py --pipe shaders/bsp_sky.pipe \
 		--name bsp_sky --amdllpc "$(AMDLLPC)" \
 		--readelf "$(LLVM_READELF)" --output-dir build/shaders
+	python3 tools/build_shader.py --pipe shaders/bsp_turbulent.pipe \
+		--name bsp_turbulent --amdllpc "$(AMDLLPC)" \
+		--readelf "$(LLVM_READELF)" --output-dir build/shaders
 	python3 tools/build_shader.py --pipe shaders/bsp_overlay.pipe \
 		--name bsp_overlay --amdllpc "$(AMDLLPC)" \
 		--readelf "$(LLVM_READELF)" --output-dir build/shaders
@@ -261,6 +265,10 @@ shaders:
 		--manifest build/shaders/bsp_sky.manifest.json \
 		--output build/generated/bsp_sky_shader_metadata.h \
 		--prefix BSP_SKY --symbol-prefix ps5_bsp_sky
+	python3 tools/generate_agc_metadata.py \
+		--manifest build/shaders/bsp_turbulent.manifest.json \
+		--output build/generated/bsp_turbulent_shader_metadata.h \
+		--prefix BSP_TURBULENT --symbol-prefix ps5_bsp_turbulent
 	python3 tools/generate_agc_metadata.py \
 		--manifest build/shaders/bsp_overlay.manifest.json \
 		--output build/generated/bsp_overlay_shader_metadata.h \

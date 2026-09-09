@@ -693,7 +693,7 @@ if [[ $filesystem_prx == 1 ]]; then
     )
     printf '%s\n' "${fs_prx_support[@]}" |
         compile_set "$build/filesystem-prx-support.objects" "$build/prx/filesystem" -std=gnu11 \
-            "${cflags[@]}" -fPIC \
+            "${cflags[@]}" -fPIC -DPS5_FILESYSTEM_PRX_BUILD=1 \
             "${engine_defines[@]}" "${engine_includes[@]}"
     mapfile -t fs_prx_support_objects < "$build/filesystem-prx-support.objects"
     "${cc[@]}" -std=c++20 -O2 -fno-exceptions -fno-rtti -fPIC \
@@ -888,6 +888,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/src/ref_agc_gpu_texture_cache.c"
         "$root/src/ref_agc_gpu_world_cache.c"
         "$root/src/ref_agc_gpu_world_draw.c"
+        "$root/src/ref_agc_skybox.c"
         "$root/src/ref_agc_texture_store.c"
         "$root/src/ref_agc_world_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"

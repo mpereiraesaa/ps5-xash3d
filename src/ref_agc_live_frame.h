@@ -8,6 +8,7 @@ enum {
     REF_AGC_LIVE_MAX_ENTITIES = 2048,
     REF_AGC_LIVE_MAX_2D_COMMANDS = 4096,
     REF_AGC_LIVE_MODEL_NAME = 64,
+    REF_AGC_LIVE_SKY_SIDES = 6,
     REF_AGC_LIVE_RF_DRAW_WORLD = 1u << 0,
 };
 
@@ -25,8 +26,16 @@ typedef struct RefAgcLiveView {
     float fov_y;
     int32_t view_entity;
     uint32_t flags;
+    double time_seconds;
+    uint32_t paused;
     uint32_t valid;
 } RefAgcLiveView;
+
+typedef struct RefAgcLiveSky {
+    uint64_t revision;
+    uint32_t texture_handles[REF_AGC_LIVE_SKY_SIDES];
+    uint32_t active;
+} RefAgcLiveSky;
 
 typedef struct RefAgcLiveWorld {
     uint64_t serial;
@@ -87,6 +96,7 @@ typedef struct RefAgcLiveFrame {
     uint64_t scene_calls;
     uint64_t end_calls;
     RefAgcLiveWorld world;
+    RefAgcLiveSky sky;
     RefAgcLiveView view;
     RefAgcLiveEntity entities[REF_AGC_LIVE_MAX_ENTITIES];
     RefAgcLive2DCommand commands_2d[REF_AGC_LIVE_MAX_2D_COMMANDS];
@@ -103,6 +113,7 @@ typedef struct RefAgcLiveStore {
     pthread_cond_t frame_ready;
     pthread_cond_t frame_consumed;
     RefAgcLiveWorld current_world;
+    RefAgcLiveSky current_sky;
     RefAgcLiveFrame building;
     RefAgcLiveFrame published;
     uint64_t next_frame_serial;
@@ -119,6 +130,9 @@ int ref_agc_live_store_init(RefAgcLiveStore *store);
 void ref_agc_live_store_destroy(RefAgcLiveStore *store);
 void ref_agc_live_set_world(RefAgcLiveStore *store,
                             const RefAgcLiveWorld *world);
+void ref_agc_live_set_sky(
+    RefAgcLiveStore *store,
+    const uint32_t texture_handles[REF_AGC_LIVE_SKY_SIDES]);
 void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
                               uint64_t begin_calls);
 void ref_agc_live_clear_scene(RefAgcLiveStore *store);

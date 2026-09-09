@@ -97,15 +97,21 @@ static int probe_optional_libc( void )
 	size_t ( *volatile system_strlcat )( char *, const char *, size_t ) = strlcat;
 	char copy[8] = "";
 	char cat[12] = "gfx/";
-	int rc;
+	int rc_equal, rc_less, rc_greater;
 	size_t n;
 	int passed = 1;
 
 	(void)ps5log_line( PS5LOG_MARK, "XASH_LIBC_SMOKE_BEGIN schema=1 symbols=strcasecmp,strnlen,strlcpy,strlcat" );
 	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strcasecmp" );
-	rc = system_strcasecmp( "PaLeTtE.LmP", "palette.lmp" );
-	passed &= rc == 0;
-	(void)ps5log_printf( PS5LOG_MARK, "XASH_LIBC_SMOKE_RESULT symbol=strcasecmp result=%d pass=%d", rc, rc == 0 );
+	rc_equal = system_strcasecmp( "PaLeTtE.LmP", "palette.lmp" );
+	rc_less = system_strcasecmp( "cliffup.tga", "desertrt.tga" );
+	rc_greater = system_strcasecmp( "duskbk.tga", "desertrt.tga" );
+	passed &= rc_equal == 0 && rc_less < 0 && rc_greater > 0;
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_LIBC_SMOKE_RESULT symbol=strcasecmp equal=%d less=%d greater=%d ordering=%d pass=%d",
+		rc_equal, rc_less, rc_greater,
+		rc_less < 0 && rc_greater > 0,
+		rc_equal == 0 && rc_less < 0 && rc_greater > 0 );
 
 	(void)ps5log_line( PS5LOG_INFO, "XASH_LIBC_SMOKE_CALL symbol=strnlen" );
 	n = system_strnlen( "palette", 4 );

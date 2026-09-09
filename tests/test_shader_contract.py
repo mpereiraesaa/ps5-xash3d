@@ -103,6 +103,23 @@ def main() -> int:
             raise SystemExit(f"BSP sky shader contract is missing: {value}")
     if "discard;" in sky or "base.rgb * texture(lightmap_texture" in sky:
         raise SystemExit("BSP sky permutation must be unlit and non-discarding")
+    turbulent = (ROOT / "shaders/bsp_turbulent.pipe").read_text(
+        encoding="utf-8"
+    )
+    for value in resource_required + (
+        "animation_time = frame.debug_values[1].x;",
+        "sin((raw_uv.y * 0.125 + animation_time) * tau) * 8.0",
+        "sin((raw_uv.x * 0.125 + animation_time) * tau) * 8.0",
+        "texture(base_texture, warped_uv)",
+    ):
+        if value not in turbulent:
+            raise SystemExit(
+                f"BSP turbulent shader contract is missing: {value}"
+            )
+    if "discard;" in turbulent or "texture(lightmap_texture, light_uv)" in turbulent:
+        raise SystemExit(
+            "BSP turbulent permutation must be unlit and non-discarding"
+        )
     overlay = (ROOT / "shaders/bsp_overlay.pipe").read_text(encoding="utf-8")
     overlay_required = (
         "uniform OverlayConstants",
@@ -142,7 +159,8 @@ def main() -> int:
         if screen.count(value) != 1:
             raise SystemExit(f"GoldSrc 2D shader contract is missing: {value}")
     for name, pipe in (("resource", resource), ("alpha-test", alpha_test),
-                       ("sky", sky), ("overlay", overlay),
+                       ("sky", sky), ("turbulent", turbulent),
+                       ("overlay", overlay),
                        ("GoldSrc template", goldsrc_template),
                        ("GoldSrc screen", screen)):
         for value in forbidden:

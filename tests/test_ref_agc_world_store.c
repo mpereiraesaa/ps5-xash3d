@@ -55,7 +55,7 @@ int main(void)
         {{0, 1, 0}, {0, 1}, {0, 1}, 7},
     };
     const uint32_t indices[6] = {0, 1, 2, 0, 2, 3};
-    const RefAgcWorldDraw draws[1] = {
+    RefAgcWorldDraw draws[1] = {
         {0, 6, 42, 7, 0x10,
          REF_AGC_WORLD_DRAW_ALPHA_TEST | REF_AGC_WORLD_DRAW_LIGHTMAP,
          {0, 0}},
@@ -94,7 +94,16 @@ int main(void)
            visited.view.lightmap_pixels[15] == 255u);
     assert(visited.view.lightmap_width == 2u &&
            visited.view.lightmap_height == 2u &&
-           visited.view.lightmapped_draw_count == 1u);
+           visited.view.lightmapped_draw_count == 1u &&
+           visited.view.sky_draw_count == 0u &&
+           visited.view.turbulent_draw_count == 0u);
+
+    draws[0].draw_flags |= REF_AGC_WORLD_DRAW_SKY |
+                           REF_AGC_WORLD_DRAW_TURB;
+    assert(ref_agc_world_store_publish(&store, &input) ==
+           REF_AGC_WORLD_INVALID);
+    draws[0].draw_flags &= ~(REF_AGC_WORLD_DRAW_SKY |
+                             REF_AGC_WORLD_DRAW_TURB);
 
     visited.fail = 1;
     cursor = 0u;

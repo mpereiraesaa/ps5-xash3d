@@ -43,6 +43,10 @@ typedef struct RefAgcGpuWorldStats {
     uint32_t lightmap_height;
     uint32_t lightmap_row_pitch;
     uint32_t lightmapped_draw_count;
+    uint32_t sky_draw_count;
+    uint32_t turbulent_draw_count;
+    uint32_t sky_index_count;
+    uint32_t turbulent_index_count;
     size_t lightmap_bytes;
     uint64_t lightmap_rgb_sum;
     uint32_t lightmap_nonzero_texels;

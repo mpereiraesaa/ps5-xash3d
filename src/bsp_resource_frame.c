@@ -31,7 +31,8 @@ static int constants(Ps5TransientRing *ring, uint32_t slot,
                      const void *gpu_mapping, size_t gpu_mapping_bytes,
                      const float mvp[16], const float control[4],
                      const float fog_color_density[4],
-                     uint64_t frame_index, const uint32_t **table_out)
+                     float animation_time, const float camera_position[3],
+                     const uint32_t **table_out)
 {
     Ps5TransientSlice data_slice;
     Ps5TransientTable table;
@@ -49,7 +50,10 @@ static int constants(Ps5TransientRing *ring, uint32_t slot,
     if (fog_color_density)
         memcpy(data->debug_values, fog_color_density,
                4u * sizeof(float));
-    data->debug_values[4] = (float)(frame_index & UINT64_C(0xffff));
+    data->debug_values[4] = animation_time;
+    if (camera_position)
+        memcpy(data->debug_values + 5u, camera_position,
+               3u * sizeof(float));
     data->debug_values[8] = (float)slot;
     if (ps5_gfx1013_build_constant_vsharp(
             table.words, (uintptr_t)data, sizeof(*data)) != 0)
@@ -140,11 +144,17 @@ int bsp_resource_frame_build_configured(
         ? goldsrc_constants->render_color : default_map_control;
     const float *const fog_color_density = goldsrc_constants
         ? goldsrc_constants->fog_color_density : NULL;
+    const float animation_time = goldsrc_constants
+        ? goldsrc_constants->animation_time
+        : (float)(frame_index & UINT64_C(0xffff));
+    const float *const special_camera = goldsrc_constants
+        ? goldsrc_constants->camera_position : NULL;
     if (constants(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
-                  map_mvp, map_control, fog_color_density, frame_index,
+                  map_mvp, map_control, fog_color_density,
+                  animation_time, special_camera,
                   &out->map_constant_table) != 0 ||
         constants(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
-                  identity, clear_control, NULL, frame_index,
+                  identity, clear_control, NULL, 0.0f, NULL,
                   &out->clear_constant_table) != 0 ||
         vertex_table(ring, slot_index, gpu_mapping, gpu_mapping_bytes,
                      bundle->vertices, sizeof(BspBundleVertex),

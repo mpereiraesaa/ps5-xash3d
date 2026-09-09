@@ -24,6 +24,8 @@ typedef struct BspResourceConstants {
 typedef struct BspResourceGoldSrcConstants {
     float render_color[4];
     float fog_color_density[4];
+    float animation_time;
+    float camera_position[3];
 } BspResourceGoldSrcConstants;
 
 typedef struct BspOverlayConstants {

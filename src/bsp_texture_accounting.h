@@ -45,7 +45,12 @@ typedef struct BspTextureUploadFrame {
 
 typedef struct BspTextureUploadSummary {
     uint64_t frames;
+    /* First-frame baseline. Standalone gates require every frame to match it;
+     * live engine integration additionally reports the observed range. */
     uint64_t transient_bytes_per_frame;
+    uint64_t transient_bytes_min;
+    uint64_t transient_bytes_max;
+    uint64_t transient_variation_frames;
     uint64_t bounded_lightmap_bytes_per_frame;
     uint64_t transient_bytes_total;
     uint64_t lightmap_bytes_total;
@@ -61,6 +66,7 @@ typedef struct BspTextureAccounting {
     BspTextureResidency residency;
     BspTextureUploadSummary upload;
     uint8_t initialized;
+    uint8_t variable_transient;
 } BspTextureAccounting;
 
 int bsp_texture_residency_build(const BspTextureResidencyInput *input,
@@ -73,6 +79,12 @@ int bsp_texture_accounting_record(BspTextureAccounting *accounting,
                                   uint64_t lightmap_bytes,
                                   int first_upload,
                                   BspTextureUploadFrame *out);
+int bsp_texture_accounting_record_variable(BspTextureAccounting *accounting,
+                                           uint64_t frame,
+                                           uint64_t transient_bytes,
+                                           uint64_t lightmap_bytes,
+                                           int first_upload,
+                                           BspTextureUploadFrame *out);
 int bsp_texture_accounting_finalize(
     const BspTextureAccounting *accounting, uint64_t expected_frames,
     BspTextureUploadSummary *out);

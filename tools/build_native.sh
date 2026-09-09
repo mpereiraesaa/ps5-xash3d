@@ -352,6 +352,7 @@ sources=(
     src/bsp_textured_draw.c
     src/bsp_flat_scene.c src/bsp_runtime_plan.c src/bsp_texture_descriptor.c
     src/bsp_resource_frame.c src/bsp_resource_draw.c
+    src/ref_agc_skybox.c
     src/gears_animation.c src/gears_draw_compose.c src/gears_frame_runner.c
     src/gears_frame_tracker.c src/gears_mesh.c src/gears_renderer.c
     src/gears_rt_clear.c src/gears_scene.c src/gears_telemetry.c

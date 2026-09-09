@@ -31,6 +31,9 @@ def main() -> int:
         assert f"system_{symbol}" in boot
         assert f"symbol={symbol}" in boot
     assert "XASH_LIBC_SMOKE_END pass=%d" in boot
+    assert 'system_strcasecmp( "cliffup.tga", "desertrt.tga" )' in boot
+    assert 'system_strcasecmp( "duskbk.tga", "desertrt.tga" )' in boot
+    assert "ordering=%d" in boot
     for marker in ("XASH_LIBC_SHIM_BEGIN", "XASH_LIBC_SHIM_RESULT",
                    "XASH_LIBC_SHIM_END"):
         assert marker in boot

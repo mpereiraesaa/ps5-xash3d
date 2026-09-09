@@ -40,6 +40,10 @@ getdents; an image directory that refuses enumeration lists as empty.
 #include <unistd.h>
 #include <utime.h>
 
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+#include "filesystem_internal.h"
+#endif
+
 extern int sceKernelOpen( const char *path, int flags, int mode );
 extern int sceKernelClose( int fd );
 extern int sceKernelStat( const char *path, struct stat *st );
@@ -77,6 +81,9 @@ static char ps5_image_root[PS5_PATH_MAX];
 static char *ps5_index_text;
 static ps5_index_entry_t *ps5_index;
 static int ps5_index_count;
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+static int ps5_runtime_dir_allocator_ready;
+#endif
 
 void PS5_UnloadDirIndex( void )
 {
@@ -425,8 +432,55 @@ typedef struct ps5_dir_s
 	int trace;       /* log each entry (debug) */
 	unsigned seq;
 	char *synthetic; /* dirent records built from the index */
+	unsigned char object_engine_owned;
+	unsigned char synthetic_engine_owned;
 	char buffer[8192];
 } ps5_dir_t;
+
+void PS5_EnableRuntimeDirAllocator( void )
+{
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+	ps5_runtime_dir_allocator_ready = 1;
+#endif
+}
+
+void PS5_DisableRuntimeDirAllocator( void )
+{
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+	ps5_runtime_dir_allocator_ready = 0;
+#endif
+}
+
+static void *ps5_dir_alloc( size_t bytes, int clear,
+	unsigned char *engine_owned )
+{
+	if( engine_owned ) *engine_owned = 0;
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+	if( ps5_runtime_dir_allocator_ready )
+	{
+		void *memory = g_engfuncs._Mem_Alloc( fs_mempool, bytes,
+			clear ? true : false, __FILE__, __LINE__ );
+		if( memory && engine_owned ) *engine_owned = 1;
+		return memory;
+	}
+#endif
+	return clear ? calloc( 1, bytes ) : malloc( bytes );
+}
+
+static void ps5_dir_free( void *memory, unsigned char engine_owned )
+{
+	if( !memory ) return;
+#ifdef PS5_FILESYSTEM_PRX_BUILD
+	if( engine_owned )
+	{
+		g_engfuncs._Mem_Free( memory, __FILE__, __LINE__ );
+		return;
+	}
+#else
+	(void)engine_owned;
+#endif
+	free( memory );
+}
 
 /* Build dirent records for one image directory from the index. */
 static ps5_dir_t *ps5_open_indexed( const char *relative )
@@ -435,6 +489,7 @@ static ps5_dir_t *ps5_open_indexed( const char *relative )
 	size_t need = 0, used = 0;
 	int i, matches = 0;
 	ps5_dir_t *dir;
+	unsigned char object_engine_owned = 0;
 	for( i = 0; i < ps5_index_count; i++ )
 	{
 		const ps5_index_entry_t *e = &ps5_index[i];
@@ -443,17 +498,19 @@ static ps5_dir_t *ps5_open_indexed( const char *relative )
 		need += ( offsetof( struct dirent, d_name ) + strlen( e->name ) + 1 + 3 ) & ~(size_t)3;
 		matches++;
 	}
-	dir = calloc( 1, sizeof( *dir ));
+	dir = ps5_dir_alloc( sizeof( *dir ), 1, &object_engine_owned );
 	if( !dir )
 	{
 		errno = ENOMEM;
 		return NULL;
 	}
+	dir->object_engine_owned = object_engine_owned;
 	dir->fd = -1;
-	dir->synthetic = malloc( need + 1 );
+	dir->synthetic = ps5_dir_alloc( need + 1, 0,
+		&dir->synthetic_engine_owned );
 	if( !dir->synthetic )
 	{
-		free( dir );
+		ps5_dir_free( dir, dir->object_engine_owned );
 		errno = ENOMEM;
 		return NULL;
 	}
@@ -490,6 +547,7 @@ static ps5_dir_t *ps5_open_indexed( const char *relative )
 DIR *opendir( const char *path )
 {
 	ps5_dir_t *dir;
+	unsigned char object_engine_owned = 0;
 	int fd;
 	size_t root_len = strlen( ps5_image_root );
 	RESOLVE( full, path, NULL );
@@ -509,7 +567,8 @@ DIR *opendir( const char *path )
 #else
 		(void)matches;
 #endif
-		return (DIR *)ps5_open_indexed( relative );
+		dir = ps5_open_indexed( relative );
+		return (DIR *)dir;
 	}
 #ifdef PS5_XASH_FS_TRACE
 	(void)ps5log_printf( PS5LOG_INFO, "XASH_OPENDIR seq=%u kind=kernel path=%s", ++ps5_opendir_seq, full );
@@ -520,13 +579,14 @@ DIR *opendir( const char *path )
 		errno = ps5_errno_from( fd );
 		return NULL;
 	}
-	dir = calloc( 1, sizeof( *dir ));
+	dir = ps5_dir_alloc( sizeof( *dir ), 1, &object_engine_owned );
 	if( !dir )
 	{
 		sceKernelClose( fd );
 		errno = ENOMEM;
 		return NULL;
 	}
+	dir->object_engine_owned = object_engine_owned;
 	dir->fd = fd;
 	return (DIR *)dir;
 }
@@ -603,7 +663,10 @@ int closedir( DIR *stream )
 #endif
 	if( dir->fd >= 0 )
 		sceKernelClose( dir->fd );
-	free( dir->synthetic );
-	free( dir );
+	{
+		const unsigned char object_engine_owned = dir->object_engine_owned;
+		ps5_dir_free( dir->synthetic, dir->synthetic_engine_owned );
+		ps5_dir_free( dir, object_engine_owned );
+	}
 	return 0;
 }

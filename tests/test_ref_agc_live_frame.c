@@ -38,6 +38,7 @@ int main(void)
         .fov_y = 58.7f,
         .view_entity = 1,
         .flags = 1,
+        .time_seconds = 12.25,
         .valid = 1,
     };
     RefAgcLiveEntity entity = {
@@ -67,6 +68,10 @@ int main(void)
     float camera_aspect = 0.0f;
 
     assert(ref_agc_live_store_init(&store) == 0);
+    const uint32_t sky_handles[REF_AGC_LIVE_SKY_SIDES] = {
+        11u, 12u, 13u, 14u, 15u, 16u,
+    };
+    ref_agc_live_set_sky(&store, sky_handles);
     strcpy(world.model_name, "maps/c1a0.bsp");
     world.model_type = 1;
     world.model_flags = 1u << 29;
@@ -91,6 +96,10 @@ int main(void)
     assert(frame.begin_calls == 41 && frame.scene_calls == 42 &&
            frame.end_calls == 43);
     assert(frame.view.valid && frame.view.viewport[2] == 1920);
+    assert(frame.view.time_seconds == 12.25 && !frame.view.paused);
+    assert(frame.sky.active && frame.sky.revision == 1u &&
+           frame.sky.texture_handles[0] == 11u &&
+           frame.sky.texture_handles[5] == 16u);
     assert(frame.world.surfaces == 1234);
     assert(strcmp(frame.world.model_name, "maps/c1a0.bsp") == 0);
     assert(frame.entity_count == 1 && frame.entities[0].index == 7);
@@ -129,6 +138,7 @@ int main(void)
     assert(frame.command_2d_count == 4096);
     assert(frame.dropped_entities == 1 && frame.dropped_2d_commands == 1);
     assert(frame.world.serial == 1);
+    ref_agc_live_set_sky(&store, NULL);
 
     strcpy(world.model_name, "maps/c1a1.bsp");
     ref_agc_live_set_world(&store, &world);
@@ -137,6 +147,7 @@ int main(void)
     assert(ref_agc_live_take_latest(&store, 2, &frame) == 0);
     assert(frame.serial == 3 && frame.map_serial == 2);
     assert(frame.world.serial == 2);
+    assert(!frame.sky.active && frame.sky.revision == 2u);
     assert(strcmp(frame.world.model_name, "maps/c1a1.bsp") == 0);
 
     /* The engine publishes at most one frame ahead. A consumer waiting before

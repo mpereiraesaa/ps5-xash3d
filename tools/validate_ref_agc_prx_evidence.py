@@ -78,6 +78,7 @@ def validate_renderer(
     manifest_path: Path, *, bundle_sha256: str, bundle_bytes: int,
     studio_sha256: str, studio_bytes: int,
     require_live_lightmaps: bool = False,
+    require_live_special_surfaces: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -227,6 +228,67 @@ def validate_renderer(
                         or int(world["lightmapped_draws"], 10) > int(
                             world["draws"], 10):
                     fail("Phase 7 live lightmap atlas contract mismatch")
+        special_messages = [parse_fields(message) for message in messages
+                            if message.startswith(
+                                "REF_AGC_LIVE_SPECIAL_SURFACES ")]
+        special_summary = None
+        if require_live_special_surfaces:
+            if world is None:
+                fail("Phase 7 live special surfaces require a live world")
+            special_counts = (
+                "sky_draws", "sky_indices", "turbulent_draws",
+                "turbulent_indices",
+            )
+            if any(int(world.get(field, "0"), 10) <= 0
+                   for field in special_counts):
+                fail("Phase 7 GPU world special-surface counts are missing")
+            if len(special_messages) < 2:
+                fail("Phase 7 live special-surface time samples are missing")
+            active_times: list[int] = []
+            geometry_hashes: set[str] = set()
+            texture_hashes: set[str] = set()
+            for marker in special_messages:
+                if not exact(marker, {
+                    "schema": "1", "skybox_draws": "6",
+                    "skybox_indices": "36", "sky_active": "1",
+                    "sky": "engine-six-sided-camera-centred",
+                    "turbulent": "engine-time-classic-warp",
+                    "ownership": "transient-slot",
+                }) or marker.get("source_sky_draws") != \
+                        world.get("sky_draws") \
+                        or marker.get("source_sky_indices") != \
+                        world.get("sky_indices") \
+                        or marker.get("turbulent_draws") != \
+                        world.get("turbulent_draws") \
+                        or marker.get("turbulent_indices") != \
+                        world.get("turbulent_indices") \
+                        or int(marker.get("sky_revision", "0"), 10) <= 0 \
+                        or marker.get("sky_geometry_hash") in (
+                            None, "0000000000000000") \
+                        or marker.get("sky_texture_hash") in (
+                            None, "0000000000000000") \
+                        or marker.get("paused") not in ("0", "1"):
+                    fail("Phase 7 live special-surface contract mismatch")
+                geometry_hashes.add(marker["sky_geometry_hash"])
+                texture_hashes.add(marker["sky_texture_hash"])
+                if marker["paused"] == "0":
+                    active_times.append(int(
+                        marker.get("animation_time_milli", "-1"), 10))
+            if len(active_times) < 2 or min(active_times) < 0 \
+                    or max(active_times) <= min(active_times):
+                fail("Phase 7 turbulent engine time did not advance")
+            if len(geometry_hashes) != 1 or len(texture_hashes) != 1:
+                fail("Phase 7 skybox hashes changed without a map revision")
+            special_summary = {
+                "samples": len(special_messages),
+                "animation_time_milli": [min(active_times), max(active_times)],
+                "sky_geometry_hash": next(iter(geometry_hashes)),
+                "sky_texture_hash": next(iter(texture_hashes)),
+                "sky_draws": int(world["sky_draws"], 10),
+                "sky_indices": int(world["sky_indices"], 10),
+                "turbulent_draws": int(world["turbulent_draws"], 10),
+                "turbulent_indices": int(world["turbulent_indices"], 10),
+            }
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -245,6 +307,7 @@ def validate_renderer(
             "resource_reclaimed": int(complete["resource_reclaimed"], 10),
             "gpu_texture": texture,
             "gpu_world": world,
+            "special_surfaces": special_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -321,19 +384,23 @@ def main() -> int:
     parser.add_argument("--studio-sha256", required=True)
     parser.add_argument("--studio-bytes", required=True, type=int)
     parser.add_argument("--require-live-lightmaps", action="store_true")
+    parser.add_argument("--require-live-special-surfaces", action="store_true")
+    parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
         engine = validate_engine(
             args.engine_manifest,
             engine_commit=args.engine_commit,
             hlsdk_commit=args.hlsdk_commit,
-            boot_map="c1a0", mode="client", ref_agc_prx_gate=True,
+            boot_map=args.map, mode="client", ref_agc_prx_gate=True,
         )
         renderer = validate_renderer(
             args.renderer_manifest,
             bundle_sha256=args.bundle_sha256, bundle_bytes=args.bundle_bytes,
             studio_sha256=args.studio_sha256, studio_bytes=args.studio_bytes,
             require_live_lightmaps=args.require_live_lightmaps,
+            require_live_special_surfaces=
+                args.require_live_special_surfaces,
         )
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
@@ -402,6 +469,7 @@ def main() -> int:
             "gpu_bright_pixels": renderer["bright_pixels"],
             "gpu_texture": renderer.get("gpu_texture"),
             "gpu_world": renderer.get("gpu_world"),
+            "special_surfaces": renderer.get("special_surfaces"),
             "ownership": "exact",
             "pass": True,
         }
