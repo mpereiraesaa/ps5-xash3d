@@ -147,8 +147,26 @@ verified in the ELF with `strings`. Diagnostic renderer ELF SHA-256:
 `26bb8b6246d82dfa0445cc669672e28b444ae368028997136cb8d8f7b3d223f2`;
 diagnostic PRX SHA-256:
 `96e2c9c1eda3f5d65db958af81e8f0de17a70274afea57b11dd00a10156bfc50`.
-This artifact has not yet been deployed or run; the preceding operator
-observation belongs only to the non-trace PRX identified above.
+This artifact was transactionally deployed with all nine hashes verified and
+launched after a healthy no-BigApp preflight. Diagnostic run IDs:
+`20260909T132208575Z_PPSA99996_xash3d-engine_0x14bc1f789c889` and
+`20260909T132208628Z_PPSA99996_ps5-xash3d_0x14bc1fadbe47c`.
+The preceding operator observation belongs only to the non-trace PRX until
+the operator confirms whether the flash recurred in this diagnostic run.
+
+The trace contains 1,082 batch records, without a limit marker. The chapter
+font batch is texture 883, bounds (878,702)..(1037,721), 108 indices. All 297
+samples use key 130, shader 8 and additive register `61010104`, from engine
+time 1,383 to 6,321 ms. The last colors descend through 8,7,6,5,4,3,1,0 in
+each RGB channel, with alpha 255. At 6,305 and 6,321 ms the trace contains
+only this title batch; no white fill or mode switch is recorded there.
+This narrows the investigation: no CPU-side title whitening is observed in
+these samples. It does not prove the GPU produced correct pixels, nor that
+the original flash was reproduced. Do not patch the fade arithmetic merely
+because a white rectangle was reported. Diagnostic paired validation passed
+with live lightmaps/2D/menu/brush/Studio requirements, exact resource teardown
+and clean BYEs. Independent post-run status again found no BigApp and healthy
+services. Visual reproduction of the flash in this run remains unconfirmed.
 
 ## Operator QA handoff (pending)
 
