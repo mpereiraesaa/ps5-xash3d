@@ -16,8 +16,10 @@ Replaces engine/platform/posix/sys_posix.c on PS5. Timing and sleeping use the
 POSIX clocks that libkernel exports. The C++ __dso_handle anchor remains here;
 the project-owned libc compatibility surface lives in libc_shims_ps5.c.
 
-The boot gate is bounded: PS5_XASH_GATE_SECONDS after the first Platform_Sleep
-call the backend queues "quit" once, so a hardware run ends with the engine's
+The boot gate is bounded: PS5_XASH_GATE_SECONDS after the first owner-thread
+clock call the backend queues "quit" once. Operator runs may rebase that clock
+once at active client signon, preserving a bounded startup and full map interval.
+A hardware run ends with the engine's
 own shutdown path and a clean telemetry BYE instead of an operator close.
 */
 
@@ -25,6 +27,9 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include "common.h"
 #include "ps5log.h"
 #include "ps5_xash_build.h"
+#if PS5_XASH_MODE_CLIENT
+#include "client.h"
+#endif
 #include "in_ps5.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -458,6 +463,7 @@ static void PS5_GateTick( double now )
 	static double started;
 	static pthread_t owner;
 	static qboolean quit_queued;
+	static double map_started;
 
 	if( quit_queued )
 		return;
@@ -482,6 +488,10 @@ static void PS5_GateTick( double now )
 	}
 #endif
 
+#if PS5_XASH_MODE_CLIENT && !PS5_XASH_PAD_GATE
+	if( cls.state == ca_active )
+		(void)PS5_PadInputRuntimePoll( );
+#endif
 #if PS5_XASH_PAD_GATE
 	(void)PS5_PadInputPoll( );
 	if( PS5_PadInputGatePassed( ))
@@ -494,7 +504,20 @@ static void PS5_GateTick( double now )
 #endif
 
 #if PS5_XASH_GATE_SECONDS > 0
-	if( now - started < (double)PS5_XASH_GATE_SECONDS )
+	double deadline_origin = started;
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_GATE_FROM_MAP
+	/* Start the operator's full observation interval at active client signon,
+	 * not while MainUI/loading consumes time. Startup retains the same bound. */
+	if( map_started == 0.0 && cls.state == ca_active )
+	{
+		map_started = now;
+		Con_Printf( "PS5_XASH_ACTIVE_MAP_TIMER seconds=%d state=active action=start\n", PS5_XASH_GATE_SECONDS );
+	}
+	if( map_started > 0.0 ) deadline_origin = map_started;
+#else
+	(void)map_started;
+#endif
+	if( now - deadline_origin < (double)PS5_XASH_GATE_SECONDS )
 		return;
 
 	quit_queued = true;

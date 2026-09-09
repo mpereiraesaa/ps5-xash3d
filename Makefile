@@ -2,6 +2,8 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c11 -Wall -Wextra -Werror
 BUILD := build/host
 STUDIO_SEQUENCE ?= fire
+PHASE7_GATE_SECONDS ?= 25
+PHASE7_GATE_FROM_MAP ?= 0
 
 .PHONY: all test shaders bsp-bundle bsp-inspect studio-bundle studio-inspect \
 	engine-boot-native-release engine-pad-native-release \
@@ -379,7 +381,7 @@ engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
 	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
 		XASH_PHASE7_MENU_GATE=1 XASH_PHASE7_MENU_SECONDS=5 \
-		XASH_GATE_SECONDS=25 bash xash/build_engine.sh
+		XASH_GATE_SECONDS=$(PHASE7_GATE_SECONDS) XASH_GATE_FROM_MAP=$(PHASE7_GATE_FROM_MAP) bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

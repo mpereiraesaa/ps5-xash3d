@@ -120,11 +120,12 @@ brushes and their ordering. No such coverage may be inferred from the generic
 `alpha` counter. Studio cache residency is also not Studio draw evidence;
 that is the next separate rendering checkpoint.
 
-## Studio first-draw candidate: awaiting hardware/operator validation
+## Studio first-draw candidate: runtime passes, visual quality remains open
 
-The first live Studio drawing candidate is implemented and deployed, but **not
-yet launched or accepted**. Do not promote this section to a completed gate
-without its correlated runtime logs and the operator's visual observation.
+The first live Studio drawing candidate has run on hardware. Submission and
+animation have positive evidence, but **visual quality is not accepted**:
+the operator reports jagged/flickering borders and textures. The correlated
+results below must not be promoted to complete Studio rendering acceptance.
 
 The producer uses the engine's `R_StudioGetAnim` callback (including external
 sequence groups) and statically compiled upstream `R_StudioCalcBones`, quaternion
@@ -165,7 +166,78 @@ totals, sampled model/bone evidence, changing poses and exact final ownership.
 - Engine SELF and both support assets retain the accepted recovery hashes.
 
 Operator workflow: no Remote Play and no recordings by default. Coordinate
-presence before launching the bounded 25-second menu-to-c1a0 test. Ask whether
+presence before launching the bounded menu-to-c1a0 test. Ask whether
 the guard at reception and scientists appear with complete bodies, correct
 textures and visible animation after the airlock opens. Record that answer as
 operator-reported visual evidence separately from the automatic log checks.
+
+### Three-minute operator run and input integration correction
+
+Use `make engine-phase7-menu-native-release PHASE7_GATE_SECONDS=180
+PHASE7_GATE_FROM_MAP=1` with the documented c1a0 inputs. Defaults retain the
+25-second regression. `PS5_XASH_ACTIVE_MAP_TIMER` marks a single clock rebase
+at `cls.state == ca_active`; menu/loading does not reduce the full 180-second
+map interval. Failure to reach active signon still times out from startup.
+
+First three-minute run:
+
+- Engine: `20260909T101339725Z_PPSA99996_xash3d-engine_0x14178f4fc2023`.
+- Renderer: `20260909T101339782Z_PPSA99996_ps5-xash3d_0x14178f875d094`.
+- Engine ELF `dab46a4eaef606ef64078dd9ea0c99589b06c8c27f436dd61966cc827382b1c5`;
+  SELF `701418bac37b2649f4558c5273ec2bbb52c3dedd7df57ad8b238b703a431583d`.
+- Renderer hashes unchanged from the Studio candidate above.
+- Paired validator with lightmaps, 2D, menu, brush and Studio requirements passes:
+  10,997 matched frames, 10,771 Studio frames, 723,905 Studio draws,
+  76,014,951 indices and 10,770 pose changes; Barney and scientist sampled.
+- External `barney02.mdl`, `scientist02.mdl` and `scientist01.mdl` resolved by
+  the engine. Both clean BYEs, nine reclaims and exact teardown, zero structured
+  errors. Post-run: no BigApp, all four supervisory services healthy.
+- Engine transcript SHA-256 `4c8908ee1b05efb4de44a39d83f5c7f7935ace0d21f4273df78c52c8359d37ed`;
+  renderer transcript `43871aac3c23d088c891fdaa3e592f12e1a8892b9f1a315e3865b7608995c068`.
+- Operator confirms guard/scientists present, moving, animated and correctly
+  positioned, but describes poor visual quality, jagged edges and flickering
+  textures. This is operator evidence, not a recorded capture. Sampling/aliasing
+  is a hypothesis, not a demonstrated cause; assess distance and stationary
+  camera behavior before modifying rendering.
+
+The same operator could not move. Inspection confirmed ScePad init/poll/shutdown
+was wired only into `PS5_XASH_PAD_GATE`; the live renderer correctly expected
+the engine to own input, leaving no active pad owner in the ordinary client.
+Normal client input now lazily starts ScePad at active signon, polls on the
+engine owner thread and releases its handle/user-service ownership after
+Host_Main. Its event sink is detached before teardown because input/cvars may
+already have been destroyed. It never invokes the six-action gate's early
+autoquit. Dedicated gate behavior remains unchanged. Host tests cover one-time
+open, continued polling without gate success and idempotent shutdown.
+
+The follow-up client SELF is `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`
+(ELF `878232f31299066486c1e3b4d8678c3f20d54a286bad2f7acc1e2a65f9724de2`).
+It retains the exact same renderer to isolate input from visual quality.
+Its completed run: `20260909T101931364Z_PPSA99996_xash3d-engine_0x141cad41bd1ec`
+and `20260909T101931418Z_PPSA99996_ps5-xash3d_0x141cad7467f97`. Runtime ScePad
+initialization succeeds, both sticks generate events and consumed-frame telemetry
+shows changing camera origin/angles. The paired validator passes all five live
+requirements: 10,997 frames, 10,771 Studio frames, 858,528 Studio draws,
+90,815,742 Studio indices, 10,770 pose changes and 1,856 camera changes.
+ScePad reports 121,616 connected samples, 8,703 movement samples, 4,301 look
+samples, zero read errors and exact handle/user-service teardown. Buttons were
+not exercised; this is not a repeat acceptance of the six-action input gate.
+Active-map start and timeout are exactly 180 seconds apart in the engine log.
+Both clean BYEs, nine resources reclaimed and zero structured errors. Independent
+post-run status finds no BigApp and all four supervisory services healthy.
+
+Transcript SHA-256:
+
+- Engine: `a7373bc36286d7b6105929798d2c323bd61382f58df121d545988f48d6041906`.
+- Renderer: `64ee936ed7bf78ac3adb829769c782a410ec50d221e811015e51063da473735f`.
+
+Operator feedback after approaching the characters: edge jaggies and texture
+flicker improve substantially at close range; the defect is most apparent at
+distance. Code inspection confirms `ref_agc_gpu_texture_cache_apply` uploads
+only the base image and builds single-level bilinear descriptors, despite the
+CPU store retaining a mip-count field. Missing minification filtering is thus
+a concrete candidate for texture shimmer, not proof that all silhouette aliasing
+has the same cause. Next isolated visual-quality test: proper GPU mip residency
+and minification sampling, compare the same model near/far and stationary/moving.
+Do not substitute higher-resolution replacement art, and do not claim this
+input-only run fixes image quality. No Remote Play session or capture was used.

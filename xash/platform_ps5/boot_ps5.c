@@ -465,6 +465,10 @@ int main( int argc, char **argv )
 		PS5_XASH_BOOT_MAP, PS5_Phase7MenuGateMapQueued( ), result,
 		result == 0 && PS5_Phase7MenuGateMapQueued( ));
 #endif
+#if PS5_XASH_MODE_CLIENT && !PS5_XASH_PAD_GATE
+	if( PS5_PadInputRuntimeShutdown( ) != 0 )
+		(void)ps5log_line( PS5LOG_ERR, "XASH_PAD_RUNTIME_SHUTDOWN_FAILED" );
+#endif
 	PS5_UnloadDirIndex( );
 	if( PS5_PrxLibraryShutdown( ) != 0 )
 		prx_pass = 0;

@@ -13,6 +13,7 @@
 #                          under dist/.../xash3d, never committed)
 #   XASH_BOOT_MAP          map executed after boot (default c1a0)
 #   XASH_GATE_SECONDS      queue "quit" after N seconds (default 90; 0 = never)
+#   XASH_GATE_FROM_MAP     1 rebases the timeout once at active client signon
 #   XASH_JOBS              parallel compile jobs (default nproc)
 #   XASH_MODE              dedicated (Phase 5 evidence) or client (early Phase 6
 #                          diagnostic: engine, mainui, hlsdk client, ref_null
@@ -66,6 +67,8 @@ xash=$root/third_party/xash3d-fwgs
 hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
+gate_from_map=${XASH_GATE_FROM_MAP:-0}
+[[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
@@ -233,6 +236,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_HLSDK_COMMIT "$hlsdk_commit"
 #define PS5_XASH_BOOT_MAP "$boot_map"
 #define PS5_XASH_GATE_SECONDS $gate_seconds
+#define PS5_XASH_GATE_FROM_MAP $gate_from_map
 #define PS5_XASH_TITLE_ID "$title_id"
 #define PS5_XASH_MODE "$mode"
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)

@@ -257,11 +257,28 @@ static void test_open_failure_releases_owned_user_service( void )
 	assert( terminate_calls == 1 );
 }
 
+static void test_runtime_input_without_gate_autoquit( void )
+{
+	reset_fixture( );
+	PS5_PadInputSetSink( NULL );
+	fixture[0] = neutral_sample( 100, 1 );
+	fixture_count = 1;
+	assert( PS5_PadInputRuntimePoll( ) == 1 );
+	assert( PS5_PadInputRuntimePoll( ) == 1 );
+	assert( pad_open_calls == 1 && read_calls == 2 );
+	assert( !PS5_PadInputGatePassed( ));
+	assert( PS5_PadInputRuntimeShutdown( ) == 0 );
+	assert( close_calls == 1 && terminate_calls == 1 );
+	assert( PS5_PadInputRuntimeShutdown( ) == 0 );
+	assert( close_calls == 1 );
+}
+
 int main( void )
 {
 	test_complete_chronological_batch( );
 	test_generation_change_and_interception_release_state( );
 	test_non_owner_and_read_failure( );
 	test_open_failure_releases_owned_user_service( );
+	test_runtime_input_without_gate_autoquit( );
 	return 0;
 }

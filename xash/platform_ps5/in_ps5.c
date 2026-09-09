@@ -450,3 +450,31 @@ const struct ps5_xash_pad_stats *PS5_PadInputStats( void )
 {
 	return &pad.stats;
 }
+
+/* Normal client input is independent of the dedicated six-action gate.
+ * Start only after client signon, when Joy/Key/Cvar are initialized. */
+static int runtime_state;
+int PS5_PadInputRuntimePoll( void )
+{
+	if( runtime_state == 0 )
+	{
+		int result = PS5_PadInputInit( );
+		runtime_state = result == 0 ? 1 : -1;
+		(void)ps5log_printf( result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_PAD_RUNTIME_BEGIN schema=1 result=%d autoquit=0", result );
+	}
+	return runtime_state == 1 ? PS5_PadInputPoll( ) : -1;
+}
+
+int PS5_PadInputRuntimeShutdown( void )
+{
+	if( runtime_state == 0 ) return 0;
+	/* Host_Main may already have destroyed input/cvars. Do not send events
+	 * into those subsystems while releasing the platform-owned handle. */
+	PS5_PadInputSetSink( NULL );
+	int result = PS5_PadInputShutdown( );
+	runtime_state = 0;
+	(void)ps5log_printf( result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_PAD_RUNTIME_END schema=1 result=%d ownership=exact", result );
+	return result;
+}
