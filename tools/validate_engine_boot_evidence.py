@@ -918,6 +918,33 @@ def validate_ref_agc_prx_gate(
     return state
 
 
+def validate_recovery_console(lines: list[str], raw: list[str], boot_map: str) -> str:
+    """Allow only the single named diagnostic fault, with complete ordered stages."""
+    expected = "Host_Error: PS5_RECOVERY_EXPECTED"
+    faults = [line for line in raw if "Host_Error:" in line]
+    if len(faults) != 1 or not re.fullmatch(
+            r"(?:\[\d{2}:\d{2}:\d{2}\] )?Host_Error: PS5_RECOVERY_EXPECTED", faults[0]):
+        fail("recovery requires exactly the named diagnostic Host_Error")
+    stages = []
+    indices = []
+    for index, line in enumerate(lines):
+        if "XASH_RECOVERY_GATE " in line:
+            fields = parse_fields(line[line.index("XASH_RECOVERY_GATE "):])
+            stage = int(fields.get("stage", "0"))
+            if fields != {"schema": "1", "stage": str(stage),
+                          "active": "1" if stage in (1, 2, 5) else "0",
+                          "map": boot_map, "diagnostic": "1"}:
+                fail("recovery stage contract mismatch")
+            stages.append(stage)
+            indices.append(index)
+    if stages != [1, 2, 3, 4, 5]:
+        fail("recovery stage sequence incomplete or duplicated")
+    fault_index = lines.index(faults[0])
+    if not indices[1] < fault_index < indices[2]:
+        fail("diagnostic Host_Error is outside injection/inactive interval")
+    return "\n".join(raw).replace(expected, "EXPECTED_RECOVERY_DIAGNOSTIC", 1)
+
+
 def validate(
     manifest_path: Path,
     *,
@@ -936,6 +963,7 @@ def validate(
     menu_prx_gate: bool = False,
     client_prx_gate: bool = False,
     ref_agc_prx_gate: bool = False,
+    recovery_gate: bool = False,
 ) -> dict[str, object]:
     manifest_path = manifest_path.resolve()
     try:
@@ -1076,6 +1104,12 @@ def validate(
         fail("ref_agc PRX result was not retained at exit")
 
     console = "\n".join(raw)
+    if not recovery_gate and any(m.startswith("XASH_RECOVERY_GATE ") for m in messages):
+        fail("diagnostic recovery run requires explicit recovery validation")
+    if recovery_gate:
+        if not ref_agc_prx_gate or mode != "client":
+            fail("recovery validation requires the client ref_agc stack")
+        console = validate_recovery_console(lines, raw, boot_map)
     for needle in FATAL_CONSOLE:
         if needle in console:
             fail(f"console reports a fatal error: {needle}")

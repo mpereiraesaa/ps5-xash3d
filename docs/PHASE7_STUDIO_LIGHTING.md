@@ -19,13 +19,15 @@ are historical. Phase 7 and broader Studio/effects parity remain open.
   clean paired normal-build resource validation (15:42 runs below).
 - Ordinary NPC chrome: operator accepted, with clean paired resource validation
   (15:55 runs below). Forced glowshell remains outside this acceptance.
-- Callback symbol coverage: observed `c1a0 -> c1a0d -> c1a0` round trip works;
-  the single-map automated validator still needs an explicit multi-map contract.
-  Host_Error inactive-world recovery is host-tested, not hardware accepted.
+- Callback symbol coverage: the observed `c1a0 -> c1a0d -> c1a0` round trip
+  now passes the explicit multi-map paired validator (10,810 frames).
+  Named Host_Error inactive-world recovery is hardware/operator accepted
+  with a clean 10,825-frame paired diagnostic; see recovery outcome below.
 - Viewmodel now has separate pose, lighting and draw ownership. Operator used
   pistol fire, crowbar attack and immediate weapon cycling in live QA. This
-  does not close reload/events/muzzleflash/attachments, custom FOV/handedness,
-  full controller/sequence-transition fidelity or final integrated resource QA.
+  includes the tested reload/events/muzzleflash path and clean resource QA.
+  Custom FOV/handedness, full controller/sequence-transition fidelity and
+  broader forced-effects coverage remain open.
 - DualSense profile v5 is the current operator-accepted aim baseline: radial
   deadzone 10%, exponent 1.6, yaw/pitch 140/105 degrees per second; R2 primary,
   R1 secondary and immediate D-pad cycling. See [controller guide](SCEPAD_PHASE5.md)
@@ -200,15 +202,67 @@ lightmap/2D/menu/brush/Studio checks: 10,810 frames, publications at serials
 This is retrospective validation of that build, not a new console run of
 the latest effects build or a claim of arbitrary save compatibility.
 
-Next hardware gate: deliberately invoke the engine's existing `host_error`
-command once after a stable active map, confirm inactive-world clear and
+Next hardware gate: deliberately invoke `Host_Error` through an owner-thread
+diagnostic command once after a stable active map, confirm inactive-world clear and
 continued 2D presentation, then load `c1a0` again and obtain exact teardown.
 Use a dedicated bounded diagnostic and an exact expected-error contract:
 never suppress arbitrary Host_Error/Sys_Error lines in the normal validator.
 No corrupt saves, process kill, console restart or Remote Play is required.
 Operator acceptance must confirm that loading/console presentation does not
 freeze and the recovered map is visible and controllable. This recovery
-gate remains pending; no deployment or launch occurred in this follow-up.
+gate remained pending at the transition-validator checkpoint.
+
+The recovery diagnostic is opt-in with `XASH_RECOVERY_GATE=1`, requires the
+MainUI/ref_agc stack and a map-relative timeout of at least 90 seconds, and
+cannot be combined with the other visual probes. It waits 15 active seconds,
+queues a one-shot restricted `ps5_recovery_error` command, observes inactive
+client state for 10 seconds, queues the boot map, and records active recovery.
+The callback unregisters itself before calling `Host_Error`; the clock hook
+never calls the longjmp path directly. Normal builds default to gate off.
+
+The first diagnostic attempt (`20260909T185048895Z` engine run) queued the
+upstream `host_error` command, but it was unavailable at developer level 1;
+the log reports `Unknown command: host_error`. That run does not prove error
+recovery. The corrected diagnostic registers its own callback instead of
+raising developer verbosity or enabling the engine's other fault commands.
+The bounded state machine and callback scheduling have host tests.
+
+`--require-host-error-recovery` is a separate paired-validator mode. It
+requires exactly the named `Host_Error: PS5_RECOVERY_EXPECTED` between the
+injection and inactive markers, all five ordered engine stages, two same-map
+publications surrounding one retired zero-resident world clear, continued 2D
+draws while cleared, and normal paired accounting/teardown. Every other
+fatal error is still rejected. A passing diagnostic reports one expected
+Host_Error; it must never be described as a run with no engine errors.
+
+### Recovery hardware outcome — accepted 2026-09-09
+
+Engine run `20260909T185435450Z_PPSA99996_xash3d-engine_0x15de625771803`;
+renderer `20260909T185435571Z_PPSA99996_ps5-xash3d_0x15de62b04835c`.
+Operator confirmed the error/console/reloaded-map sequence and working
+movement/look: “sii todo ok”. The paired recovery validator passes 10,825
+frames (9,998 world-view frames), with one explicitly expected Host_Error,
+zero renderer errors, nine exact resource reclaims, intact guards, clean
+BYEs, all module unloads and exact VideoOut/direct-memory/AGC teardown.
+World publications are serials 211/revision 1 and 1700/revision 3; the clear
+is serial 1099/revision 2 with zero resident bytes, followed by 2D draws.
+Texture peak is 68,034,048 bytes. The start skew is 121 ms.
+
+Diagnostic ELF SHA-256:
+`563f679181b6f7a20cd3d0dcf7ac62a9189fda7b7f314b8be7e924400872f8a3`.
+Diagnostic SELF:
+`2690f0ceca419a7025b6a6326144b652d277d00e0bc20f3f885a9d279f9def3c`.
+Renderer PRX remains the accepted effects binary:
+`d7003f1c56e84cc91bcc78d7f7e7e300b8e612b42881d2fbed7ddc23c3c89386`.
+Exact raw-FTP verification preceded launch. No manual process close, corrupted
+save, firmware restart or Remote Play was used. This proves this controlled
+inactive-world recovery path, not arbitrary failures or a transition soak.
+
+Normal `XASH_RECOVERY_GATE=0` rebuild reproduces ELF `0c0b79677bd6dabba954305fd4f08143a6bb5d80615e9052d5f45d3a4d3c0e2e`
+and SELF `6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`;
+diagnostic marker absence was checked in the ELF. The timed/audio-off harness
+and no-grant controls remain unchanged. Exact FTP restoration completed at
+18:58 UTC without relaunch. Phase 7 is not closed by this gate.
 
 Operator subsequently reported black areas on Barney's front jacket near the
 computer and on some scientist faces, dependent on viewing angle/proximity and

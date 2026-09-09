@@ -743,7 +743,7 @@ def started_at(path: Path) -> datetime:
 
 
 def validate_map_sequence(raw: list[str], messages: list[str],
-                          expected: list[str]) -> dict:
+                          expected: list[str], *, recovery: bool = False) -> dict:
     """Pair ordered engine captures with retired GPU world publications.
 
     This proves the observed load sequence, not arbitrary save compatibility
@@ -771,10 +771,25 @@ def validate_map_sequence(raw: list[str], messages: list[str],
              if m.startswith("REF_AGC_LIVE_WORLD_SYNC ")]
     complete = one(messages, "REF_AGC_GPU_WORLD_COMPLETE")
     frames = int(one(messages, "REF_AGC_LIVE_COMPLETE")["frames"])
+    clears = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_WORLD_CLEAR ")]
     if len(syncs) != len(expected) or int(complete["publishes"]) != len(expected) \
-            or int(complete.get("clears", "0")) != 0 \
-            or any(m.startswith("REF_AGC_LIVE_WORLD_CLEAR ") for m in messages):
+            or int(complete.get("clears", "0")) != int(recovery) \
+            or len(clears) != int(recovery):
         fail("map sequence publication count/clear mismatch")
+    if recovery:
+        if len(expected) != 2 or expected[0] != expected[1]:
+            fail("recovery requires reloading the same map")
+        clear = clears[0]
+        if not exact(clear, {"schema": "1", "resident_bytes": "0",
+                             "ownership": "retired-before-reuse"}) \
+                or not int(syncs[0]["serial"]) < int(clear["serial"]) < int(syncs[1]["serial"]) \
+                or not int(syncs[0]["revision"]) < int(clear["revision"]) < int(syncs[1]["revision"]):
+            fail("recovery world clear is not between the two publications")
+        idle_frames = [parse_fields(m) for m in messages
+                       if m.startswith("REF_AGC_LIVE_2D_FRAME ")]
+        if not any(int(clear["serial"]) < int(m["serial"]) < int(syncs[1]["serial"])
+                   and int(m["draws"]) > 0 for m in idle_frames):
+            fail("recovery has no 2D presentation after world clear")
     serial = revision = 0
     for capture, sync in zip(captures, syncs):
         next_serial, next_revision = int(sync["serial"]), int(sync["revision"])
@@ -799,6 +814,7 @@ def validate_map_sequence(raw: list[str], messages: list[str],
         if complete.get(key) != syncs[-1].get(key):
             fail("map sequence final world mismatch")
     return {"maps": expected, "publications": len(syncs),
+            "recovery": recovery,
             "serials": [int(s["serial"]) for s in syncs],
             "proof": "ordered-spawn-capture-and-retired-gpu-publication"}
 
@@ -877,8 +893,14 @@ def main() -> int:
     parser.add_argument("--require-live-studio", action="store_true")
     parser.add_argument("--map", default="c1a0")
     parser.add_argument("--map-sequence", nargs="+", help="Exact ordered maps, including boot and return; requires live menu")
+    parser.add_argument("--require-host-error-recovery", action="store_true",
+                        help="Dedicated PS5_RECOVERY_EXPECTED diagnostic only; rejects other errors")
     args = parser.parse_args()
     try:
+        if args.require_host_error_recovery:
+            if args.map_sequence or not args.require_live_menu or not args.require_live_2d:
+                fail("recovery requires live menu/2D and no separate map sequence")
+            args.map_sequence = [args.map, args.map]
         if args.map_sequence and not args.require_live_menu:
             fail("map sequence requires live menu validation")
         engine = validate_engine(
@@ -886,6 +908,7 @@ def main() -> int:
             engine_commit=args.engine_commit,
             hlsdk_commit=args.hlsdk_commit,
             boot_map=args.map, mode="client", ref_agc_prx_gate=True,
+            recovery_gate=args.require_host_error_recovery,
         )
         renderer = validate_renderer(
             args.renderer_manifest,
@@ -910,7 +933,8 @@ def main() -> int:
             lines = (args.engine_manifest.parent / manifest["log_path"]).read_text().splitlines()
             _, raw = split_transcript(lines[1:-1])
             _, messages, _ = load_renderer(args.renderer_manifest)
-            map_sequence = validate_map_sequence(raw, messages, args.map_sequence)
+            map_sequence = validate_map_sequence(raw, messages, args.map_sequence,
+                                                 recovery=args.require_host_error_recovery)
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
             fail("engine/renderer phase mismatch")
@@ -986,6 +1010,7 @@ def main() -> int:
             "live_studio": renderer.get("live_studio"),
             "engine_menu": engine_menu,
             "map_sequence": map_sequence,
+            "expected_host_errors": 1 if args.require_host_error_recovery else 0,
             "ownership": "exact",
             "pass": True,
         }

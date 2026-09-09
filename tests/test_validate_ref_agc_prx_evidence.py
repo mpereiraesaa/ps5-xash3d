@@ -20,6 +20,28 @@ sys.path.insert(0, str(ROOT / "tools"))
 from validate_ref_agc_prx_evidence import validate_live_brush, validate_live_studio, EvidenceError
 from validate_ref_agc_prx_evidence import validate_texture_budget
 from validate_ref_agc_prx_evidence import validate_map_sequence, validate_engine_menu
+from validate_engine_boot_evidence import validate_recovery_console
+
+
+def test_recovery_console():
+    stages = [f"{i}\t{100+i}\tMARK\tXASH_RECOVERY_GATE schema=1 stage={i} "
+              f"active={int(i in (1,2,5))} map=c1a0 diagnostic=1" for i in range(1,6)]
+    error = "[00:00:20] Host_Error: PS5_RECOVERY_EXPECTED"
+    lines = stages[:2] + [error] + stages[2:]
+    assert "Host_Error:" not in validate_recovery_console(lines, [error], "c1a0")
+    for bad_lines, raw in ((lines + [error], [error, error]),
+                           (lines[:-1], [error]), (stages + [error], [error]),
+                           ([m.replace("PS5_RECOVERY_EXPECTED", "unexpected") for m in lines],
+                            [error.replace("PS5_RECOVERY_EXPECTED", "unexpected")])):
+        try:
+            validate_recovery_console(bad_lines, raw, "c1a0")
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid recovery console accepted")
+
+
+test_recovery_console()
 
 
 def test_map_sequence():
@@ -37,6 +59,22 @@ def test_map_sequence():
                 "source_hash=1111111111111111 upload_hash=2222222222222222")
     messages = syncs + [complete, "REF_AGC_LIVE_COMPLETE frames=40"]
     assert validate_map_sequence(raw, messages, names)["serials"] == [10, 20, 30]
+    recovery_raw = raw[:2] + raw[-2:]
+    clear = "REF_AGC_LIVE_WORLD_CLEAR schema=1 serial=20 revision=2 resident_bytes=0 ownership=retired-before-reuse"
+    idle = "REF_AGC_LIVE_2D_FRAME serial=21 draws=3"
+    recovery_messages = [syncs[0], clear, idle, syncs[-1],
+                         complete.replace("publishes=3 clears=0", "publishes=2 clears=1"),
+                         messages[-1]]
+    assert validate_map_sequence(recovery_raw, recovery_messages, ["c1a0", "c1a0"], recovery=True)
+    for bad in ([m for m in recovery_messages if m != idle],
+                [m.replace("serial=20", "serial=31") for m in recovery_messages],
+                [m.replace("resident_bytes=0", "resident_bytes=1") for m in recovery_messages]):
+        try:
+            validate_map_sequence(recovery_raw, bad, ["c1a0", "c1a0"], recovery=True)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid renderer recovery accepted")
     cases = [(raw[:-1], messages, names), (raw, messages, names[::-1][:-1]),
              (raw + raw[:2], messages, names), (raw, messages[1:], names),
              (raw, messages, ["../c1a0", "c1a0d"])]

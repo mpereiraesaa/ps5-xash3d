@@ -68,6 +68,8 @@ hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
+recovery_gate=${XASH_RECOVERY_GATE:-0}
+[[ $recovery_gate =~ ^[01]$ ]] || { echo "XASH_RECOVERY_GATE must be 0 or 1" >&2; exit 2; }
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
 studio_ab=${XASH_STUDIO_AB:-0}
 viewmodel_qa=${XASH_VIEWMODEL_QA:-0}
@@ -175,6 +177,10 @@ ld_reloc=${LD_RELOCATABLE:-$(command -v ld.lld-18 || command -v ld.bfd || comman
 
 [[ $boot_map =~ ^[A-Za-z0-9_]+$ ]] || { echo "XASH_BOOT_MAP must be a map name" >&2; exit 2; }
 [[ $gate_seconds =~ ^[0-9]+$ ]] || { echo "XASH_GATE_SECONDS must be an integer" >&2; exit 2; }
+if [[ $recovery_gate == 1 && ( $phase7_menu_gate != 1 || $gate_from_map != 1 || $gate_seconds -lt 90 || $viewmodel_qa != 0 || $hud_probe != 0 || $studio_ab != 0 || $sampling_probe != 0 ) ]]; then
+    echo "XASH_RECOVERY_GATE requires MainUI/ref_agc, map-relative >=90s and no other visual diagnostic" >&2
+    exit 2
+fi
 if [[ $phase7_menu_gate == 1 && ( $gate_seconds == 0 || $gate_seconds -le $phase7_menu_seconds ) ]]; then
     echo "XASH_PHASE7_MENU_GATE requires XASH_GATE_SECONDS greater than XASH_PHASE7_MENU_SECONDS" >&2
     exit 2
@@ -269,6 +275,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_BOOT_MAP "$boot_map"
 #define PS5_XASH_GATE_SECONDS $gate_seconds
 #define PS5_XASH_GATE_FROM_MAP $gate_from_map
+#define PS5_XASH_RECOVERY_GATE $recovery_gate
 #define PS5_XASH_SAMPLING_PROBE $sampling_probe
 #define PS5_XASH_STUDIO_AB $studio_ab
 #define PS5_XASH_VIEWMODEL_QA $viewmodel_qa
