@@ -1,6 +1,6 @@
 # ScePad input — Phase 5
 
-## Opt-in Studio coverage QA (local candidate, not release mapping)
+## Opt-in Studio coverage QA (not release mapping)
 
 `XASH_STUDIO_COVERAGE_QA=1` enables a temporary touchpad-click cycle, starting
 at mode 0 each launch. It requires a complete MainUI/ref_agc stack and at least
@@ -19,7 +19,10 @@ archived and normal builds do not intercept the touchpad for this test.
 
 Click again after 5 to return to 0. Stay in `c1a0`; approach NPCs and observe
 several angles. Deliberately forced head/pose movement in modes 1–4 is not
-normal gameplay animation. This candidate has not yet been hardware accepted.
+normal gameplay animation. The 2026-09-09 hardware run passed visual QA and
+paired resource validation. Four-blend hardware coverage remains pending:
+none of the visible models supported it. See `PHASE7_STUDIO_LIGHTING.md` for
+run identities and the precise accepted subset.
 
 This gate adds the native DualSense input backend to the stable dedicated
 Xash3D host. It proves the PS5 platform layer independently of the Phase 6

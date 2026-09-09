@@ -633,7 +633,7 @@ No deployment or launch yet; the console retains the accepted controller-only
 candidate. Natural sequence-change QA and paired resource closure are next.
 Forced blend/wrap cases, glowshell and broader Studio parity remain open.
 
-#### Combined Studio coverage candidate — not deployed
+#### Combined Studio coverage — accepted hardware subset (2026-09-09)
 
 The next single QA build combines sequence crossfade, forced controller/blend
 modes and glowshell. `XASH_STUDIO_COVERAGE_QA=1` is off by default, requires
@@ -665,10 +665,21 @@ and texture identity; `REF_AGC_STUDIO_BLEND_QA` reports selected/unsupported
 sequences. Controller samples identify diagnostic mode; their current/previous
 bytes describe raw entity input, not the forced scalar override in modes 1/2.
 
-Hardware acceptance, all-mode observation and paired resource closure remain
-pending. This is not full glow/sorting parity or a release configuration.
-The console still has the accepted controller-only candidate; no combined
-build has been deployed or launched yet.
+Operator reported all modes visually correct after two complete touchpad
+cycles. Paired evidence validation passed: 18,178 frames, 17,960 world views,
+zero errors, nine resource reclaims, intact guards, exact ownership, VideoOut
+closed, direct memory released and clean engine/renderer BYEs. Runs:
+
+- Engine: `20260909T194723366Z_PPSA99996_xash3d-engine_0x160c7b9664654`.
+- Renderer: `20260909T194723463Z_PPSA99996_ps5-xash3d_0x160c7bf39d9a5`.
+
+Crossfade telemetry records changing previous weights. Mode 3 selected real
+sequence 6 on entity 63 (`supported=1`). Mode 4 reported `supported=0` for all
+visible models: **four-blend hardware coverage remains open**, despite the
+successful mode cycle and host routing tests. Shell samples show 64 draws /
+3,372 vertices with texture 29, then zero shell draws after return to normal.
+This accepts the observed controller/crossfade/two-blend/glowshell subset,
+not full glow/sorting parity or a release configuration.
 
 Final combined candidate: full host suite, native build, publication audit and
 live Studio ASan/UBSan pass. All mode/crossfade/shell markers were verified in
@@ -676,7 +687,15 @@ the actual ELF outputs. Diagnostic engine ELF SHA-256:
 `f769cb704533711d9612a997b6dffc055ab6f46b4ec178ee4394b7e72afa002a`;
 SELF `5b107c76ed3edfd7d8781f0b4e6a7b861b24440ff65e0d14e65b297073bf0f0e`;
 renderer PRX `1ba4540065cd3ecaa16bca5e74b3f90791be1004e9184f14c41c028b3e480ce1`.
-This five-minute build is diagnostic-only and still awaits operator QA.
+This accepted five-minute build is diagnostic-only; normal configuration
+disables the touchpad test cycle.
+
+At 19:59 UTC the normal research configuration was rebuilt and restored with
+all nine files verified via raw FTP SHA-256, without launching it. Coverage,
+weapon-grant and recovery probes are off; the existing 180-second map-relative
+gate and audio-off setting remain (this is not a release build). SELF SHA-256:
+`6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`;
+renderer PRX `470fbeb293256843c626ad7feec3390c3a816053faf01d6a0da2646d7c925252`.
 
 ### Earlier viewmodel-event implementation record (historical)
 
