@@ -167,6 +167,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_generate_bsp_build_metadata.py
 	python3 tests/test_generate_studio_build_metadata.py
 	python3 tests/test_native_contract.py
+	python3 tests/test_hud_probe.py
 	python3 tests/test_title_identity.py
 	python3 tests/test_bake_bsp.py
 	python3 tests/test_bake_studio.py

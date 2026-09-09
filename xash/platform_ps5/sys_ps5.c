@@ -29,6 +29,9 @@ own shutdown path and a clean telemetry BYE instead of an operator close.
 #include "ps5_xash_build.h"
 #if PS5_XASH_MODE_CLIENT
 #include "client.h"
+#if PS5_XASH_HUD_PROBE
+#include "shake.h"
+#endif
 #endif
 #include "in_ps5.h"
 #include <arpa/inet.h>
@@ -447,6 +450,73 @@ static double PS5_MonotonicSeconds( void )
 
 static qboolean ps5_phase7_menu_map_queued;
 
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_HUD_PROBE
+/* Diagnostic only: exercise the real CL_DrawString / CL_DrawScreenFade paths.
+ * Never open a console, inject input, or persist the temporary font setting.
+ * The labels are observations to request, not GPU/visual acceptance claims. */
+static void PS5_HudProbeTick( double now )
+{
+	static double deadline;
+	static int stage = -1;
+	static qboolean busy;
+	static convar_t *font;
+	static char saved_font[64];
+	static int saved_archive;
+	static screenfade_t saved_fade;
+	static const char *names[] = { "FONT ADDITIVE", "FONT MASKED", "FONT ALPHA",
+		"ALPHA BLUE FADE", "MULTIPLICATIVE BLUE FADE", "RESTORED WORLD" };
+	if( busy || stage >= 6 || cls.state != ca_active ) return;
+	busy = true; /* Con/Cvar helpers may read Platform_DoubleTime recursively. */
+	if( deadline == 0.0 ) deadline = now + 10.0;
+	if( now >= deadline )
+	{
+		++stage;
+		deadline = now + 15.0; /* Never skip an observation stage after a stall. */
+		if( stage == 0 )
+		{
+			font = Cvar_FindVar( "con_fontrender" );
+			if( !font || strlen( font->string ) >= sizeof( saved_font ))
+			{
+				stage = 6;
+				Con_Printf( "XASH_HUD_PROBE_ERROR schema=1 reason=font-cvar\n" );
+				busy = false;
+				return;
+			}
+			Q_strncpy( saved_font, font->string, sizeof( saved_font ));
+			saved_archive = font->flags & FCVAR_ARCHIVE;
+			ClearBits( font->flags, FCVAR_ARCHIVE );
+		}
+		if( stage < 3 ) Cvar_DirectSetValue( font, stage );
+		if( stage == 3 )
+		{
+			Cvar_DirectSet( font, saved_font );
+			font->flags |= saved_archive;
+			saved_fade = clgame.fade;
+		}
+		if( stage == 3 || stage == 4 )
+		{
+			screenfade_t *sf = &clgame.fade;
+			memset( sf, 0, sizeof( *sf ));
+			sf->fadeFlags = FFADE_IN | ( stage == 4 ? FFADE_MODULATE : 0 );
+			sf->fader = 64; sf->fadeg = 128; sf->fadeb = 255;
+			sf->fadealpha = 192;
+			sf->fadeSpeed = 192.0f / 7.0f;
+			sf->fadeReset = cl.time + 3.0;
+			sf->fadeEnd = cl.time + 10.0;
+		}
+		if( stage == 5 ) clgame.fade = saved_fade;
+		Con_Printf( "XASH_HUD_PROBE_STAGE schema=1 stage=%d seconds=15 name=%s diagnostic=1\n",
+			stage, stage < 6 ? names[stage] : "COMPLETE" );
+	}
+	if( stage >= 0 && stage < 6 )
+	{
+		Con_NPrintf( 4, "HUD QA %d/6: %s", stage + 1, names[stage] );
+		Con_NPrintf( 5, "Aa Bb Mm 0123456789 -- readable letters, no solid boxes" );
+	}
+	busy = false;
+}
+#endif
+
 int PS5_Phase7MenuGateMapQueued( void )
 {
 	return ps5_phase7_menu_map_queued != false;
@@ -491,6 +561,9 @@ static void PS5_GateTick( double now )
 #if PS5_XASH_MODE_CLIENT && !PS5_XASH_PAD_GATE
 	if( cls.state == ca_active )
 		(void)PS5_PadInputRuntimePoll( );
+#endif
+#if PS5_XASH_MODE_CLIENT && PS5_XASH_HUD_PROBE
+	PS5_HudProbeTick( now );
 #endif
 #if PS5_XASH_PAD_GATE
 	(void)PS5_PadInputPoll( );

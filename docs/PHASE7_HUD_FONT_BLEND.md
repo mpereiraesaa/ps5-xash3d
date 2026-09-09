@@ -246,6 +246,49 @@ storage. The complete live compositor test passes AddressSanitizer and UBSan.
 
 ## Required closure
 
+### Opt-in remaining-mode exercise
+
+`XASH_HUD_PROBE=1` enables a diagnostic in the platform's owner-thread tick;
+the default is zero. It requires the complete client/AGC PRX stack and at least
+110 map-relative seconds. Use the normal 180-second gate. It does not open the
+console, inject controller input, or use Remote Play.
+
+Ten seconds after active signon, six consecutive 15-second stages exercise:
+
+1. Real console-font `CL_DrawString` notification text, additive mode (0).
+2. The same text, masked mode (1).
+3. The same text, alpha mode (2).
+4. Real `CL_DrawScreenFade`, blue alpha fade: three-second hold, seven-second
+   fade back, then five seconds without the fade.
+5. The same sequence with `FFADE_MODULATE`, through the engine's multiplicative
+   fade path rather than a renderer-only synthetic draw.
+6. Restored world; the pre-probe fade state and font setting have been restored.
+
+The font setting is removed from archive output while temporarily overridden;
+its original string and archive bit are restored before fade QA. No temporary
+font mode is saved as the user's setting. A forced close before restoration is
+not a completed run. A recursion guard protects logging/cvar clock reads, and
+stalls cannot skip observation stages. Stage records are diagnostic markers,
+not proof of correct GPU pixels. Host ASan/UBSan tests execute the production
+scheduler with stubs and cover timing, stalled clocks, recursion, missing font
+cvar, restoration and one-shot completion.
+
+Ask the operator whether every sample stays legible without opaque rectangles;
+whether both blue effects return smoothly to the original scene; whether the
+multiplicative stage preserves underlying scene detail (darkening/tinting it);
+and whether any white flash, residual tint or geometry regression appears.
+Pair those observations with actual renderer mode counters and exact artifact
+identity. Do not mark this exercise accepted before hardware evidence exists.
+
+Prepared diagnostic build (not yet deployed or accepted): engine ELF SHA-256
+`d16d9d7ad8efe535b5e4d84310fe1a592cec6f3e00c1dafd0dde65cce32e6b33`,
+SELF SHA-256
+`3a639cd0343c2a0da1f4dea1e5c4a6b15eb0b3f1aee8ac71e8b87e090298ae71`.
+The stage marker and multiplicative-stage name are present in the ELF.
+Renderer ELF remains the previously accepted `72b77e92…6ab5a` artifact;
+this diagnostic changes the engine exercise, not renderer code. Native build,
+`make all`, publication audit and the scheduler ASan/UBSan test pass.
+
 1. Correct GPU translation for alpha test and multiplicative fades, preserving
    existing 3D pipeline keys/behavior where practical. Reject unsupported state
    explicitly rather than silently treating it as alpha.

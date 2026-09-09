@@ -71,6 +71,7 @@ gate_from_map=${XASH_GATE_FROM_MAP:-0}
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
 texture_memory_probe=${XASH_TEXTURE_MEMORY_PROBE:-0}
 hud_trace=${XASH_HUD_TRACE:-0}
+hud_probe=${XASH_HUD_PROBE:-0}
 texture_mib=${XASH_TEXTURE_MIB:-0}
 texture_reserve_mib=${XASH_TEXTURE_RESERVE_MIB:-512}
 texture_auto_percent=${XASH_TEXTURE_AUTO_PERCENT:-10}
@@ -84,6 +85,7 @@ done
 }
 [[ $texture_memory_probe =~ ^[01]$ ]] || { echo "XASH_TEXTURE_MEMORY_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $hud_trace =~ ^[01]$ ]] || { echo "XASH_HUD_TRACE must be 0 or 1" >&2; exit 2; }
+[[ $hud_probe =~ ^[01]$ ]] || { echo "XASH_HUD_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
@@ -143,6 +145,14 @@ if [[ $ref_agc_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_
 fi
 if [[ $phase7_menu_gate == 1 && $ref_agc_prx != 1 ]]; then
     echo "XASH_PHASE7_MENU_GATE=1 requires the complete client/ref_agc PRX stack" >&2
+    exit 2
+fi
+if [[ $hud_probe == 1 && ( $ref_agc_prx != 1 || $gate_from_map != 1 || ! $gate_seconds =~ ^[0-9]+$ ) ]]; then
+    echo "XASH_HUD_PROBE=1 requires client/ref_agc PRXs and a map-relative bounded gate" >&2
+    exit 2
+fi
+if [[ $hud_probe == 1 ]] && (( 10#$gate_seconds < 110 )); then
+    echo "XASH_HUD_PROBE=1 requires at least 110 map seconds" >&2
     exit 2
 fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
@@ -255,6 +265,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_GATE_SECONDS $gate_seconds
 #define PS5_XASH_GATE_FROM_MAP $gate_from_map
 #define PS5_XASH_SAMPLING_PROBE $sampling_probe
+#define PS5_XASH_HUD_PROBE $hud_probe
 #define PS5_XASH_TITLE_ID "$title_id"
 #define PS5_XASH_MODE "$mode"
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)
