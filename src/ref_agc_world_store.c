@@ -51,9 +51,12 @@ static void release_arrays(RefAgcWorldStore *store)
         store->allocator.free(store->indices, store->allocator.user);
     if (store->draws)
         store->allocator.free(store->draws, store->allocator.user);
+    if (store->lightmap_pixels)
+        store->allocator.free(store->lightmap_pixels, store->allocator.user);
     store->vertices = NULL;
     store->indices = NULL;
     store->draws = NULL;
+    store->lightmap_pixels = NULL;
 }
 
 int ref_agc_world_store_init(RefAgcWorldStore *store,
@@ -91,7 +94,10 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     RefAgcWorldVertex *vertices = NULL;
     uint32_t *indices = NULL;
     RefAgcWorldDraw *draws = NULL;
+    uint8_t *lightmap_pixels = NULL;
     size_t vertex_bytes, index_bytes, draw_bytes, resident_bytes;
+    size_t lightmap_bytes = 0u;
+    uint32_t lightmapped_draws = 0u;
     uint64_t hash = UINT64_C(14695981039346656037);
     char model_name[REF_AGC_WORLD_NAME_MAX];
     if (!store || !store->initialized || !input || !input->model_name ||
@@ -103,7 +109,23 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
         vertex_bytes > SIZE_MAX - index_bytes ||
         vertex_bytes + index_bytes > SIZE_MAX - draw_bytes)
         return REF_AGC_WORLD_INVALID;
-    resident_bytes = vertex_bytes + index_bytes + draw_bytes;
+    if (input->lightmap_width || input->lightmap_height ||
+        input->lightmap_row_pitch || input->lightmap_pixel_bytes ||
+        input->lightmap_pixels) {
+        if (!input->lightmap_pixels || !input->lightmap_width ||
+            !input->lightmap_height || input->lightmap_width > UINT32_MAX / 4u ||
+            input->lightmap_row_pitch < input->lightmap_width * 4u ||
+            input->lightmap_height > SIZE_MAX / input->lightmap_row_pitch)
+            return REF_AGC_WORLD_INVALID;
+        lightmap_bytes = (size_t)input->lightmap_row_pitch *
+                         input->lightmap_height;
+        if (input->lightmap_pixel_bytes != lightmap_bytes)
+            return REF_AGC_WORLD_INVALID;
+    }
+    if (vertex_bytes + index_bytes + draw_bytes >
+        SIZE_MAX - lightmap_bytes)
+        return REF_AGC_WORLD_INVALID;
+    resident_bytes = vertex_bytes + index_bytes + draw_bytes + lightmap_bytes;
     for (uint32_t draw = 0u; draw < input->draw_count; ++draw) {
         const RefAgcWorldDraw *item = &input->draws[draw];
         if (item->texture_handle == 0u || item->index_count < 3u ||
@@ -111,7 +133,11 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
             item->first_index > input->index_count ||
             item->index_count > input->index_count - item->first_index)
             return REF_AGC_WORLD_INVALID;
+        if (item->draw_flags & REF_AGC_WORLD_DRAW_LIGHTMAP)
+            ++lightmapped_draws;
     }
+    if ((lightmapped_draws != 0u) != (lightmap_bytes != 0u))
+        return REF_AGC_WORLD_INVALID;
     for (uint32_t index = 0u; index < input->index_count; ++index)
         if (input->indices[index] >= input->vertex_count)
             return REF_AGC_WORLD_INVALID;
@@ -124,15 +150,31 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     draws = store->allocator.alloc(draw_bytes, store->allocator.user);
     if (!draws)
         goto no_memory;
+    if (lightmap_bytes) {
+        lightmap_pixels = store->allocator.alloc(
+            lightmap_bytes, store->allocator.user);
+        if (!lightmap_pixels)
+            goto no_memory;
+    }
     memcpy(vertices, input->vertices, vertex_bytes);
     memcpy(indices, input->indices, index_bytes);
     memcpy(draws, input->draws, draw_bytes);
+    if (lightmap_bytes)
+        memcpy(lightmap_pixels, input->lightmap_pixels, lightmap_bytes);
     copy_name(model_name, input->model_name);
     hash = hash_bytes(hash, model_name, sizeof(model_name));
     hash = hash_bytes(hash, &input->model_flags, sizeof(input->model_flags));
     hash = hash_bytes(hash, vertices, vertex_bytes);
     hash = hash_bytes(hash, indices, index_bytes);
     hash = hash_bytes(hash, draws, draw_bytes);
+    hash = hash_bytes(hash, &input->lightmap_width,
+                      sizeof(input->lightmap_width));
+    hash = hash_bytes(hash, &input->lightmap_height,
+                      sizeof(input->lightmap_height));
+    hash = hash_bytes(hash, &input->lightmap_row_pitch,
+                      sizeof(input->lightmap_row_pitch));
+    if (lightmap_bytes)
+        hash = hash_bytes(hash, lightmap_pixels, lightmap_bytes);
 
     if (pthread_mutex_lock(&store->lock) != 0)
         goto invalid;
@@ -140,6 +182,7 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     store->vertices = vertices;
     store->indices = indices;
     store->draws = draws;
+    store->lightmap_pixels = lightmap_pixels;
     copy_name(store->model_name, model_name);
     store->model_flags = input->model_flags;
     ++store->stats.revision;
@@ -148,6 +191,11 @@ int ref_agc_world_store_publish(RefAgcWorldStore *store,
     store->stats.vertex_count = input->vertex_count;
     store->stats.index_count = input->index_count;
     store->stats.draw_count = input->draw_count;
+    store->stats.lightmap_width = input->lightmap_width;
+    store->stats.lightmap_height = input->lightmap_height;
+    store->stats.lightmap_row_pitch = input->lightmap_row_pitch;
+    store->stats.lightmap_pixel_bytes = lightmap_bytes;
+    store->stats.lightmapped_draw_count = lightmapped_draws;
     store->stats.resident_bytes = resident_bytes;
     if (resident_bytes > store->stats.peak_resident_bytes)
         store->stats.peak_resident_bytes = resident_bytes;
@@ -159,11 +207,15 @@ no_memory:
     if (vertices) store->allocator.free(vertices, store->allocator.user);
     if (indices) store->allocator.free(indices, store->allocator.user);
     if (draws) store->allocator.free(draws, store->allocator.user);
+    if (lightmap_pixels)
+        store->allocator.free(lightmap_pixels, store->allocator.user);
     return REF_AGC_WORLD_NO_MEMORY;
 invalid:
     store->allocator.free(vertices, store->allocator.user);
     store->allocator.free(indices, store->allocator.user);
     store->allocator.free(draws, store->allocator.user);
+    if (lightmap_pixels)
+        store->allocator.free(lightmap_pixels, store->allocator.user);
     return REF_AGC_WORLD_INVALID;
 }
 
@@ -185,6 +237,11 @@ int ref_agc_world_store_clear(RefAgcWorldStore *store,
     store->stats.vertex_count = 0u;
     store->stats.index_count = 0u;
     store->stats.draw_count = 0u;
+    store->stats.lightmap_width = 0u;
+    store->stats.lightmap_height = 0u;
+    store->stats.lightmap_row_pitch = 0u;
+    store->stats.lightmap_pixel_bytes = 0u;
+    store->stats.lightmapped_draw_count = 0u;
     store->stats.resident_bytes = 0u;
     store->stats.active = 0;
     (void)pthread_mutex_unlock(&store->lock);
@@ -217,6 +274,12 @@ int ref_agc_world_store_visit_changed(RefAgcWorldStore *store,
         view.index_count = store->stats.index_count;
         view.draws = store->draws;
         view.draw_count = store->stats.draw_count;
+        view.lightmap_pixels = store->lightmap_pixels;
+        view.lightmap_width = store->stats.lightmap_width;
+        view.lightmap_height = store->stats.lightmap_height;
+        view.lightmap_row_pitch = store->stats.lightmap_row_pitch;
+        view.lightmap_pixel_bytes = store->stats.lightmap_pixel_bytes;
+        view.lightmapped_draw_count = store->stats.lightmapped_draw_count;
         view.active = store->stats.active;
         if (visitor(&view, user) != 0)
             result = REF_AGC_WORLD_VISITOR_FAILED;

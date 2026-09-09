@@ -147,6 +147,9 @@ def phase7_renderer_messages(serial: int = 100, *,
     gpu_world = ([
         "REF_AGC_GPU_WORLD_COMPLETE revision=1 publishes=1 clears=0 "
         "vertices=17245 indices=29565 draws=3695 texture_tables=3695 "
+        "lightmapped_draws=3695 lightmap=1024x256 row_pitch=4096 "
+        "lightmap_bytes=1048576 lightmap_rgb_sum=66594990 "
+        "lightmap_nonzero_texels=186051 lightmap_rgb_range=0..255 "
         "resident_bytes=1047584 peak_bytes=1047584 "
         "source_hash=ba427a54bcdc4cb9 upload_hash=934960d09d207e22 "
         "flushes=2 arena_bytes=33554432 geometry=live-refapi "
@@ -159,6 +162,7 @@ def phase7_renderer_messages(serial: int = 100, *,
     geometry = "live-refapi" if world else "baked-c1a0"
     lists = "world" if world else "world+entities+2d"
     textures = " textures=live-refapi" if world else ""
+    lightmaps = " lightmaps=live-atlas" if world else ""
     return [
         f"BSP_TEXTURE_PATH_BOOT schema=1 slice=phase7-live-consumer target=gfx1013 "
         f"fw=12.02 ownership=fence+videoout+ack bundle_sha256={BUNDLE} "
@@ -166,7 +170,7 @@ def phase7_renderer_messages(serial: int = 100, *,
         "lifetime=engine-owned input_owner=engine",
         "BSP_LOOP_BEGIN mode=phase7-live-consumer buffers=2 color_dma=false "
         "depth_dma=true indexed=true frames=engine-owned camera=live-refapi "
-        f"geometry={geometry}{textures} lists={lists} "
+        f"geometry={geometry}{textures} lists={lists}{lightmaps} "
         "retirement=fence+videoout+ack input_dependency=engine",
         "REF_AGC_RUNTIME_READY backend=phase4-native api=18 videoout=owned "
         "direct_memory=owned agc=initialized scene=planned",
@@ -180,6 +184,7 @@ def phase7_renderer_messages(serial: int = 100, *,
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
+        "frame_hash=d8c9aadab3c82cdb "
         f"bright_pixels=820521 resource_reclaimed={8 if world else 7 if resources else 6} "
         "ownership=fence+videoout+ack guards=intact errors=0",
         "REF_AGC_TEARDOWN videoout=closed direct_memory=released agc=unloaded "
@@ -187,13 +192,17 @@ def phase7_renderer_messages(serial: int = 100, *,
     ]
 
 
-def run(engine: Path, renderer: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([
+def run(engine: Path, renderer: Path, *,
+        require_live_lightmaps: bool = False) -> subprocess.CompletedProcess[str]:
+    command = [
         "python3", "-B", str(VALIDATOR), str(engine), str(renderer),
         "--engine-commit", ENGINE, "--hlsdk-commit", HLSDK,
         "--bundle-sha256", BUNDLE, "--bundle-bytes", "100",
         "--studio-sha256", STUDIO, "--studio-bytes", "200",
-    ], text=True, capture_output=True, check=False)
+    ]
+    if require_live_lightmaps:
+        command.append("--require-live-lightmaps")
+    return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
 def main() -> None:
@@ -258,15 +267,42 @@ def main() -> None:
             directory, "world-renderer", "ps5-xash3d",
             phase7_renderer_messages(resources=True, world=True),
             started="2026-09-08T19:13:27.984+00:00")
-        world_valid = run(resource_engine, world_renderer)
+        world_valid = run(
+            resource_engine, world_renderer, require_live_lightmaps=True)
         assert world_valid.returncode == 0, world_valid.stderr
         world_summary = json.loads(world_valid.stdout)
         assert world_summary["gpu_world"]["draws"] == "3695"
         assert world_summary["gpu_world"]["vertices"] == "17245"
 
+        bad_lightmap_messages = [message.replace(
+            "lightmap_nonzero_texels=186051", "lightmap_nonzero_texels=0")
+            for message in phase7_renderer_messages(
+                resources=True, world=True)]
+        bad_lightmap_renderer = write_run(
+            directory, "bad-lightmap-renderer", "ps5-xash3d",
+            bad_lightmap_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(resource_engine, bad_lightmap_renderer)
+        assert rejected.returncode != 0 \
+            and "live lightmap atlas contract" in rejected.stderr
+
+        no_lightmap_marker_messages = [message.replace(
+            " lightmaps=live-atlas", "")
+            for message in phase7_renderer_messages(
+                resources=True, world=True)]
+        no_lightmap_marker_renderer = write_run(
+            directory, "no-lightmap-marker-renderer", "ps5-xash3d",
+            no_lightmap_marker_messages,
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(
+            resource_engine, no_lightmap_marker_renderer,
+            require_live_lightmaps=True)
+        assert rejected.returncode != 0 \
+            and "lightmap atlas marker is missing" in rejected.stderr
+
         bad_world_messages = [message.replace(
-            "draws=3695 texture_tables=3695",
-            "draws=3694 texture_tables=3694")
+            "draws=3695 texture_tables=3695 lightmapped_draws=3695",
+            "draws=3694 texture_tables=3694 lightmapped_draws=3694")
             for message in phase7_renderer_messages(
                 resources=True, world=True)]
         bad_world_renderer = write_run(

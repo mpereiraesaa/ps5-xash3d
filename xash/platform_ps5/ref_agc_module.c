@@ -20,6 +20,7 @@ callbacks below are always the project-owned AGC implementation.
 #include <time.h>
 
 #include "ref_agc_live_frame.h"
+#include "ref_agc_lightmap_atlas.h"
 #include "ref_agc_texture_store.h"
 #include "ref_agc_world_store.h"
 
@@ -133,16 +134,70 @@ static int RefAgcBrushVertexIndex(const model_t *model, int surfedge,
 	return 0;
 }
 
+static uint32_t RefAgcLightStyleScale(const lightstyle_t *styles,
+	uint8_t style)
+{
+	if( !styles || style >= 255u || styles[style].length <= 0 )
+		return 256u;
+	if( styles[style].map[0] <= 0.0f )
+		return 0u;
+	return (uint32_t)(styles[style].map[0] * 22.0f);
+}
+
+static int RefAgcBuildSurfaceLightmap(const msurface_t *surface,
+	uint32_t width, uint32_t height, uint8_t *rgba)
+{
+	const lightstyle_t *styles = ref_agc_engine.EngineGetParm ?
+		(const lightstyle_t *)ref_agc_engine.EngineGetParm(
+			PARM_GET_LIGHTSTYLES_PTR, 0 ) : NULL;
+	const uint16_t *gamma = ref_agc_engine.EngineGetParm ?
+		(const uint16_t *)ref_agc_engine.EngineGetParm(
+			PARM_GET_LIGHTGAMMATABLE_PTR, 0 ) : NULL;
+	if( !surface || !surface->samples || !rgba || !width || !height ||
+		width > SIZE_MAX / height )
+		return -1;
+	const size_t texels = (size_t)width * height;
+	for( size_t texel = 0u; texel < texels; ++texel )
+	{
+		uint32_t sum[3] = { 0u, 0u, 0u };
+		for( unsigned map = 0u; map < MAXLIGHTMAPS; ++map )
+		{
+			const uint8_t style = surface->styles[map];
+			if( style >= 255u ) break;
+			const uint32_t scale = RefAgcLightStyleScale( styles, style );
+			const color24 *sample = &surface->samples[map * texels + texel];
+			sum[0] += (uint32_t)sample->r * scale;
+			sum[1] += (uint32_t)sample->g * scale;
+			sum[2] += (uint32_t)sample->b * scale;
+		}
+		for( unsigned channel = 0u; channel < 3u; ++channel )
+		{
+			uint32_t value = (sum[channel] * 256u) >> 14u;
+			if( value > 1023u ) value = 1023u;
+			rgba[texel * 4u + channel] = gamma ?
+				(uint8_t)(gamma[value] >> 2u) : (uint8_t)(value >> 2u);
+		}
+		rgba[texel * 4u + 3u] = 255u;
+	}
+	return 0;
+}
+
 static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 	RefAgcWorldVertex **out_vertices, uint32_t **out_indices,
-	RefAgcWorldDraw **out_draws)
+	RefAgcWorldDraw **out_draws, uint8_t **out_lightmap_pixels)
 {
 	uint64_t vertex_count = 0, index_count = 0, draw_count = 0;
-	RefAgcWorldVertex *vertices;
-	RefAgcWorldDraw *draws;
-	uint32_t *indices;
+	RefAgcWorldVertex *vertices = NULL;
+	RefAgcWorldDraw *draws = NULL;
+	RefAgcLightmapRect *lightmap_rects = NULL;
+	RefAgcLightmapPlacement *lightmap_placements = NULL;
+	uint8_t *lightmap_pixels = NULL;
+	uint32_t *indices = NULL;
 	uint32_t vertex_cursor = 0, index_cursor = 0, draw_cursor = 0;
+	uint32_t lightmap_width = 0u, lightmap_height = 0u;
+	uint32_t lightmapped_surfaces = 0u;
 	if( !model || !out || !out_vertices || !out_indices || !out_draws ||
+		!out_lightmap_pixels ||
 		model->type != mod_brush || !(model->flags & MODEL_WORLD) ||
 		model->numsurfaces <= 0 || model->numvertexes <= 0 ||
 		model->numedges <= 0 || model->numsurfedges <= 0 ||
@@ -150,6 +205,12 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 		(!(model->flags & MODEL_QBSP2) && !model->edges16) ||
 		((model->flags & MODEL_QBSP2) && !model->edges32) )
 		return -1;
+	lightmap_rects = calloc( (size_t)model->numsurfaces,
+		sizeof(*lightmap_rects) );
+	lightmap_placements = calloc( (size_t)model->numsurfaces,
+		sizeof(*lightmap_placements) );
+	if( !lightmap_rects || !lightmap_placements )
+		goto allocation_failed;
 	for( int surface_index = 0; surface_index < model->numsurfaces;
 		++surface_index )
 	{
@@ -161,33 +222,57 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 			surface->numedges > model->numsurfedges - surface->firstedge ||
 			!texture || texture->width == 0u || texture->height == 0u ||
 			texture->gl_texturenum <= 0 )
-			return -2;
+			goto extraction_failed;
+		if( model->lightdata && surface->samples && surface->info &&
+			!(surface->flags & SURF_DRAWTILED) )
+		{
+			const int sample_size = ref_agc_engine.Mod_SampleSizeForFace ?
+				ref_agc_engine.Mod_SampleSizeForFace( surface ) : 16;
+			if( sample_size <= 0 || surface->info->lightextents[0] < 0 ||
+				surface->info->lightextents[1] < 0 )
+				goto extraction_failed;
+			lightmap_rects[surface_index].width =
+				(uint32_t)(surface->info->lightextents[0] / sample_size) + 1u;
+			lightmap_rects[surface_index].height =
+				(uint32_t)(surface->info->lightextents[1] / sample_size) + 1u;
+			++lightmapped_surfaces;
+		}
 		for( int edge = 0; edge < surface->numedges; ++edge )
 		{
 			uint32_t unused;
 			if( RefAgcBrushVertexIndex( model,
 				surface->firstedge + edge, &unused ) != 0 )
-				return -3;
+				goto extraction_failed;
 		}
 		vertex_count += (uint32_t)surface->numedges;
 		index_count += (uint64_t)(surface->numedges - 2) * 3u;
 		++draw_count;
 		if( vertex_count > UINT32_MAX || index_count > UINT32_MAX ||
 			draw_count > UINT32_MAX )
-			return -4;
+			goto extraction_failed;
 	}
+	if( lightmapped_surfaces && ref_agc_lightmap_atlas_layout(
+		lightmap_rects, (uint32_t)model->numsurfaces, lightmap_placements,
+		&lightmap_width, &lightmap_height ) != REF_AGC_LIGHTMAP_ATLAS_OK )
+		goto extraction_failed;
 	if( vertex_count == 0u || index_count == 0u || draw_count == 0u ||
 		vertex_count > SIZE_MAX / sizeof(*vertices) ||
 		index_count > SIZE_MAX / sizeof(*indices) ||
 		draw_count > SIZE_MAX / sizeof(*draws) )
-		return -4;
+		goto extraction_failed;
 	vertices = malloc( (size_t)vertex_count * sizeof(*vertices) );
 	indices = malloc( (size_t)index_count * sizeof(*indices) );
 	draws = malloc( (size_t)draw_count * sizeof(*draws) );
 	if( !vertices || !indices || !draws )
 	{
-		free( vertices ); free( indices ); free( draws );
-		return -5;
+		goto allocation_failed;
+	}
+	if( lightmapped_surfaces )
+	{
+		const size_t atlas_bytes =
+			(size_t)lightmap_width * lightmap_height * 4u;
+		lightmap_pixels = calloc( 1u, atlas_bytes );
+		if( !lightmap_pixels ) goto allocation_failed;
 	}
 	for( int surface_index = 0; surface_index < model->numsurfaces;
 		++surface_index )
@@ -199,6 +284,25 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 		const uint32_t first_index = index_cursor;
 		const float sample_size = (float)(ref_agc_engine.Mod_SampleSizeForFace ?
 			ref_agc_engine.Mod_SampleSizeForFace( surface ) : 16);
+		const RefAgcLightmapPlacement *placement =
+			&lightmap_placements[surface_index];
+		if( placement->active )
+		{
+			const size_t source_bytes =
+				(size_t)placement->width * placement->height * 4u;
+			uint8_t *source = malloc( source_bytes );
+			if( !source || RefAgcBuildSurfaceLightmap( surface,
+				placement->width, placement->height, source ) != 0 ||
+				ref_agc_lightmap_atlas_blit_rgba8( lightmap_pixels,
+					lightmap_width, lightmap_height, lightmap_width * 4u,
+					placement, source, placement->width * 4u ) !=
+					REF_AGC_LIGHTMAP_ATLAS_OK )
+			{
+				free( source );
+				goto extraction_failed;
+			}
+			free( source );
+		}
 		for( int edge = 0; edge < surface->numedges; ++edge )
 		{
 			uint32_t source_index;
@@ -221,22 +325,21 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 				(float)texture->height;
 			vertex->light_uv[0] = 0.0f;
 			vertex->light_uv[1] = 0.0f;
-			if( surface->info && sample_size > 0.0f )
+			if( placement->active && surface->info && sample_size > 0.0f )
 			{
 				const mextrasurf_t *info = surface->info;
-				const float width = (float)info->lightextents[0] + sample_size;
-				const float height = (float)info->lightextents[1] + sample_size;
-				if( width > 0.0f && height > 0.0f )
-				{
-					vertex->light_uv[0] = (position[0] * info->lmvecs[0][0] +
+				vertex->light_uv[0] = ((float)placement->x +
+					(position[0] * info->lmvecs[0][0] +
 						position[1] * info->lmvecs[0][1] +
 						position[2] * info->lmvecs[0][2] + info->lmvecs[0][3] -
-						(float)info->lightmapmins[0] + sample_size * 0.5f) / width;
-					vertex->light_uv[1] = (position[0] * info->lmvecs[1][0] +
+						(float)info->lightmapmins[0]) / sample_size + 0.5f) /
+					(float)lightmap_width;
+				vertex->light_uv[1] = ((float)placement->y +
+					(position[0] * info->lmvecs[1][0] +
 						position[1] * info->lmvecs[1][1] +
 						position[2] * info->lmvecs[1][2] + info->lmvecs[1][3] -
-						(float)info->lightmapmins[1] + sample_size * 0.5f) / height;
-				}
+						(float)info->lightmapmins[1]) / sample_size + 0.5f) /
+					(float)lightmap_height;
 			}
 			vertex->surface_id = (uint32_t)surface_index;
 			if( !isfinite( vertex->position[0] ) ||
@@ -269,6 +372,8 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 			draws[draw_cursor].draw_flags |= REF_AGC_WORLD_DRAW_SKY;
 		if( surface->flags & SURF_DRAWTURB )
 			draws[draw_cursor].draw_flags |= REF_AGC_WORLD_DRAW_TURB;
+		if( placement->active )
+			draws[draw_cursor].draw_flags |= REF_AGC_WORLD_DRAW_LIGHTMAP;
 		++draw_cursor;
 	}
 	memset( out, 0, sizeof(*out) );
@@ -280,14 +385,29 @@ static int RefAgcExtractWorld(const model_t *model, RefAgcWorldInput *out,
 	out->index_count = index_cursor;
 	out->draws = draws;
 	out->draw_count = draw_cursor;
+	out->lightmap_pixels = lightmap_pixels;
+	out->lightmap_width = lightmap_width;
+	out->lightmap_height = lightmap_height;
+	out->lightmap_row_pitch = lightmap_width * 4u;
+	out->lightmap_pixel_bytes =
+		(size_t)lightmap_width * lightmap_height * 4u;
 	*out_vertices = vertices;
 	*out_indices = indices;
 	*out_draws = draws;
+	*out_lightmap_pixels = lightmap_pixels;
+	free( lightmap_rects );
+	free( lightmap_placements );
 	return 0;
 
 extraction_failed:
-	free( vertices ); free( indices ); free( draws );
+	free( vertices ); free( indices ); free( draws ); free( lightmap_pixels );
+	free( lightmap_rects ); free( lightmap_placements );
 	return -6;
+
+allocation_failed:
+	free( vertices ); free( indices ); free( draws ); free( lightmap_pixels );
+	free( lightmap_rects ); free( lightmap_placements );
+	return -5;
 }
 
 static qboolean RefAgcProcessRenderData(model_t *model, qboolean create,
@@ -296,6 +416,7 @@ static qboolean RefAgcProcessRenderData(model_t *model, qboolean create,
 	RefAgcWorldInput input;
 	RefAgcWorldVertex *vertices = NULL;
 	RefAgcWorldDraw *draws = NULL;
+	uint8_t *lightmap_pixels = NULL;
 	uint32_t *indices = NULL;
 	int result;
 	(void)buffer;
@@ -310,10 +431,11 @@ static qboolean RefAgcProcessRenderData(model_t *model, qboolean create,
 		return result == REF_AGC_WORLD_OK ||
 			result == REF_AGC_WORLD_NOT_FOUND;
 	}
-	result = RefAgcExtractWorld( model, &input, &vertices, &indices, &draws );
+	result = RefAgcExtractWorld( model, &input, &vertices, &indices, &draws,
+		&lightmap_pixels );
 	if( result == 0 )
 		result = ref_agc_world_store_publish( &ref_agc_world, &input );
-	free( vertices ); free( indices ); free( draws );
+	free( vertices ); free( indices ); free( draws ); free( lightmap_pixels );
 	return result == 0;
 }
 

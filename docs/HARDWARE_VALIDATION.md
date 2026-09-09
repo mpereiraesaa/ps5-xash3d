@@ -1158,8 +1158,39 @@ The complete command and rejected diagnostic runs are recorded in
   reclaims, zero renderer errors and ordered five-module teardown to zero.
 
 This gate upgrades live base-texture sampling and compositor presentation from
-inference to hardware evidence. Lightmaps, native sky/turbulent semantics,
-entities, viewmodel and 2D/menu/HUD translation remain open Phase 7 gates.
+inference to hardware evidence. At this checkpoint, lightmaps, native
+sky/turbulent semantics, entities, viewmodel and 2D/menu/HUD translation were
+still open Phase 7 gates.
+
+## Phase 7 compositor-visible live-lightmap gate
+
+- Accepted paired runs:
+  `20260909T022301539Z_PPSA99996_xash3d-engine_0x127ca54ee550a` and
+  `20260909T022301592Z_PPSA99996_ps5-xash3d_0x127ca581d165f`
+- Host ELF / fSELF SHA-256:
+  `8256012d69c65d8d3680c6cf8429e358ec009d557c6ec01a7cbb9dd02865de31` /
+  `dbe3cd647c381bf679980c1888f96d88889ab43fd14cb5150e6936a442e4e329`
+- Renderer ELF / PRX fSELF SHA-256:
+  `d9f58ce2dd4b7a868e48ad6e6dbfa5234c0690c1fa0d7d22b13fbd07740fd0ad` /
+  `424faba887f0b86980d436022a123e5fd04405d22ea98701b2d1f7b7331e2ed4`
+- Launch-verified visible capture SHA-256:
+  `2b8bd9ea8dd5345463f7bd9363ee79df36ae77af76cc635c54b8859699cdbfd7`
+- The paired validator, with `--require-live-lightmaps`, passed 1,075 frames,
+  3,695/3,695 lightmapped draws, a 1024x256 RGBA8 atlas with 186,051
+  nonzero texels, nonzero common frame hash `a3219a480a7a1c41`, exact
+  fence/VideoOut/ACK ownership, eight exact reclaims, zero renderer errors and
+  ordered five-module teardown to zero.
+- The native consumer binds the existing Phase 2–4 opaque and alpha-test
+  lightmap pipelines. The engine owns style composition and normalized atlas
+  UV generation; the renderer owns aligned direct-memory upload, descriptor
+  construction and retirement. No OpenGL emulation layer is present.
+- A valid-stream no-lightmap control was visibly unlit. Black captures taken
+  before the control were rejected when a PS home screenshot proved the CLI
+  Remote Play process stale; no renderer conclusion uses those frames.
+
+This gate closes live lightmap atlas sampling and visible native composition.
+Native sky/turbulent semantics, entities, viewmodel and 2D/menu/HUD translation
+remain open Phase 7 gates.
 
 ## Timing interpretation
 

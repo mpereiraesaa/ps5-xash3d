@@ -77,6 +77,7 @@ def exact(fields: dict[str, str], expected: dict[str, str]) -> bool:
 def validate_renderer(
     manifest_path: Path, *, bundle_sha256: str, bundle_bytes: int,
     studio_sha256: str, studio_bytes: int,
+    require_live_lightmaps: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -114,6 +115,8 @@ def validate_renderer(
         })
         if not legacy_loop and not live_world_loop:
             fail("Phase 7 live integration loop mismatch")
+        if require_live_lightmaps and loop.get("lightmaps") != "live-atlas":
+            fail("Phase 7 live lightmap atlas marker is missing")
         ready = one(messages, "REF_AGC_RUNTIME_READY")
         if not exact(ready, {
             "backend": "phase4-native", "api": "18",
@@ -140,6 +143,8 @@ def validate_renderer(
                 or complete.get("camera_hash") in (None, "0000000000000000") \
                 or complete.get("buffer0") in (None, "0000000000000000") \
                 or complete.get("buffer1") in (None, "0000000000000000") \
+                or complete.get("frame_hash") in (
+                    None, "0000000000000000") \
                 or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7", "8") \
                 or complete.get("ownership") != "fence+videoout+ack" \
                 or complete.get("guards") != "intact" \
@@ -201,6 +206,27 @@ def validate_renderer(
                     or int(world["resident_bytes"], 10) > int(
                         world["peak_bytes"], 10):
                 fail("Phase 7 GPU world contract mismatch")
+            if loop.get("lightmaps") == "live-atlas":
+                lightmap_positive = (
+                    "lightmapped_draws", "lightmap_bytes",
+                    "lightmap_rgb_sum", "lightmap_nonzero_texels",
+                )
+                dimensions = world.get("lightmap", "").split("x")
+                rgb_range = world.get("lightmap_rgb_range", "").split("..")
+                if any(int(world.get(field, "0"), 10) <= 0
+                       for field in lightmap_positive) \
+                        or len(dimensions) != 2 \
+                        or any(int(value, 10) <= 0 for value in dimensions) \
+                        or int(world.get("row_pitch", "0"), 10) < \
+                        int(dimensions[0], 10) * 4 \
+                        or len(rgb_range) != 2 \
+                        or int(rgb_range[0], 10) < 0 \
+                        or int(rgb_range[1], 10) <= 0 \
+                        or int(rgb_range[1], 10) > 255 \
+                        or int(rgb_range[0], 10) > int(rgb_range[1], 10) \
+                        or int(world["lightmapped_draws"], 10) > int(
+                            world["draws"], 10):
+                    fail("Phase 7 live lightmap atlas contract mismatch")
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -214,6 +240,7 @@ def validate_renderer(
             "camera_hash": complete["camera_hash"],
             "buffer0": complete["buffer0"],
             "buffer1": complete["buffer1"],
+            "frame_hash": complete["frame_hash"],
             "bright_pixels": bright,
             "resource_reclaimed": int(complete["resource_reclaimed"], 10),
             "gpu_texture": texture,
@@ -293,6 +320,7 @@ def main() -> int:
     parser.add_argument("--bundle-bytes", required=True, type=int)
     parser.add_argument("--studio-sha256", required=True)
     parser.add_argument("--studio-bytes", required=True, type=int)
+    parser.add_argument("--require-live-lightmaps", action="store_true")
     args = parser.parse_args()
     try:
         engine = validate_engine(
@@ -305,6 +333,7 @@ def main() -> int:
             args.renderer_manifest,
             bundle_sha256=args.bundle_sha256, bundle_bytes=args.bundle_bytes,
             studio_sha256=args.studio_sha256, studio_bytes=args.studio_bytes,
+            require_live_lightmaps=args.require_live_lightmaps,
         )
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
@@ -320,6 +349,8 @@ def main() -> int:
                     or engine["ref_agc_live_view_frames"] != views \
                     or engine["ref_agc_consumed_view_frames"] != views \
                     or engine["ref_agc_consumed_camera_hash"] != camera_hash \
+                    or engine["ref_agc_frame_hash"] != \
+                    renderer["frame_hash"] \
                     or engine["ref_agc_bright_pixels"] != \
                     renderer["bright_pixels"]:
                 fail("Phase 7 engine/renderer consumer accounting mismatch")

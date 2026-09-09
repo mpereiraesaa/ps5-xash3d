@@ -39,6 +39,15 @@ typedef struct RefAgcGpuWorldStats {
     uint32_t index_count;
     uint32_t draw_count;
     uint32_t texture_tables;
+    uint32_t lightmap_width;
+    uint32_t lightmap_height;
+    uint32_t lightmap_row_pitch;
+    uint32_t lightmapped_draw_count;
+    size_t lightmap_bytes;
+    uint64_t lightmap_rgb_sum;
+    uint32_t lightmap_nonzero_texels;
+    uint8_t lightmap_rgb_min;
+    uint8_t lightmap_rgb_max;
     size_t resident_bytes;
     size_t peak_resident_bytes;
     int active;
@@ -51,6 +60,8 @@ typedef struct RefAgcGpuWorldCache {
     RefAgcGpuWorldFlushFn flush;
     void *flush_user;
     RefAgcGpuWorldDraw draws[REF_AGC_GPU_WORLD_MAX_DRAWS];
+    size_t lightmap_offset;
+    uint32_t lightmap_descriptor[REF_AGC_GPU_TEXTURE_DESCRIPTOR_DWORDS];
     RefAgcGpuWorldStats stats;
     int initialized;
 } RefAgcGpuWorldCache;

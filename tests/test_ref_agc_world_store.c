@@ -56,10 +56,24 @@ int main(void)
     };
     const uint32_t indices[6] = {0, 1, 2, 0, 2, 3};
     const RefAgcWorldDraw draws[1] = {
-        {0, 6, 42, 7, 0x10, REF_AGC_WORLD_DRAW_ALPHA_TEST, {0, 0}},
+        {0, 6, 42, 7, 0x10,
+         REF_AGC_WORLD_DRAW_ALPHA_TEST | REF_AGC_WORLD_DRAW_LIGHTMAP,
+         {0, 0}},
+    };
+    uint8_t lightmap_pixels[16] = {
+        1, 2, 3, 255, 4, 5, 6, 255,
+        7, 8, 9, 255, 10, 11, 12, 255,
     };
     RefAgcWorldInput input = {
-        "maps/c1a0.bsp", 1u << 29, vertices, 4, indices, 6, draws, 1,
+        .model_name = "maps/c1a0.bsp",
+        .model_flags = 1u << 29,
+        .vertices = vertices, .vertex_count = 4,
+        .indices = indices, .index_count = 6,
+        .draws = draws, .draw_count = 1,
+        .lightmap_pixels = lightmap_pixels,
+        .lightmap_width = 2, .lightmap_height = 2,
+        .lightmap_row_pitch = 8,
+        .lightmap_pixel_bytes = sizeof(lightmap_pixels),
     };
     RefAgcWorldStats stats;
     VisitState visited = {0};
@@ -68,6 +82,7 @@ int main(void)
     assert(ref_agc_world_store_init(&store, &allocator) == 0);
     assert(ref_agc_world_store_publish(&store, &input) == 0);
     memset(vertices, 0, sizeof(vertices));
+    memset(lightmap_pixels, 0, sizeof(lightmap_pixels));
     assert(ref_agc_world_store_visit_changed(
         &store, 0u, visit, &visited, &cursor) == 0);
     assert(cursor == 1u && visited.calls == 1u && visited.view.active);
@@ -75,6 +90,11 @@ int main(void)
     assert(visited.view.vertices[1].position[0] == 1.0f);
     assert(visited.view.indices[5] == 3u);
     assert(visited.view.draws[0].texture_handle == 42u);
+    assert(visited.view.lightmap_pixels[0] == 1u &&
+           visited.view.lightmap_pixels[15] == 255u);
+    assert(visited.view.lightmap_width == 2u &&
+           visited.view.lightmap_height == 2u &&
+           visited.view.lightmapped_draw_count == 1u);
 
     visited.fail = 1;
     cursor = 0u;
@@ -94,6 +114,8 @@ int main(void)
     assert(stats.revision == 1u && stats.publishes == 1u && stats.active);
     assert(stats.vertex_count == 4u && stats.index_count == 6u &&
            stats.draw_count == 1u && stats.content_hash != 0u);
+    assert(stats.lightmap_pixel_bytes == sizeof(lightmap_pixels) &&
+           stats.lightmapped_draw_count == 1u);
 
     assert(ref_agc_world_store_clear(&store, "wrong.bsp") ==
            REF_AGC_WORLD_NOT_FOUND);
@@ -104,7 +126,7 @@ int main(void)
         &store, 1u, visit, &visited, &cursor) == 0);
     assert(cursor == 2u && visited.calls == 1u && !visited.view.active);
     assert(!visited.view.vertices && !visited.view.indices &&
-           !visited.view.draws);
+           !visited.view.draws && !visited.view.lightmap_pixels);
     assert(ref_agc_world_store_stats(&store, &stats) == 0);
     assert(stats.clears == 1u && stats.resident_bytes == 0u &&
            stats.peak_resident_bytes > 0u);

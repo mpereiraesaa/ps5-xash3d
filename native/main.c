@@ -1056,6 +1056,31 @@ static int resource_compose_fail(struct native_renderer *state,
     return result;
 }
 
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+static int bind_native_pipeline(
+    struct native_renderer *state, uint32_t **cursor, uint32_t *end,
+    const struct ps5_pipeline_registers *pipeline)
+{
+    if (!state || !cursor || !*cursor || !end || *cursor > end || !pipeline)
+        return -1;
+    int result = ps5_native_set_indirect(
+        cursor, (uint32_t)(end - *cursor), pipeline->cx,
+        PS5_PIPELINE_CX_REGISTERS, state->resources->shader,
+        SHADER_BYTES, PS5_NATIVE_REGISTERS_CX);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), pipeline->uc,
+            PS5_PIPELINE_UC_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_UC);
+    if (result == 0)
+        result = ps5_native_set_indirect(
+            cursor, (uint32_t)(end - *cursor), pipeline->sh,
+            PS5_PIPELINE_SH_REGISTERS, state->resources->shader,
+            SHADER_BYTES, PS5_NATIVE_REGISTERS_SH);
+    return result;
+}
+#endif
+
 #ifdef PS5_GOLDSRC_PHASE4
 static int bind_goldsrc_pipeline(
     struct native_renderer *state, uint32_t **cursor, uint32_t *end,
@@ -1789,55 +1814,102 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         REF_AGC_GPU_WORLD_OK)
         result = -1;
     RefAgcGpuWorldComposeResult live_opaque = {0};
+    RefAgcGpuWorldComposeResult live_opaque_unlit = {0};
     RefAgcGpuWorldComposeResult live_alpha = {0};
+    RefAgcGpuWorldComposeResult live_alpha_unlit = {0};
     if (result == 0 && live_world_stats.active) {
-        const GoldSrcRenderState live_opaque_state = {
-            GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
-        };
-        Ps5GoldSrcPipelineBinding live_opaque_binding;
         state->live_compose_stage = "live-world-opaque-pipeline";
-        result = bind_goldsrc_pipeline(
-            state, &cursor, end, &live_opaque_state, frame->buffer,
-            &live_opaque_binding);
+        result = bind_native_pipeline(
+            state, &cursor, end, state->pipelines[frame->buffer]);
         if (result == 0) {
             state->live_compose_stage = "live-world-opaque-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST, 0u,
+                REF_AGC_WORLD_DRAW_ALPHA_TEST |
+                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                REF_AGC_WORLD_DRAW_LIGHTMAP,
                 state->resource_frames[resource_slot].map_constant_table,
                 state->resources->resource_heap,
                 state->resources->resource_heap_bytes,
-                live_opaque_binding.draw_modifier,
+                state->draw_modifier,
                 ps5_native_set_sh_direct, ps5_native_draw_index,
                 &live_opaque);
         }
-        const GoldSrcRenderState live_alpha_state = {
-            GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+        const GoldSrcRenderState live_opaque_unlit_state = {
+            GOLDSRC_BLEND_OPAQUE, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
         };
-        Ps5GoldSrcPipelineBinding live_alpha_binding;
+        Ps5GoldSrcPipelineBinding live_opaque_unlit_binding;
+        if (result == 0) {
+            state->live_compose_stage = "live-world-opaque-unlit-pipeline";
+            result = bind_goldsrc_pipeline(
+                state, &cursor, end, &live_opaque_unlit_state,
+                frame->buffer, &live_opaque_unlit_binding);
+        }
+        if (result == 0) {
+            state->live_compose_stage = "live-world-opaque-unlit-draw";
+            result = ref_agc_gpu_world_compose(
+                &cursor, end, &state->live_world_cache,
+                REF_AGC_WORLD_DRAW_ALPHA_TEST |
+                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                0u,
+                state->resource_frames[resource_slot].map_constant_table,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                live_opaque_unlit_binding.draw_modifier,
+                ps5_native_set_sh_direct, ps5_native_draw_index,
+                &live_opaque_unlit);
+        }
         if (result == 0) {
             state->live_compose_stage = "live-world-alpha-pipeline";
-            result = bind_goldsrc_pipeline(
-                state, &cursor, end, &live_alpha_state, frame->buffer,
-                &live_alpha_binding);
+            result = bind_native_pipeline(
+                state, &cursor, end,
+                state->alpha_test_pipelines[frame->buffer]);
         }
         if (result == 0) {
             state->live_compose_stage = "live-world-alpha-draw";
             result = ref_agc_gpu_world_compose(
                 &cursor, end, &state->live_world_cache,
-                REF_AGC_WORLD_DRAW_ALPHA_TEST,
+                REF_AGC_WORLD_DRAW_ALPHA_TEST |
+                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                REF_AGC_WORLD_DRAW_ALPHA_TEST |
+                    REF_AGC_WORLD_DRAW_LIGHTMAP,
+                state->resource_frames[resource_slot].map_constant_table,
+                state->resources->resource_heap,
+                state->resources->resource_heap_bytes,
+                state->draw_modifier,
+                ps5_native_set_sh_direct, ps5_native_draw_index,
+                &live_alpha);
+        }
+        const GoldSrcRenderState live_alpha_unlit_state = {
+            GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_CULL_NONE, 1u, 0u, 0u, 0u,
+        };
+        Ps5GoldSrcPipelineBinding live_alpha_unlit_binding;
+        if (result == 0) {
+            state->live_compose_stage = "live-world-alpha-unlit-pipeline";
+            result = bind_goldsrc_pipeline(
+                state, &cursor, end, &live_alpha_unlit_state,
+                frame->buffer, &live_alpha_unlit_binding);
+        }
+        if (result == 0) {
+            state->live_compose_stage = "live-world-alpha-unlit-draw";
+            result = ref_agc_gpu_world_compose(
+                &cursor, end, &state->live_world_cache,
+                REF_AGC_WORLD_DRAW_ALPHA_TEST |
+                    REF_AGC_WORLD_DRAW_LIGHTMAP,
                 REF_AGC_WORLD_DRAW_ALPHA_TEST,
                 state->resource_frames[resource_slot].map_constant_table,
                 state->resources->resource_heap,
                 state->resources->resource_heap_bytes,
-                live_alpha_binding.draw_modifier,
+                live_alpha_unlit_binding.draw_modifier,
                 ps5_native_set_sh_direct, ps5_native_draw_index,
-                &live_alpha);
+                &live_alpha_unlit);
         }
         if (result == 0 &&
-            (live_opaque.draws + live_alpha.draws !=
+            (live_opaque.draws + live_opaque_unlit.draws +
+                 live_alpha.draws + live_alpha_unlit.draws !=
                  live_world_stats.draw_count ||
-             live_opaque.indices + live_alpha.indices !=
+             live_opaque.indices + live_opaque_unlit.indices +
+                 live_alpha.indices + live_alpha_unlit.indices !=
                  live_world_stats.index_count))
             result = -2;
     }
@@ -4641,7 +4713,7 @@ int main(void)
         "BSP_LOOP_BEGIN mode=phase7-live-consumer buffers=2 "
         "color_dma=false depth_dma=true indexed=true frames=engine-owned "
         "camera=live-refapi geometry=live-refapi textures=live-refapi "
-        "lists=world retirement=fence+videoout+ack "
+        "lists=world lightmaps=live-atlas retirement=fence+videoout+ack "
         "input_dependency=engine");
 #elif defined(PS5_GPU_FLIP_TIMING_GATE)
     (void)ps5log_line(PS5LOG_MARK,
@@ -4922,6 +4994,9 @@ int main(void)
             (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_LIVE_WORLD_SYNC serial=%llu revision=%llu "
                 "vertices=%u indices=%u draws=%u texture_tables=%u "
+                "lightmapped_draws=%u lightmap=%ux%u row_pitch=%u "
+                "lightmap_bytes=%llu lightmap_rgb_sum=%llu "
+                "lightmap_nonzero_texels=%u lightmap_rgb_range=%u..%u "
                 "resident_bytes=%llu peak_bytes=%llu source_hash=%016llx "
                 "upload_hash=%016llx arena_bytes=%u index_mode=per-draw-u16 "
                 "source_indices=u32 memory=direct "
@@ -4930,6 +5005,13 @@ int main(void)
                 (unsigned long long)next_world_revision,
                 world_stats.vertex_count, world_stats.index_count,
                 world_stats.draw_count, world_stats.texture_tables,
+                world_stats.lightmapped_draw_count,
+                world_stats.lightmap_width, world_stats.lightmap_height,
+                world_stats.lightmap_row_pitch,
+                (unsigned long long)world_stats.lightmap_bytes,
+                (unsigned long long)world_stats.lightmap_rgb_sum,
+                world_stats.lightmap_nonzero_texels,
+                world_stats.lightmap_rgb_min, world_stats.lightmap_rgb_max,
                 (unsigned long long)world_stats.resident_bytes,
                 (unsigned long long)world_stats.peak_resident_bytes,
                 (unsigned long long)world_stats.source_hash,
@@ -5056,6 +5138,14 @@ int main(void)
         live_world_stats.index_count == 0u ||
         live_world_stats.draw_count == 0u ||
         live_world_stats.texture_tables != live_world_stats.draw_count ||
+        live_world_stats.lightmapped_draw_count == 0u ||
+        live_world_stats.lightmap_width == 0u ||
+        live_world_stats.lightmap_height == 0u ||
+        live_world_stats.lightmap_row_pitch == 0u ||
+        live_world_stats.lightmap_bytes == 0u ||
+        live_world_stats.lightmap_rgb_sum == 0u ||
+        live_world_stats.lightmap_nonzero_texels == 0u ||
+        live_world_stats.lightmap_rgb_max == 0u ||
         live_world_stats.upload_hash == 0u)
         park("live-world-final-accounting-failure");
 #endif
@@ -5108,6 +5198,11 @@ int main(void)
         live_first, live_readback_bytes);
     const uint64_t live_second_hash = readback_hash(
         live_second, live_readback_bytes);
+    const uint64_t live_buffer_hashes[2] = {
+        live_first_hash, live_second_hash,
+    };
+    const uint64_t live_frame_hash = readback_hash(
+        live_buffer_hashes, sizeof(live_buffer_hashes));
     const uint64_t live_first_bright = bright_pixel_count(
         live_first, live_readback_bytes);
     const uint64_t live_second_bright = bright_pixel_count(
@@ -5118,6 +5213,9 @@ int main(void)
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_GPU_WORLD_COMPLETE revision=%llu publishes=%llu "
         "clears=%llu vertices=%u indices=%u draws=%u texture_tables=%u "
+        "lightmapped_draws=%u lightmap=%ux%u row_pitch=%u "
+        "lightmap_bytes=%llu lightmap_rgb_sum=%llu "
+        "lightmap_nonzero_texels=%u lightmap_rgb_range=%u..%u "
         "resident_bytes=%llu peak_bytes=%llu source_hash=%016llx "
         "upload_hash=%016llx flushes=%llu arena_bytes=%u "
         "geometry=live-refapi textures=live-refapi memory=direct "
@@ -5128,6 +5226,13 @@ int main(void)
         (unsigned long long)live_world_stats.clears,
         live_world_stats.vertex_count, live_world_stats.index_count,
         live_world_stats.draw_count, live_world_stats.texture_tables,
+        live_world_stats.lightmapped_draw_count,
+        live_world_stats.lightmap_width, live_world_stats.lightmap_height,
+        live_world_stats.lightmap_row_pitch,
+        (unsigned long long)live_world_stats.lightmap_bytes,
+        (unsigned long long)live_world_stats.lightmap_rgb_sum,
+        live_world_stats.lightmap_nonzero_texels,
+        live_world_stats.lightmap_rgb_min, live_world_stats.lightmap_rgb_max,
         (unsigned long long)live_world_stats.resident_bytes,
         (unsigned long long)live_world_stats.peak_resident_bytes,
         (unsigned long long)live_world_stats.source_hash,
@@ -5156,7 +5261,8 @@ int main(void)
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_LIVE_COMPLETE frames=%llu serial=%llu view_frames=%llu "
         "camera_hash=%016llx camera_changes=%llu "
-        "buffer0=%016llx buffer1=%016llx bright_pixels=%llu "
+        "buffer0=%016llx buffer1=%016llx frame_hash=%016llx "
+        "bright_pixels=%llu "
         "resource_reclaimed=%u ownership=fence+videoout+ack "
         "guards=intact errors=0",
         (unsigned long long)live_run.frames_completed,
@@ -5166,6 +5272,7 @@ int main(void)
         (unsigned long long)renderer.live_camera_changes,
         (unsigned long long)live_first_hash,
         (unsigned long long)live_second_hash,
+        (unsigned long long)live_frame_hash,
         (unsigned long long)(live_first_bright + live_second_bright),
         live_reclaimed);
     const int live_cleanup_result = cleanup();
@@ -5179,7 +5286,7 @@ int main(void)
         renderer.live_view_frames, renderer.live_camera_hash,
         renderer.live_camera_changes);
     PS5_RefAgcRuntimeComplete(
-        live_run.frames_completed, live_first_hash ^ live_second_hash,
+        live_run.frames_completed, live_frame_hash,
         live_first_bright + live_second_bright, live_cleanup_result);
     ps5log_close(live_cleanup_result == 0 ? "ref-agc-live-complete" :
                                            "ref-agc-live-teardown-failure");

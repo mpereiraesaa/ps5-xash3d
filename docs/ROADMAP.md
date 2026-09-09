@@ -192,8 +192,13 @@
   texture descriptors; submit 3,695 `c1a0` surfaces from 17,245 vertices and
   29,565 indices for 1,076 matched frames on FW 12.02, with nonzero readbacks,
   eight exact reclaims and no OpenGL emulation layer.
-- [ ] Add live lightmap atlas sampling and native sky/turbulent semantics, then
-  replace entity fixtures and the procedural 2D list with engine-driven draws,
-  binding each class to its own GPU-visible evidence.
+- [x] Add live engine-lightmap atlas sampling: combine active GoldSrc style
+  planes, publish owned padded RGBA8 texels and normalized UVs, upload them in
+  the existing direct-memory arena, and bind the hardware-proven native AGC
+  lightmap pipelines. Pass 1,075 matched frames with 3,695 lightmapped draws,
+  exact ownership, zero errors and visible FW 12.02 output.
+- [ ] Add native sky/turbulent semantics, then replace entity fixtures and the
+  procedural 2D list with engine-driven draws, binding each class to its own
+  GPU-visible evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.
