@@ -46,6 +46,8 @@ documents below.
 Run all host contracts and the fail-closed publication audit:
 
 ```sh
+git submodule update --init third_party/xash3d-fwgs third_party/hlsdk-portable
+git -C third_party/xash3d-fwgs submodule update --init 3rdparty/library_suffix
 make test
 make audit
 ```
