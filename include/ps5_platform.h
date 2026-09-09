@@ -97,6 +97,12 @@ int sceKernelMapDirectMemory(void **address, size_t bytes, int protection,
 int sceKernelBatchMap(void *entries, int count, int *processed);
 int sceKernelMunmap(void *address, size_t bytes);
 int sceKernelReleaseDirectMemory(int64_t offset, size_t bytes);
+/* Five-argument availability wrapper checked in the local FW 12.02 image.
+ * Runtime availability semantics are gated by the opt-in memory probe. */
+size_t sceKernelGetDirectMemorySize(void);
+int sceKernelAvailableDirectMemorySize(int64_t search_start, int64_t search_end,
+                                       size_t alignment, int64_t *block_start,
+                                       size_t *block_bytes);
 int sceKernelCreateEqueue(void **queue, const char *name);
 int sceKernelDeleteEqueue(void *queue);
 int sceKernelWaitEqueue(void *queue, void *event, int count, int *out,

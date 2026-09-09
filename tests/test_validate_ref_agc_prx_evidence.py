@@ -18,6 +18,27 @@ STUDIO = "2" * 64
 
 sys.path.insert(0, str(ROOT / "tools"))
 from validate_ref_agc_prx_evidence import validate_live_brush, validate_live_studio, EvidenceError
+from validate_ref_agc_prx_evidence import validate_texture_budget
+
+
+def test_texture_budget_policy():
+    marker = ("REF_AGC_MEMORY_BUDGET schema=1 available_kind=single-free-block "
+              "capacity=2147483648 query_rc=0 available=1073741824 fixed=134217728 "
+              "reserve=268435456 requested=0 percent=50 alignment=65536 "
+              "selected=335544320 heap=469762048 remaining=603979776 result=0")
+    texture = {"arena_bytes": "335544320", "descriptors": "rgba8+bilinear+studio-trilinear"}
+    assert validate_texture_budget([marker], texture)
+    assert not validate_texture_budget([], texture)
+    assert not validate_texture_budget([marker, marker], texture)
+    for old, new in (("query_rc=0", "query_rc=-1"), ("percent=50", "percent=51"),
+                     ("remaining=603979776", "remaining=1"),
+                     ("selected=335544320", "selected=335544321"),
+                     ("reserve=268435456", "reserve=9999999999"),
+                     ("requested=0", "requested=67108864")):
+        assert not validate_texture_budget([marker.replace(old, new)], texture)
+
+
+test_texture_budget_policy()
 
 
 def test_studio_validation():

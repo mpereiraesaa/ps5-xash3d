@@ -139,5 +139,30 @@ int main(void)
     assert(entry.mip_count == 1 && entry.allocation_bytes == 256);
     ref_agc_gpu_texture_cache_destroy(&cache);
     puts("ref_agc GPU texture cache tests passed");
+    /* Exhaustion preserves both existing data and the allocation ledger. */
+    memset(arena, 0xa5, sizeof(arena));
+    assert(ref_agc_gpu_texture_cache_init(&cache, arena, UINT64_C(0x200000000),
+        256, flush_memory, &flush) == 0);
+    view = (RefAgcTextureView){.handle=1, .revision=1, .width=1, .height=1,
+        .depth=1, .mip_count=1, .active=1, .pixels=checker, .pixel_bytes=4};
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == 0);
+    assert(ref_agc_gpu_texture_cache_get(&cache, 1, &entry) == 0);
+    RefAgcGpuTextureStats prior;
+    assert(ref_agc_gpu_texture_cache_stats(&cache, &prior) == 0);
+    uint8_t saved[4096]; memcpy(saved, arena, sizeof(saved));
+    unsigned prior_flushes = flush.calls;
+    view.handle=2; view.revision=2;
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == REF_AGC_GPU_TEXTURE_EXHAUSTED);
+    view.handle=1; view.height=2; view.pixel_bytes=8;
+    assert(ref_agc_gpu_texture_cache_apply(&cache, &view, 1) == REF_AGC_GPU_TEXTURE_EXHAUSTED);
+    assert(ref_agc_gpu_texture_cache_stats(&cache, &stats) == 0);
+    assert(memcmp(&stats, &prior, sizeof(stats)) == 0);
+    assert(memcmp(arena, saved, sizeof(saved)) == 0 && flush.calls == prior_flushes);
+    RefAgcGpuTextureEntry retained;
+    assert(ref_agc_gpu_texture_cache_get(&cache, 1, &retained) == 0);
+    assert(memcmp(&entry, &retained, sizeof(entry)) == 0);
+    assert(ref_agc_gpu_texture_cache_validate(&cache) == 0);
+    ref_agc_gpu_texture_cache_destroy(&cache);
+    puts("texture exhaustion preserves resources and guards");
     return 0;
 }

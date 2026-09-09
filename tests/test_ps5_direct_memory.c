@@ -48,8 +48,67 @@ static int release_direct(int64_t offset, size_t bytes)
     return fail_at == step ? -1 : 0;
 }
 
+static int loose_alloc_fail, loose_map_fail, loose_release_fail, loose_null_map;
+static int loose_alloc_calls, loose_map_calls, loose_release_calls;
+static int loose_allocate(size_t bytes, size_t alignment, int type, int64_t *offset)
+{
+    assert(bytes == sizeof(arena) && alignment == sizeof(arena) && type == 12);
+    ++loose_alloc_calls;
+    *offset = 0x8000;
+    return loose_alloc_fail ? -1 : 0;
+}
+static int loose_map(void **address, size_t bytes, int protection, int flags,
+                     int64_t offset, size_t alignment)
+{
+    assert(!*address && bytes == sizeof(arena) && protection == 0x33 && !flags);
+    assert(offset == 0x8000 && alignment == sizeof(arena));
+    ++loose_map_calls;
+    *address = loose_null_map ? NULL : arena;
+    return loose_map_fail ? -1 : 0;
+}
+static int loose_release(int64_t offset, size_t bytes)
+{
+    assert(offset == 0x8000 && bytes == sizeof(arena));
+    ++loose_release_calls;
+    return loose_release_fail ? -1 : 0;
+}
+static void test_allocate_map(void)
+{
+    const struct ps5_direct_memory_ops ops = {
+        NULL, loose_allocate, loose_map, NULL, loose_release
+    };
+    struct ps5_direct_memory memory;
+    for (int scenario = 0; scenario < 5; ++scenario) {
+        loose_alloc_fail = scenario == 1;
+        loose_map_fail = scenario == 2 || scenario == 3;
+        loose_release_fail = scenario == 3;
+        loose_null_map = scenario == 4;
+        loose_alloc_calls = loose_map_calls = loose_release_calls = 0;
+        int result = ps5_direct_memory_allocate_map(
+            &memory, &ops, sizeof(arena), sizeof(arena), 12, 0x33);
+        assert(loose_alloc_calls == 1);
+        assert(loose_map_calls == (scenario != 1));
+        assert(loose_release_calls == (scenario >= 2));
+        if (scenario == 0) {
+            assert(result == 0 && memory.allocated && memory.mapped && !memory.retain);
+        } else if (scenario == 1) {
+            assert(result == PS5_DIRECT_MEMORY_ALLOCATE_FAILED);
+            assert(!memory.allocated && !memory.mapped);
+        } else if (scenario == 3) {
+            assert(result == PS5_DIRECT_MEMORY_RELEASE_FAILED);
+            assert(memory.allocated && !memory.mapped && memory.retain);
+            assert(memory.offset == 0x8000); /* retain exact cleanup identity */
+        } else {
+            assert(result == PS5_DIRECT_MEMORY_MAP_FAILED);
+            assert(!memory.allocated && !memory.mapped && !memory.retain);
+            assert(memory.offset == -1 && memory.address == NULL);
+        }
+    }
+}
+
 int main(void)
 {
+    test_allocate_map();
     const struct ps5_direct_memory_ops ops = {
         reserve_virtual, allocate_direct, map_direct,
         unmap_direct, release_direct,
