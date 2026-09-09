@@ -1,4 +1,4 @@
-# Phase 7 texture-memory policy — work in progress
+# Phase 7 texture-memory policy — host and hardware acceptance
 
 Baseline: merged PR #25 (`3167fc6`). The accepted graphics/resource run still
 uses an 80-MiB GPU texture arena. That is a scene-validation allocation, not
@@ -166,3 +166,29 @@ renderer PRX `3ac71c7117e63619a7e7c203a86d0a8ca4480b12ec8fcdc3ae7d33f19fa22669`;
 SELF `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`.
 Full host tests and publication audit pass; canonical nine-file raw-hash
 deployment passed. Hardware run acceptance is recorded below when complete.
+
+## Automatic acceptance
+
+Engine `20260909T122547724Z_PPSA99996_xash3d-engine_0x148aed00a69f0` and renderer
+`20260909T122547781Z_PPSA99996_ps5-xash3d_0x148aed353146c` pass the paired
+lightmap/2D/menu/brush/Studio validator over 10,994 frames and 180 active-map
+seconds. Nine exact resource reclaims, intact guards, zero errors, five PRX
+unloads, empty engine memory, exact pad teardown and both clean BYEs are
+present. Independent post-run status confirms no BigApp and healthy services.
+
+The selected texture capacity is 1,204,158,464 bytes; fixed heap 169,541,632;
+full renderer heap 1,373,700,096; observed block 12,748,587,008; remaining block
+11,374,886,912 bytes. The validator independently checks the 10% calculation,
+64-KiB rounding, reserve and cache capacity. Actual texture residency remains
+67,717,120 bytes. The whole arena is physically allocated: unused capacity is
+not free memory or sparse commitment. This is configurable sizing at startup,
+not an implementation of runtime growth or texture eviction.
+
+Engine JSON SHA-256 `5bd72b5f88b66af816c4be923e3a856b0433a7a9b59f55371a3fbb382ca7c20c`;
+renderer JSON SHA-256 `78d6e363c0ab46e761ac0701a509e4b8d8a4e66ddbc29307bca3ce036a48cf12`.
+The run reports a 2.402-second maximum presentation interval across startup;
+this gate does not claim the separate 16.6-ms performance target is met.
+
+Together with the explicit-size run and host-injected failure tests, this
+accepts the scoped memory-policy task. PR #26 carries integration. The other
+four tasks and the broader Phase 7 acceptance remain open.
