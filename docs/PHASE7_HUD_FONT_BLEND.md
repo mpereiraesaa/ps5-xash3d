@@ -104,7 +104,33 @@ no strcasestr import.
 
 This is not hardware or visual acceptance. Next: paired hardware QA with
 the operator, followed by documentation/HTML and green PR integration.
-No console deployment or launch has been made for this HUD build yet.
+The candidate was transactionally deployed and launched on 2026-09-09.
+All nine remote files passed exact SHA-256 verification. Paired run IDs:
+`20260909T131224948Z_PPSA99996_xash3d-engine_0x14b3a1552be1d` and
+`20260909T131225006Z_PPSA99996_ps5-xash3d_0x14b3a18bdc20e`.
+
+Operator feedback: MainUI looked correct and the chapter title appeared
+without its black background. At disappearance, the operator noticed a very
+brief white patch/flash around the title, then the scene returned to normal.
+Follow-up confirms a rectangular shape around the text, not just bright
+letters, and a very short duration. No second launch was requested or made.
+This is partial visual acceptance only: title fade-out remains open. The
+flash cause is unconfirmed; do not dismiss it as a normal effect or declare
+the entire HUD gate complete.
+
+The run completed 10,996 renderer frames, nine exact resource reclaims,
+five PRX unloads, renderer teardown result zero and clean paired BYEs.
+The paired evidence validator passed with live lightmap, 2D, menu, brush and
+Studio requirements. MainUI accounted for 220 frames, 95,534 quads and
+27,538 draws before map entry. Independent post-run status found no BigApp
+and all four required services healthy. These facts accept the resource
+regression, not the fade-out pixels or additional controller QA.
+
+Current logs contain batch modes/counts and command/layout hashes but not
+per-draw color, UV and texture identity. They cannot identify the white
+rectangle's offending draw. Next diagnostic should record those values in
+a bounded window around title disappearance and compare command state with
+the bound GPU state; do not infer an alpha/color root cause from shape alone.
 
 ## Operator QA handoff (pending)
 
