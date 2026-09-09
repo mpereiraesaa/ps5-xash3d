@@ -40,6 +40,20 @@ def main() -> int:
         )
         assert ("distance_to_eye" in source) == name.endswith("fog")
         assert "color = vec4(surface, base.a * render_color.a);" in source
+    screen = MODULE.SCREEN_SOURCE.read_text(encoding="utf-8")
+    masked = MODULE.screen_masked(screen)
+    assert masked == MODULE.screen_masked(screen)
+    assert "if (out_color.a <= 0.0)" in masked
+    assert masked.index("texture(image, uv) * color;") < masked.index("discard;")
+    assert "binding[0].stride = 32" in masked
+    assert "discard;" not in screen
+    for malformed in ("", screen + screen):
+        try:
+            MODULE.screen_masked(malformed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("ambiguous/missing shader assignment accepted")
     print("GoldSrc shader variant generator tests passed")
     return 0
 

@@ -17,7 +17,8 @@ MASKED_VARIANTS = (
     "goldsrc_masked", "goldsrc_masked_lightmap",
     "goldsrc_masked_fog", "goldsrc_masked_lightmap_fog",
 )
-ALL_VARIANTS = SURFACE_VARIANTS + MASKED_VARIANTS + ("goldsrc_screen_2d",)
+ALL_VARIANTS = SURFACE_VARIANTS + MASKED_VARIANTS + (
+    "goldsrc_screen_2d", "goldsrc_screen_2d_masked")
 
 
 def fail(message: str) -> None:
@@ -55,13 +56,13 @@ def validate(manifest_dir: Path,
         unique_pixel_hashes.add(str(pixel.get("sha256", "")))
         registers = manifest.get("graphics_register_metadata", {})
         control = registers.get(".db_shader_control", {})
-        expected_kill = name in MASKED_VARIANTS
+        expected_kill = name in MASKED_VARIANTS or name == "goldsrc_screen_2d_masked"
         if control.get(".kill_enable") is not expected_kill:
             fail(f"kill-enable mismatch: {name}")
         source_text = source.read_text(encoding="utf-8")
         if ("discard;" in source_text) is not expected_kill:
             fail(f"source discard mismatch: {name}")
-        if name != "goldsrc_screen_2d":
+        if not name.startswith("goldsrc_screen_2d"):
             if ("texture(lightmap_texture" in source_text) != (
                 "lightmap" in name
             ):

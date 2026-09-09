@@ -245,7 +245,7 @@ shaders:
 	@set -e; for name in goldsrc_surface goldsrc_surface_lightmap \
 		goldsrc_surface_fog goldsrc_surface_lightmap_fog goldsrc_masked \
 		goldsrc_masked_lightmap goldsrc_masked_fog \
-		goldsrc_masked_lightmap_fog; do \
+		goldsrc_masked_lightmap_fog goldsrc_screen_2d_masked; do \
 		python3 tools/build_shader.py \
 			--pipe "build/generated-shaders/$$name.pipe" --name "$$name" \
 			--amdllpc "$(AMDLLPC)" --readelf "$(LLVM_READELF)" \
@@ -297,6 +297,7 @@ shaders:
 	python3 tools/generate_pipeline_table.py
 	python3 tools/validate_goldsrc_shader_manifests.py
 	python3 tools/generate_goldsrc_shader_assets.py
+	python3 tools/generate_agc_metadata.py --manifest build/shaders/goldsrc_screen_2d_masked.manifest.json --output build/generated/goldsrc_screen_2d_masked_shader_metadata.h --prefix GOLDSRC_SCREEN_2D_MASKED --symbol-prefix ps5_goldsrc_screen_2d_masked
 	python3 tools/generate_goldsrc_shader_catalog.py
 
 native:

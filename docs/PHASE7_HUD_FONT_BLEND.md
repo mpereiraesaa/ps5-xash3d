@@ -47,13 +47,29 @@ for masked and modulate screen draws. Modulate encodes ZERO/SRC_COLOR for
 RGB and ZERO/SRC_ALPHA for alpha (`0x64000200`); SRC_COLOR=2 was checked
 against AMD PAL's `gfx9_plus_merged_enum.h`.
 
-This remains preparation: the pipeline cache still contains its baseline
-99 entries. Neither new screen state is registered there yet, and shader
-selection explicitly rejects masked screen state until its discard shader
-exists. Do not deploy this checkpoint or claim GPU/visual acceptance from
-the register tests. Next: generate and compile the dedicated screen masked
-shader, register both new screen pipelines, then update live translation,
-batch accounting and fill side effects before the paired hardware run.
+The pipeline cache now contains 101 entries: the unchanged 96 3D entries
+plus five screen entries. The dedicated `screen_2d_masked` shader is generated
+from the ordinary screen source with only a post-multiply alpha-zero discard;
+vertex layout and color transport stay unchanged. Asset/catalog generators,
+build rules and manifest validation include all ten shader variants. Host
+tests check shader selection, unique keys, source generation and invalid
+template rejection.
+
+Local LLPC compilation for gfx1013 succeeded, without relocations. Compiled
+metadata reports `kill_enable=true` for the new shader. Its pixel ISA is
+200 bytes, SHA-256
+`2cff6aeca534a4d7a1574e8815224f46ff3a60b0eabc5146e1ad9cabd9b73149`;
+pre-raster ISA is 372 bytes, SHA-256
+`98c1f5e2d57d705f1699a11d5feb5a9a8d210cc81bb14c1fb8aec675bfbe5ce9`.
+The compiled ten-variant manifest validator and `make all` pass.
+
+This remains preparation, not hardware or visual acceptance. Inspection also
+found that the live compositor reads render mode only for fills: stretch-pic
+batches still default to alpha regardless of their captured mode. Next:
+update that translation and preflight validation, distinct masked/modulate
+batch telemetry, and fill/state side effects before building the complete
+engine/PRX bundle and running paired hardware QA. Do not deploy this partial
+checkpoint.
 
 ## Required closure
 

@@ -9,11 +9,8 @@ int goldsrc_pipeline_shader_variant(const GoldSrcRenderState *state,
     if (!out_variant || goldsrc_render_state_validate(state) != 0)
         return -1;
     if (state->screen_space) {
-        /* Until the dedicated screen discard shader is registered, fail
-         * explicitly rather than rendering alpha-tested text as opaque. */
-        if (state->blend == GOLDSRC_BLEND_ALPHA_TEST)
-            return -1;
-        *out_variant = GOLDSRC_SHADER_SCREEN_2D;
+        *out_variant = state->blend == GOLDSRC_BLEND_ALPHA_TEST ?
+            GOLDSRC_SHADER_SCREEN_2D_MASKED : GOLDSRC_SHADER_SCREEN_2D;
         return 0;
     }
     const unsigned feature = (unsigned)state->lightmap |
@@ -29,7 +26,7 @@ const char *goldsrc_pipeline_shader_variant_name(GoldSrcShaderVariant variant)
     static const char *const names[GOLDSRC_SHADER_VARIANT_COUNT] = {
         "surface", "surface_lightmap", "surface_fog",
         "surface_lightmap_fog", "masked", "masked_lightmap",
-        "masked_fog", "masked_lightmap_fog", "screen_2d",
+        "masked_fog", "masked_lightmap_fog", "screen_2d", "screen_2d_masked",
     };
     return variant < GOLDSRC_SHADER_VARIANT_COUNT ? names[variant] : NULL;
 }
@@ -78,10 +75,13 @@ int goldsrc_pipeline_cache_build(GoldSrcPipelineCache *out,
                                    base_pa_su_sc_mode_cntl) != 0)
                             return -1;
                     }
-    for (unsigned blend = GOLDSRC_BLEND_OPAQUE;
-         blend <= GOLDSRC_BLEND_ADDITIVE; ++blend) {
+    const GoldSrcBlendMode screen_blends[GOLDSRC_PIPELINE_2D_COUNT] = {
+        GOLDSRC_BLEND_OPAQUE, GOLDSRC_BLEND_ALPHA, GOLDSRC_BLEND_ADDITIVE,
+        GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_BLEND_SCREEN_MODULATE,
+    };
+    for (unsigned i = 0; i < GOLDSRC_PIPELINE_2D_COUNT; ++i) {
         GoldSrcRenderState state;
-        if (goldsrc_render_state_2d((GoldSrcBlendMode)blend, &state) != 0 ||
+        if (goldsrc_render_state_2d(screen_blends[i], &state) != 0 ||
             append(out, &state, base_db_depth_control,
                    base_pa_su_sc_mode_cntl) != 0)
             return -1;

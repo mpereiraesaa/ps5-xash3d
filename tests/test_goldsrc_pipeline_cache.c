@@ -9,9 +9,9 @@ int main(void)
     GoldSrcPipelineCache cache;
     assert(goldsrc_pipeline_cache_build(
         &cache, 0x000000b6u, 0x00a80244u) == 0);
-    assert(cache.count == 99u);
+    assert(cache.count == 101u);
 
-    uint8_t keys[256] = {0};
+    uint8_t keys[512] = {0};
     unsigned shader_counts[GOLDSRC_SHADER_VARIANT_COUNT] = {0};
     unsigned pass_counts[GOLDSRC_PASS_SCREEN_2D + 1] = {0};
     for (uint32_t i = 0; i < cache.count; ++i) {
@@ -33,22 +33,26 @@ int main(void)
     assert(pass_counts[GOLDSRC_PASS_MASKED] == 24u);
     assert(pass_counts[GOLDSRC_PASS_TRANSLUCENT] == 24u);
     assert(pass_counts[GOLDSRC_PASS_ADDITIVE] == 24u);
-    assert(pass_counts[GOLDSRC_PASS_SCREEN_2D] == 3u);
+    assert(pass_counts[GOLDSRC_PASS_SCREEN_2D] == 5u);
     for (unsigned i = GOLDSRC_SHADER_SURFACE;
          i <= GOLDSRC_SHADER_SURFACE_LIGHTMAP_FOG; ++i)
         assert(shader_counts[i] == 18u);
     for (unsigned i = GOLDSRC_SHADER_MASKED;
          i <= GOLDSRC_SHADER_MASKED_LIGHTMAP_FOG; ++i)
         assert(shader_counts[i] == 6u);
-    assert(shader_counts[GOLDSRC_SHADER_SCREEN_2D] == 3u);
+    assert(shader_counts[GOLDSRC_SHADER_SCREEN_2D] == 4u);
+    assert(shader_counts[GOLDSRC_SHADER_SCREEN_2D_MASKED] == 1u);
 
     GoldSrcRenderState query;
     GoldSrcShaderVariant shader;
     assert(goldsrc_render_state_2d(GOLDSRC_BLEND_ALPHA_TEST, &query) == 0);
-    assert(goldsrc_pipeline_shader_variant(&query, &shader) == -1);
-    assert(goldsrc_pipeline_cache_find(&cache, &query) == NULL);
+    assert(goldsrc_pipeline_shader_variant(&query, &shader) == 0);
+    assert(shader == GOLDSRC_SHADER_SCREEN_2D_MASKED);
+    assert(goldsrc_pipeline_cache_find(&cache, &query)->key == 131u);
     assert(goldsrc_render_state_2d(GOLDSRC_BLEND_SCREEN_MODULATE, &query) == 0);
-    assert(goldsrc_pipeline_cache_find(&cache, &query) == NULL);
+    assert(goldsrc_pipeline_cache_find(&cache, &query)->key == 384u);
+    assert(goldsrc_pipeline_cache_find(&cache, &query)->dynamic_cx[0].value ==
+           0x64000200u);
     assert(goldsrc_render_state_from_mode(
         GOLDSRC_RENDER_TRANS_TEXTURE, GOLDSRC_CULL_FRONT,
         1, 1, &query) == 0);

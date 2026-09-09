@@ -20,8 +20,8 @@ SPEC.loader.exec_module(MODULE)
 
 def main() -> int:
     header = MODULE.render()
-    assert header.count("static const struct ps5_shader_metadata") == 9
-    assert header.count("_metadata,") == 9
+    assert header.count("static const struct ps5_shader_metadata") == 10
+    assert header.count("_metadata,") == 10
     for name in MODULE.VARIANTS:
         assert header.count(f'"{name}"') == 1
         assert header.count(f'#include "{name}_shader_metadata.h"') == 1
