@@ -43,7 +43,11 @@ profile, keeping the optional QA hook available. No Remote Play is required.
 Profile v4 includes the v3 mapping of R2 to primary attack for all weapons (including crowbar),
 and R1 to secondary attack. Profile v4 is deployed and startup-confirmed;
 the operator accepted v5 aim feel for now and confirmed R2 crowbar attack.
-Other untested button actions remain pending. The table below records
+Other untested button actions remain pending.
+Reload with Square was subsequently operator-confirmed on 2026-09-09:
+animation plays and the magazine refills; crowbar attack with R2 was reconfirmed.
+The viewmodel-event run is recorded in `PHASE7_STUDIO_LIGHTING.md`.
+The table below records
 upstream defaults, not these two overrides.
 The last column is the **historical pre-install audit**, not the post-install
 state. L2/L3 use the engine's
@@ -77,6 +81,13 @@ this profile or add a later-sorted cfg in `userconfig.d`. To stop enforcing it,
 remove that profile; already saved bindings remain until changed explicitly.
 Hardware action validation (jump/use/fire/reload/weapon selection) is separate
 from confirming the file was installed or executed.
+
+Effects QA (2026-09-09): operator accepted pistol muzzleflash, wall marks,
+blood and the more visible blood/sprite-lighting configuration. This does not
+change any DualSense binding. `ps5_blood_amount` defaults to 1.5 (more droplets
+and moderately larger sprites); set it to 1 for original presentation. It does
+not change damage or give weapons. The normal no-grant build was restored
+without relaunch; graphics QA audio remains disabled.
 
 Historical profile v1 was installed on PPSA99996 on 2026-09-09 with owner approval. Local and FTP
 readback SHA-256 both:

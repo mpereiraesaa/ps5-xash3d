@@ -97,6 +97,9 @@ void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
     if (!store || !store->initialized)
         return;
     store->building.serial = 0;
+    store->building.effects.count = store->building.effects.vertices_count = 0;
+    store->building.effects.particles = store->building.effects.tracers = 0;
+    store->building.effects.decals = store->building.effects.dropped = 0;
     store->building.world = store->current_world;
     store->building.sky = store->current_sky;
     store->building.map_serial = store->current_world.serial;

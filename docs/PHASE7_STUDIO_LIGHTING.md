@@ -8,6 +8,13 @@ evidence boundary; the current status here supersedes their pending statements.
 
 ## Current integration checkpoint — 2026-09-09
 
+Latest effects checkpoint: operator accepted reload/crowbar, muzzleflash,
+wall marks, blood and the enhanced-blood/sprite-lighting candidate. The final
+18:17 paired run passes 18,175 frames, nine reclaims, intact guards, zero
+renderer errors and exact teardown. Full acceptance and normal restoration
+identities are recorded in the final section below; earlier pending entries
+are historical. Phase 7 and broader Studio/effects parity remain open.
+
 - NPC lighting and NPOT texture-layout correction: operator accepted, with
   clean paired normal-build resource validation (15:42 runs below).
 - Ordinary NPC chrome: operator accepted, with clean paired resource validation
@@ -443,6 +450,48 @@ These are build evidence only, not deployed or hardware-accepted artifacts.
 
 ## Remaining implementation and acceptance
 
+### Next increment: viewmodel attachments/client events (not deployed)
+
+Branch `feat/phase7-viewmodel-events` adds engine-thread attachment transforms
+using the already evaluated viewmodel bones and delivers client Studio events
+through the actual RefAPI `pfnStudioEvent` callback. Validate array spans,
+attachment bone ownership, finite transforms, event frame ranges and terminated
+options before dispatch. A repeated view at the same client time cannot replay
+side effects; pause suppresses events and map load resets the cursor. The event
+window uses open-start/closed-end intervals, including the first frame and loop
+wrap; a long stalled frame dispatches each event at most once, not a burst of
+all missed loop repetitions. Bounded event telemetry identifies model, sequence,
+event/frame, total count and engine-thread ownership. No shader/input changes.
+
+Host tests cover window boundaries, wrap/stall, malformed spans, attachment
+rotation/translation and nonfinite output rollback; ASan/UBSan pass. This is
+not full dispatch integration or hardware acceptance. The client callback can
+create muzzleflash temp sprites, but the live AGC sprite drawing path remains
+separate unfinished work; do not claim visible muzzleflash from event delivery.
+EF_MUZZLEFLASH entity lights and other effects also remain explicitly pending.
+Next operator QA: fire several pistol rounds with R2, reload with Square,
+then switch to crowbar and attack; correlate real sequences/client events.
+
+Host suite and final native build passed; the event marker was verified in
+renderer ELF `c2a093c7e109bfb4ed4f39eca355ea23641e5660afb2d07597d1dae821c6079b`.
+Renderer PRX: `addde4294a5543c8f642c75117c45786838c9fa74cedf12cd598cead4792ffe2`.
+This candidate uses the opt-in 300-second weapon-grant build for QA. It has
+not been deployed or launched; the console retains the prior normal build.
+
+Follow-up: with operator present, exact raw-FTP verification preceded launch
+at 2026-09-09 17:11 UTC. Engine run
+`20260909T171128240Z_PPSA99996_xash3d-engine_0x15845982b81a6`
+confirms DualSense profile v5 loaded and `Spawn Server: c1a0`. Candidate
+hardware QA is now in progress; no event/visual/resource acceptance yet.
+
+Operator outcome: "se ve bien todo ok se repone etc y la palanca bien al atacar".
+This accepts the observed reload animation, magazine replenishment and crowbar
+attack. The same engine run logs pistol sequence 3 event 5001 (frame 0), and
+reload sequence 6 events 5004 at frames 4 and 23, delivered on the engine thread.
+This confirms actual client-event dispatch, not audible playback or rendered
+muzzleflash sprites. Exact attachment placement and final resource teardown
+are not established by this feedback; those checks remain open.
+
 1. Complete viewmodel events/effects and explicitly scoped projection/depth,
    reload and remaining button QA; retain accepted NPC lighting/chrome/NPOT.
 2. Add a transition-aware evidence contract without weakening single-map gates;
@@ -455,3 +504,204 @@ These are build evidence only, not deployed or hardware-accepted artifacts.
 
 The normal-only prerequisite was not separately deployed. The connected
 candidate above is the first console exercise of this work.
+
+## Live impact effects — incremental sprite candidate (2026-09-09)
+
+Operator reports missing wall bullet marks and visible blood despite correct
+damage/death animations. These are separate renderer paths: the adapter still
+inherits null `R_DecalShoot`, `CL_DrawParticles` and `CL_DrawTracers`. Do not
+interpret successful damage, reload or Studio event delivery as effects parity.
+
+First increment connects live sprite entities, including temporary blood and
+muzzleflash sprites. On the engine thread, `R_GetSpriteFrame` resolves the
+decoded frame; only its texture handle, orientation and extents enter the
+immutable frame snapshot. Worker geometry and descriptors use the existing
+retired transient slot, rolling back allocation on failure. Billboard/upright/
+oriented/rolled quads reuse existing surface shaders and texture ownership.
+Sprites are drawn after Studio and before HUD. Synchronous muzzleflash entities
+emitted during viewmodel events inherit the weapon's compressed depth range.
+This tagging does not establish attachment-follow parity across later frames.
+
+Host tests cover axes/UVs, rotation, degenerate upright sprites, nonfinite
+inputs, tint/alpha, viewmodel depth and allocation/missing-texture rollback.
+The full host suite and ASan/UBSan sprite test pass. Native compilation passes;
+the `REF_AGC_LIVE_SPRITES` marker is present in the renderer ELF. No hardware
+acceptance or deployment of this sprite increment has occurred yet.
+
+Final candidate identity: renderer ELF SHA-256
+`829f41c93226b50db4a552f8f645d4098500a8949c7a6293593bedc9d4a21868`,
+renderer PRX `6c2e6210cd5c3175a9872bbffeb239f4fd608f89ad993efd927d9ed05483fd4a`.
+Engine/SELF remain the preceding viewmodel-events QA build; only the renderer
+changed. Publication audit passes (428 allowlisted files). Await operator
+presence before deployment/launch; do not overwrite this boundary with an
+assumed hardware result.
+
+QA: retain accepted DualSense v5, fire the pistol (R2), then check NPC blood
+impacts and any rectangular opaque backgrounds; correlate sprite telemetry.
+Wall decals, particle simulation/drawing and tracers are subsequent increments,
+not included in this first QA. Sprite interpolation, follow attachments,
+glow-specific occlusion/depth policy, distance-dependent minimum scaling and
+full translucency sorting remain outside the current parity claim. No changes
+to lighting, shaders, aim or private game assets are part of this increment.
+
+## Combined sprite / particle / decal candidate — awaiting hardware
+
+The operator requested one combined launch, superseding the sprite-only QA
+sequence above. No sprite-only candidate was deployed or launched.
+
+`effect_bridge.h` now overrides the null particle/tracer/decal callbacks.
+`CL_DrawEFX(dt, true)` executes once per engine frame with a world view;
+paused frames pass zero dt. Engine-owned `CL_ThinkParticle` retains particle
+behavior/custom callbacks, while tracer integration follows the pinned GL
+implementation. Engine builtin particle texture, default dot sprite and
+palette supply geometry/color. Only copied vertices cross to the worker;
+consecutive equal texture/mode/alpha polygons share a GPU draw. The existing
+packed Studio RGB shader path supplies per-vertex colors without shader edits.
+
+Decals project onto eligible BSP surfaces and clip to the UV square/surface
+intersection. A 0.03-unit normal offset avoids coplanar depth conflict. Parent
+entity coordinates are inverted when shooting and transformed back each frame,
+so translating/rotating brush models retain attached marks. Water, sky,
+conveyor and stencil-dependent transparent surfaces are excluded. Persistent
+here means retained across frames in the current map, not permanent unlimited
+storage: a bounded 256-fragment pool replaces old non-permanent entries,
+preserving `FDECAL_PERMANENT`. Clear-map, entity-storage release and renderer
+shutdown reset it; texture removal respects permanent decals. Serialization
+exports one entry per shot, local-space flags, plane, scale and basename in
+age order. Save/load and cross-map decal restoration are **not hardware
+accepted** by these host tests.
+
+Current bounded geometry contracts: up to 32 vertices per decal polygon,
+32,768 effect vertices / 4,608 polygons per frame. Capacity drops are counted;
+GPU allocation failure rolls back the transient slot. These are effect bounds,
+not a change to the accepted texture-memory policy. Larger BSP polygons,
+Studio-model wound decals, beams, full translucent sorting and special glow
+occlusion remain outside this implementation. Blood impact sprites, blood
+particles and brush/world blood decals do not depend on Studio wound decals.
+
+Tests execute the production bridge with synthetic engine callbacks, checking
+entity translation, permanent-entry retention, bounded replacement, clear and
+serialization, once-per-frame integration, pause and hidden-particle updates.
+Separate tests cover clipping, normal offset, UV bounds, batching, packed color,
+invalid input, missing texture and allocation rollback. Both effect test
+binaries pass ASan/UBSan. Host tests do not constitute visual acceptance.
+
+Combined console QA (single launch, diagnostic weapons enabled):
+
+1. Check menu, chapter caption, world and NPC textures for regressions.
+2. R2 pistol: inspect muzzleflash, fire several spaced shots at an opaque wall,
+   then turn away/back and verify marks remain anchored without rectangles or
+   flicker. Crowbar impacts should also produce the game's configured effects.
+3. Shoot an NPC: inspect blood impact/splatter, transient motion and expiration;
+   animation/damage alone is not acceptance of these effects.
+4. Where accessible, mark a moving brush door and check the mark follows it.
+5. Leave the session running for its normal exit; inspect
+   `REF_AGC_DECAL_SHOOT`, `REF_AGC_LIVE_EFFECTS`, `REF_AGC_LIVE_SPRITES`, drops,
+   renderer errors and paired resource teardown before closing the gate.
+
+Keep current DualSense v5 unchanged. Graphics QA still has audio disabled.
+
+Final combined candidate: full `make -B all` passed, including the production
+effect-bridge test and publication audit (433 files). Native build passed;
+all three effect markers were verified in the renderer ELF. Renderer ELF
+SHA-256 `a2d882dc1e39f46ab2ee061fe63996bcf89d67dcdfed3685545507c25a193c04`,
+PRX `a550734579b1a5fcc4edad5de5050f89d9e0aca937fc8adb085552a6a8df9999`.
+Engine ELF remains `7cb95f38a88638e01dce8f981e210e4d044fad0bd851d4a69d1c27c49429b644`;
+SELF remains `d6ff88953965ac2308d5c22303659d5f764eefc26c89e0c4335498e493cecc20`.
+Five-second menu / 300-second map gate, diagnostic weapon grant enabled, audio
+disabled. **Prepared locally only: not deployed or launched, no hardware
+run ID or visual/resource acceptance yet.**
+
+Deployment/launch follow-up: operator confirmed presence. At 2026-09-09
+17:47 UTC the nine-file bundle was promoted with exact raw-FTP SHA-256
+verification after confirming no running big app. One launch was verified as
+PPSA99996, app ID 24600. Engine run
+`20260909T174713363Z_PPSA99996_xash3d-engine_0x15a3909b6b1d7`, renderer run
+`20260909T174713463Z_PPSA99996_ps5-xash3d_0x15a390fb2b7ba`.
+The engine entered c1a0 and logged the diagnostic weapon grant. Combined
+operator QA is now in progress; this is not yet visual/resource acceptance.
+
+The operator missed that session and requested a relaunch of the unchanged
+candidate at 17:54 UTC (app 32792). Runs:
+`20260909T175447407Z_PPSA99996_xash3d-engine_0x15aa2c05bc2df` and
+`20260909T175447500Z_PPSA99996_ps5-xash3d_0x15aa2c5f521cc`.
+Operator accepted visible wall marks, muzzleflash and blood, but requested
+more noticeable blood. Sampled renderer telemetry contains particles, tracers,
+sprites and decals with zero reported capacity drops. This feedback does not
+close full effects parity or replace paired resource validation.
+
+## Sprite lighting and optional enhanced blood — local candidate
+
+At operator request, eligible alpha-tested sprites now sample the unchanged
+shared `R_LightPoint` implementation on the engine thread, after view capture.
+Eligibility follows pinned `R_SpriteHasLightmap`: sprite format 3, renderamt
+above 127, normal/alpha/texture modes, no EF_FULLBRIGHT, and
+`r_sprite_lighting` enabled. Only numeric RGB crosses the frame boundary.
+The factor multiplies tint in the existing single-pass surface shader; we do
+not reproduce the legacy second framebuffer-modulation pass. This avoids
+darkening the scene behind transparent sprite pixels. No dynamic-light
+addition beyond the pinned sprite sampler, no shader or input changes.
+
+Generated `ps5_cl_tent.c` (pinned source untouched, generator fails on drift)
+registers archived `ps5_blood_amount` during temp-entity initialization.
+Requested default is 1.5: approximately 50% more droplets (integer rounding),
+and sqrt(1.5), about 22%, larger blood sprites. Value 1 restores the original
+count/size; supported interval 1..3, invalid values use 1. Droplet generation
+is bounded to 96 per impact. Lifetime, damage, hit detection, multiplayer's
+existing blood rule, violence controls and other effects remain unchanged.
+This is a presentation enhancement, not a claim that upstream was missing
+those droplets. Graphics candidate still uses diagnostic weapons/audio off.
+
+Validation pending: host sampler/tint tests, deterministic generator/drift
+tests and native build; then operator comparison of blood visibility and
+lighting. Not deployed or visually accepted yet.
+
+Local verification completed: full host suite and publication audit (435 files)
+pass; sampler and sprite tests pass ASan/UBSan. Native build passes, with
+`ps5_blood_amount` and `XASH_BLOOD_PRESENTATION` verified in the engine ELF.
+Candidate hashes: engine ELF
+`f2b3a55d0e601c887782c3ea103687073f02212c2c4f5d4464c193f09be15f8f`,
+SELF `1d6e2c3a83e9ed5e24d1cd101d29252c80c420b388198027d8592fbc50116c3b`,
+renderer ELF `72ec971185aca62c5d795649e596b71ce8b43398278a957375b0963d381deeb0`,
+renderer PRX `d7003f1c56e84cc91bcc78d7f7e7e300b8e612b42881d2fbed7ddc23c3c89386`.
+Still local only, awaiting operator presence for deployment/QA.
+
+Operator-present follow-up at 2026-09-09 18:17 UTC: exact raw-FTP verification
+and promotion completed for all nine bundle files, then one launch was
+verified as PPSA99996 / app 40984. Engine run
+`20260909T181705427Z_PPSA99996_xash3d-engine_0x15bda477abfcd`, renderer run
+`20260909T181705519Z_PPSA99996_ps5-xash3d_0x15bda4cecca71`.
+Sprite-lighting / enhanced-blood visual QA is in progress, not yet accepted.
+
+## Accepted effects checkpoint and normal restoration — 2026-09-09
+
+Operator: more splatter/presence, blood marks appearing on wall/floor,
+everything visually OK. This accepts the tested blood enhancement and sprite
+lighting alongside previously accepted muzzleflash/wall marks. The 18:17
+engine/renderer pair above passes the validator with live lightmaps, 2D, menu,
+brush and Studio requirements: 18,175 total frames / 17,957 world-view frames,
+nine resource reclaims, intact guards, nonzero framebuffer hashes, zero errors,
+all PRX unloads and both clean BYEs. GPU texture peak: 68,079,104 bytes.
+Observed effect samples report no capacity drops. These tests do not close
+beam effects, sprite glow/sorting parity, Studio wound decals, multi-map
+validation, sound, performance or the release soak.
+
+Validator accounting now correlates the separate viewmodel record rather than
+requiring it to appear in the NPC list. Anonymous temporary Studio entities
+(shell casings, server index zero) can coexist; positive entity indices must
+remain unique. Regression tests reject missing/duplicate/incoherent viewmodel
+records and duplicate persistent entities. Historical manifests are unchanged.
+
+At 18:26 UTC, after external confirmation that Xash3D was stopped, the normal
+no-grant candidate was restored via exact raw-FTP verification of all nine
+files, without relaunch. `XASH_VIEWMODEL_QA=0`, Studio A/B off, existing 180 s
+menu/map diagnostic harness and audio-off graphics configuration retained.
+This is **not** a new normal-build hardware run or a finished release package.
+Engine ELF `0c0b79677bd6dabba954305fd4f08143a6bb5d80615e9052d5f45d3a4d3c0e2e`,
+SELF `6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`.
+Renderer is unchanged from the accepted candidate (`d7003f1c…` PRX).
+DualSense v5, sprite lighting and reversible `ps5_blood_amount` default 1.5
+are retained; `ps5_blood_amount 1` restores original blood presentation.
+
+Next: transition-aware evidence and inactive-world Host_Error hardware recovery,
+then remaining Studio coverage, live game audio, HD-pack and release gates.

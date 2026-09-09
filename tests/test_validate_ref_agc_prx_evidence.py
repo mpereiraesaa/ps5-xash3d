@@ -48,6 +48,30 @@ def test_studio_validation():
         "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=10 draws=20 indices=60 pose_hash=123456789abcdef0 pose_changes=9 ownership=fence+videoout+ack lighting=unlit errors=0",
     ]
     assert validate_live_studio(valid, 10)["models"] == ["models/test.mdl"]
+    vm = "REF_AGC_VIEWMODEL schema=1 serial=10 valid=1 draws=1 vertices=2 model=models/v_test.mdl sequence=0 frame=1 depth=0..0.3 order=after-npc-before-hud"
+    with_vm = [valid[0].replace("entities=1", "entities=2"), *valid[1:], vm]
+    assert validate_live_studio(with_vm, 10)
+    # Temporary Studio entities (ejected shell casings) have no server index.
+    anonymous = [valid[0].replace("entities=1", "entities=2"),
+                 valid[1].replace("index=4", "index=0"),
+                 valid[1].replace("index=4", "index=0"), valid[2]]
+    assert validate_live_studio(anonymous, 10)
+    try:
+        validate_live_studio([m.replace("index=0", "index=4") for m in anonymous], 10)
+    except EvidenceError:
+        pass
+    else:
+        raise AssertionError("duplicate persistent entity accepted")
+    for bad in (with_vm[:-1], with_vm + [vm],
+                [m.replace("vertices=2", "vertices=999") for m in with_vm],
+                [m.replace("valid=1", "valid=0") for m in with_vm],
+                [m.replace("frame=1 ", "frame=nan ") for m in with_vm]):
+        try:
+            validate_live_studio(bad, 10)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid viewmodel accounting accepted")
     lit = [m.replace("schema=1", "schema=2").replace("lighting=unlit", "lighting=engine-bsp-dynamic") for m in valid]
     lit[0] += " normals=4 light_hash=123456789abcdef0 light_min=12 light_max=210"
     assert validate_live_studio(lit, 10)["lighting"] == "engine-bsp-dynamic"

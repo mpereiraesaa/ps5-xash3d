@@ -84,3 +84,14 @@ int PS5_StudioCaptureLighting(const ref_api_t *api, cl_entity_t *entity,
     out->valid=1;
     return 0;
 }
+
+int PS5_SpriteCaptureLighting(const ref_api_t *api,const float origin[3],float out[3])
+{
+    if(!origin||!out||sync_engine(api))return -1;
+    for(int k=0;k<3;++k)if(!isfinite(origin[k]))return -1;
+    colorVec color=R_LightPoint(origin);
+    out[0]=fminf(1,color.r/255.0f);
+    out[1]=fminf(1,color.g/255.0f);
+    out[2]=fminf(1,color.b/255.0f);
+    return 0;
+}
