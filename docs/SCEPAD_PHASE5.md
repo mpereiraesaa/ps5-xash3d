@@ -64,6 +64,10 @@ left-stick behavior are preserved. Right-stick sensitivity is now explicitly
 configured as described below. Touchpad is not assigned or cleared by this
 profile, keeping the optional QA hook available. No Remote Play is required.
 
+On older HL1 data trees whose `config.cfg` ends with `exec userconfig.cfg`
+instead, install the same bytes as `valve/userconfig.cfg`; this is the
+compatibility path used by the current PPSA99996 data tree.
+
 Profile v4 includes the v3 mapping of R2 to primary attack for all weapons (including crowbar),
 and R1 to secondary attack. Profile v4 is deployed and startup-confirmed;
 the operator accepted v5 aim feel for now and confirmed R2 crowbar attack.
