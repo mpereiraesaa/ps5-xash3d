@@ -5,6 +5,10 @@ Makefile
 NOTICE.md
 PUBLICATION_ALLOWLIST.txt
 README.md
+docs/PHASE7_TEXTURE_MEMORY_POLICY.md
+src/ref_agc_memory_budget.h
+src/ref_agc_memory_budget.c
+tests/test_ref_agc_memory_budget.c
 dev.conf.example
 docs/SCEAUDIOOUT_PHASE5.md
 docs/DIRECT_MEMORY_PHASE5.md
