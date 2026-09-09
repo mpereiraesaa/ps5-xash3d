@@ -70,6 +70,17 @@ gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
 texture_memory_probe=${XASH_TEXTURE_MEMORY_PROBE:-0}
+texture_mib=${XASH_TEXTURE_MIB:-0}
+texture_reserve_mib=${XASH_TEXTURE_RESERVE_MIB:-512}
+texture_auto_percent=${XASH_TEXTURE_AUTO_PERCENT:-10}
+for texture_setting in "$texture_mib" "$texture_reserve_mib"; do
+    [[ $texture_setting =~ ^(0|[1-9][0-9]{0,4})$ ]] || {
+        echo "Texture MiB settings must be decimal integers 0..99999" >&2; exit 2;
+    }
+done
+[[ $texture_auto_percent =~ ^([1-9]|[1-9][0-9]|100)$ ]] || {
+    echo "XASH_TEXTURE_AUTO_PERCENT must be 1..100" >&2; exit 2;
+}
 [[ $texture_memory_probe =~ ^[01]$ ]] || { echo "XASH_TEXTURE_MEMORY_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
@@ -904,6 +915,9 @@ if [[ $ref_agc_prx == 1 ]]; then
         -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
         -DPS5_REF_AGC_TEXTURE_MEMORY_PROBE=$texture_memory_probe
+        -DPS5_TEXTURE_MIB=$texture_mib
+        -DPS5_TEXTURE_RESERVE_MIB=$texture_reserve_mib
+        -DPS5_TEXTURE_AUTO_PERCENT=$texture_auto_percent
         -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
@@ -927,6 +941,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/src/ref_agc_lightmap_atlas.c"
         "$root/src/ref_agc_gpu_studio_cache.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
+        "$root/src/ref_agc_memory_budget.c"
         "$root/src/ref_agc_gpu_world_cache.c"
         "$root/src/ref_agc_gpu_world_draw.c"
         "$root/src/ref_agc_skybox.c"

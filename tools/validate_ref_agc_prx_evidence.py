@@ -19,6 +19,39 @@ from validate_engine_boot_evidence import (
 )
 
 
+def validate_texture_budget(messages: list[str], texture: dict[str, str]) -> bool:
+    budgets = [parse_fields(m) for m in messages
+               if m.startswith("REF_AGC_MEMORY_BUDGET ")]
+    if not budgets:
+        return (texture.get("arena_bytes"), texture.get("descriptors")) in (
+            ("67108864", "rgba8+bilinear"),
+            ("83886080", "rgba8+bilinear+studio-trilinear"))
+    if len(budgets) != 1:
+        return False
+    b = budgets[0]
+    try:
+        capacity, available, fixed, reserve, requested, percent, alignment, selected, heap, remaining = (
+            int(b[k]) for k in ("capacity", "available", "fixed", "reserve",
+                               "requested", "percent", "alignment", "selected",
+                               "heap", "remaining"))
+        if b.get("schema") != "1" or b.get("query_rc") != "0" or b.get("result") != "0" \
+                or b.get("available_kind") != "single-free-block" \
+                or not 0 < available <= capacity or min(fixed, reserve, requested) < 0 \
+                or alignment != 65536 or not 1 <= percent <= 100 \
+                or fixed % alignment or requested % alignment \
+                or available < fixed + reserve:
+            return False
+        eligible = available - fixed - reserve
+        expected = requested or ((eligible * percent // 100) // alignment * alignment)
+        return selected == expected and 0 < selected <= eligible \
+            and selected % alignment == 0 and heap == fixed + selected \
+            and remaining == available - heap and remaining >= reserve \
+            and int(texture["arena_bytes"]) == selected \
+            and texture.get("descriptors") == "rgba8+bilinear+studio-trilinear"
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
 def load_renderer(manifest_path: Path) -> tuple[dict[str, object], list[str], bytes]:
     manifest_path = manifest_path.resolve()
     try:
@@ -275,9 +308,7 @@ def validate_renderer(
                    for field in positive) \
                     or texture.get("descriptor_hash") in (
                         None, "0000000000000000") \
-                    or (texture.get("arena_bytes"), texture.get("descriptors")) not in (
-                        ("67108864", "rgba8+bilinear"),
-                        ("83886080", "rgba8+bilinear+studio-trilinear")) \
+                    or not validate_texture_budget(messages, texture) \
                     or texture.get("memory") != "direct" \
                     or texture.get("ownership") != \
                     "fence+videoout-before-reuse" \

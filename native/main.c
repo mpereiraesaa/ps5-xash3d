@@ -1,6 +1,7 @@
 #include "../include/ps5_agc.h"
 #include "../include/ps5_agc_driver.h"
 #include "../include/ps5_platform.h"
+#include "../src/ref_agc_memory_budget.h"
 #include "../src/gears_frame_runner.h"
 #include "../src/gears_mesh.h"
 #include "../src/gears_renderer.h"
@@ -53,6 +54,14 @@
 #define PS5_XASH3D_APP_NAME "ps5-xash3d"
 #define PS5_LIVE_CAMERA_SETTLE_NS 10000000L
 #define PS5_LIVE_CAMERA_SETTLE_TELEMETRY " live_camera_settle_ns=10000000"
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+#ifndef PS5_TEXTURE_MIB
+#define PS5_TEXTURE_MIB 0
+#define PS5_TEXTURE_RESERVE_MIB 512
+#define PS5_TEXTURE_AUTO_PERCENT 10
+#endif
+static size_t live_texture_arena_bytes;
+#endif
 #ifndef PS5_XASH_PHASE7_MENU_GATE
 #define PS5_XASH_PHASE7_MENU_GATE 0
 #endif
@@ -233,9 +242,6 @@ enum {
 #endif
     RESOURCE_HEAP_ALIGNMENT = 0x10000u,
 #ifdef PS5_REF_AGC_LIVE_PHASE7
-    /* c1a0 baseline 60,644,864 bytes + Studio mip delta 7,072,256 bytes
-     * exceeds 64 MiB. Reserve 80 MiB including headroom, within the owned pool. */
-    REF_AGC_GPU_TEXTURE_ARENA_BYTES = 80u * 1024u * 1024u,
     REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u,
     REF_AGC_GPU_STUDIO_ARENA_BYTES = 32u * 1024u * 1024u,
 #endif
@@ -711,8 +717,6 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
         add_aligned(&heap_bytes, RESOURCE_TRANSIENT_BYTES,
                     RESOURCE_HEAP_ALIGNMENT) != 0 ||
 #ifdef PS5_REF_AGC_LIVE_PHASE7
-        add_aligned(&heap_bytes, REF_AGC_GPU_TEXTURE_ARENA_BYTES,
-                    RESOURCE_HEAP_ALIGNMENT) != 0 ||
         add_aligned(&heap_bytes, REF_AGC_GPU_WORLD_ARENA_BYTES,
                     RESOURCE_HEAP_ALIGNMENT) != 0 ||
         add_aligned(&heap_bytes, REF_AGC_GPU_STUDIO_ARENA_BYTES,
@@ -738,6 +742,50 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
         return -1;
     heap_bytes = (heap_bytes + RESOURCE_HEAP_ALIGNMENT - 1u) &
                  ~(size_t)(RESOURCE_HEAP_ALIGNMENT - 1u);
+#ifdef PS5_REF_AGC_LIVE_PHASE7
+    const size_t capacity = sceKernelGetDirectMemorySize();
+    int64_t available_start = -1;
+    size_t available_bytes = 0;
+    int query_rc = -1;
+    if (capacity && capacity <= INT64_MAX)
+        query_rc = sceKernelAvailableDirectMemorySize(
+            0, (int64_t)capacity, RESOURCE_HEAP_ALIGNMENT,
+            &available_start, &available_bytes);
+    const int valid = query_rc == 0 && available_start >= 0 &&
+        (uint64_t)available_start <= capacity && available_bytes &&
+        available_bytes <= capacity - (uint64_t)available_start &&
+        (uint64_t)available_start % RESOURCE_HEAP_ALIGNMENT == 0 &&
+        available_bytes % RESOURCE_HEAP_ALIGNMENT == 0;
+    /* This single free block is a conservative available-byte lower bound,
+     * not a sum of free blocks or installed RAM. Reserve lives within it. */
+    const RefAgcMemoryObservation observation = {
+        available_bytes, available_bytes, valid
+    };
+    const RefAgcMemoryBudgetRequest request = {
+        (uint64_t)PS5_TEXTURE_MIB * 1048576u,
+        (uint64_t)PS5_TEXTURE_RESERVE_MIB * 1048576u,
+        heap_bytes, RESOURCE_HEAP_ALIGNMENT,
+        PS5_TEXTURE_AUTO_PERCENT, RESOURCE_HEAP_ALIGNMENT
+    };
+    RefAgcMemoryBudget budget;
+    const int budget_rc = ref_agc_memory_budget_plan(&observation, &request, &budget);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_MEMORY_BUDGET schema=1 available_kind=single-free-block "
+        "capacity=%llu query_rc=%d available=%llu fixed=%llu reserve=%llu "
+        "requested=%llu percent=%u alignment=%u selected=%llu heap=%llu "
+        "remaining=%llu result=%d",
+        (unsigned long long)capacity, query_rc,
+        (unsigned long long)available_bytes, (unsigned long long)heap_bytes,
+        (unsigned long long)request.reserve_bytes,
+        (unsigned long long)request.texture_bytes, request.auto_percent,
+        RESOURCE_HEAP_ALIGNMENT, (unsigned long long)budget.texture_bytes,
+        (unsigned long long)budget.heap_bytes,
+        (unsigned long long)budget.remaining_bytes, budget_rc);
+    if (budget_rc != REF_AGC_MEMORY_BUDGET_OK)
+        return -20;
+    live_texture_arena_bytes = (size_t)budget.texture_bytes;
+    heap_bytes = (size_t)budget.heap_bytes;
+#endif
     int result = allocate_direct(&resources.resource_heap,
                                  &resources.resource_heap_offset,
                                  heap_bytes, RESOURCE_HEAP_ALIGNMENT);
@@ -781,7 +829,7 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
             &resources.transient_allocation) != 0
 #ifdef PS5_REF_AGC_LIVE_PHASE7
         || ps5_resource_pool_allocate(
-            &resources.resource_pool, REF_AGC_GPU_TEXTURE_ARENA_BYTES,
+            &resources.resource_pool, live_texture_arena_bytes,
             RESOURCE_HEAP_ALIGNMENT,
             &resources.live_texture_allocation) != 0
         || ps5_resource_pool_allocate(
@@ -826,7 +874,7 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
     if (ref_agc_gpu_texture_cache_init(
             &renderer.live_texture_cache, resources.live_texture_arena,
             (uintptr_t)resources.live_texture_arena,
-            REF_AGC_GPU_TEXTURE_ARENA_BYTES,
+            live_texture_arena_bytes,
             live_texture_flush, NULL) != REF_AGC_GPU_TEXTURE_OK)
         return -4;
     if (ref_agc_gpu_world_cache_init(
@@ -5820,7 +5868,7 @@ int main(void)
                 "creates=%llu updates=%llu deletes=%llu active=%u peak=%u "
                 "resident_bytes=%llu peak_bytes=%llu source_bytes=%llu "
                 "flushes=%llu descriptor_hash=%016llx "
-                "arena_bytes=%u ownership=retired-before-reuse",
+                "arena_bytes=%llu ownership=retired-before-reuse",
                 (unsigned long long)renderer.live_frame.serial,
                 (unsigned long long)next_texture_revision,
                 (unsigned long long)texture_stats.creates,
@@ -5832,7 +5880,7 @@ int main(void)
                 (unsigned long long)texture_stats.source_bytes_copied,
                 (unsigned long long)texture_stats.flushes,
                 (unsigned long long)texture_stats.descriptor_hash,
-                REF_AGC_GPU_TEXTURE_ARENA_BYTES);
+                (unsigned long long)live_texture_arena_bytes);
             renderer.live_texture_revision = next_texture_revision;
         }
         struct live_studio_sync_context studio_sync = {
@@ -5979,7 +6027,7 @@ int main(void)
             ps5_cache_cpu_to_gpu_plan(
                 resources.resource_heap, resources.resource_heap_bytes,
                 resources.live_texture_arena,
-                REF_AGC_GPU_TEXTURE_ARENA_BYTES,
+                live_texture_arena_bytes,
                 &renderer.live_texture_cache_plan) != 0)
             park("live-texture-acquire-plan-failure");
         if (renderer.live_world_revision != 0u &&
@@ -6268,7 +6316,7 @@ int main(void)
         "REF_AGC_GPU_TEXTURE_COMPLETE revision=%llu creates=%llu "
         "updates=%llu deletes=%llu active=%u peak=%u resident_bytes=%llu "
         "peak_bytes=%llu source_bytes=%llu flushes=%llu "
-        "descriptor_hash=%016llx arena_bytes=%u descriptors=rgba8+bilinear+studio-trilinear "
+        "descriptor_hash=%016llx arena_bytes=%llu descriptors=rgba8+bilinear+studio-trilinear "
         "memory=direct ownership=fence+videoout-before-reuse errors=0",
         (unsigned long long)live_texture_stats.revision,
         (unsigned long long)live_texture_stats.creates,
@@ -6280,7 +6328,7 @@ int main(void)
         (unsigned long long)live_texture_stats.source_bytes_copied,
         (unsigned long long)live_texture_stats.flushes,
         (unsigned long long)live_texture_stats.descriptor_hash,
-        REF_AGC_GPU_TEXTURE_ARENA_BYTES);
+        (unsigned long long)live_texture_arena_bytes);
     ref_agc_gpu_texture_cache_destroy(&renderer.live_texture_cache);
     (void)ps5log_printf(PS5LOG_MARK,
         "REF_AGC_LIVE_2D_COMPLETE schema=1 frames=%llu "

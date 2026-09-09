@@ -98,3 +98,45 @@ operator movement was used. All host tests and publication audit pass.
 Next: connect configurable capacity to this measured domain, account for the
 shared heap and reserve, then validate explicit/automatic policy, exhaustion
 and partial-allocation rollback. The texture-memory gate remains open.
+
+## Configurable native allocation and 256-MiB acceptance
+
+The native live renderer now uses the planner's selected capacity throughout
+the pool allocation, texture cache, CPU-to-GPU visibility plan and telemetry.
+The old 80-MiB constant is removed. Build controls:
+
+- `XASH_TEXTURE_MIB`: explicit capacity in MiB; zero means automatic (default).
+- `XASH_TEXTURE_RESERVE_MIB`: bytes kept outside the shared renderer heap,
+  expressed in MiB (default 512).
+- `XASH_TEXTURE_AUTO_PERCENT`: automatic share of available bytes after the
+  fixed heap and reserve (default 10, range 1..100).
+
+These are configurable policy defaults, not hardware limits. Availability is
+conservatively the single returned free block; telemetry labels it explicitly
+and never calls it total free RAM. Impossible requests fail before the resource
+heap allocation. Explicit capacity is not silently reduced. Automatic mode
+still needs its own hardware acceptance, as do failure/rollback paths.
+
+The evidence validator recomputes the selected capacity, full heap size and
+remaining reserve from the new marker, checks the cache uses that capacity,
+and retains the legacy 64/80-MiB contracts only for historical runs without a
+policy marker. Tests reject missing/duplicated/newly inconsistent evidence.
+
+FW 12.02 explicit `XASH_TEXTURE_MIB=256` run:
+
+- Engine `20260909T121729417Z_PPSA99996_xash3d-engine_0x1483acb082432`
+- Renderer `20260909T121729474Z_PPSA99996_ps5-xash3d_0x1483ace78f2f1`
+- Renderer ELF `4b42338cfb9dee9be32872aefa73fbb114eed420d23a0734cde7ae28c0040b15`
+- Renderer PRX `77336e6592b3c42a57ad0cd480cf9aa3d8dc387739c6fbf9e8ed665cda5d75a3`
+- SELF unchanged from the 30-second query smoke above.
+
+Available block 12,748,587,008; fixed heap 169,541,632; reserve 536,870,912;
+requested/selected texture capacity 268,435,456; total heap 437,977,088;
+remaining block capacity 12,310,609,920 bytes. The texture working set remains
+67,717,120 bytes: capacity is not the same as texture residency.
+
+Canonical nine-file raw-hash deployment passed. The paired validator accepts
+1,999 frames, lightmaps/2D/menu/brush/Studio, nine exact reclaims and zero
+errors. Both logs end cleanly; independent post-run status confirms no BigApp
+and all four services healthy. Host tests pass. This closes the explicit-size
+regression only, not the entire memory-policy gate or five-task goal.
