@@ -57,6 +57,9 @@ def main() -> None:
     ref_agc_gpu_world_draw = (
         ROOT / "src/ref_agc_gpu_world_draw.c"
     ).read_text(encoding="utf-8")
+    ref_agc_live_2d = (
+        ROOT / "src/ref_agc_live_2d.c"
+    ).read_text(encoding="utf-8")
     ref_agc_world_store = (
         ROOT / "src/ref_agc_world_store.c"
     ).read_text(encoding="utf-8")
@@ -272,6 +275,7 @@ def main() -> None:
         "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
         "src/ref_agc_gpu_texture_cache.c",
         "src/ref_agc_gpu_world_cache.c", "src/ref_agc_gpu_world_draw.c",
+        "src/ref_agc_live_2d.c",
         "src/ref_agc_texture_store.c",
         "src/ref_agc_world_store.c",
     ):
@@ -288,6 +292,9 @@ def main() -> None:
         "live-texture-arena-retirement-failure",
         "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u",
         "REF_AGC_LIVE_WORLD_SYNC", "REF_AGC_GPU_WORLD_COMPLETE",
+        "REF_AGC_LIVE_2D_FRAME", "REF_AGC_LIVE_2D_COMPLETE",
+        "ref_agc_live_2d_frame_build", "ref_agc_live_2d_compose_batch",
+        "RESOURCE_TRANSIENT_BYTES = 0x200000u",
         "REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u",
         "live_reclaimed != 8u",
         "#define PS5_BSP_FINAL_WINDOW(index) 0",
@@ -325,9 +332,21 @@ def main() -> None:
         "PS5_RefAgcVisitTextures",
         "Mod_ProcessRenderData = RefAgcProcessRenderData",
         "PS5_RefAgcVisitWorld",
+        "Color4f = RefAgcColor4f", "Color4ub = RefAgcColor4ub",
+        "memcpy( command.color, ref_agc_draw_color",
     ):
         if item not in ref_agc_module:
             raise SystemExit(f"Phase 7 texture callback contract missing: {item}")
+    for item in (
+        "REF_AGC_LIVE_2D_TEXTURE_UNRESOLVED",
+        "ref_agc_gpu_texture_cache_get", "ps5_transient_table_allocate",
+        "i < live->command_2d_count",
+    ):
+        if item not in ref_agc_live_2d:
+            raise SystemExit(f"Phase 7 live 2D contract missing: {item}")
+    for item in ("order=source-exact", "ownership=fence+videoout"):
+        if item not in source:
+            raise SystemExit(f"Phase 7 live 2D telemetry missing: {item}")
     for item in (
         "REF_AGC_TEXTURE_MAX", "ref_agc_texture_store_upsert",
         "ref_agc_texture_store_visit_changed", "content_hash",

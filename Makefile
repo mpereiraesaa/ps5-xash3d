@@ -92,6 +92,7 @@ $(eval $(call test_rule,test_bsp_texture_accounting,tests/test_bsp_texture_accou
 $(eval $(call test_rule,test_goldsrc_render_state,tests/test_goldsrc_render_state.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_state_matrix,tests/test_goldsrc_state_matrix.c src/goldsrc_state_matrix.c src/goldsrc_render_state.c,))
 $(eval $(call test_rule,test_goldsrc_2d,tests/test_goldsrc_2d.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,))
+$(eval $(call test_rule,test_ref_agc_live_2d,tests/test_ref_agc_live_2d.c src/ref_agc_live_2d.c src/ref_agc_gpu_texture_cache.c src/goldsrc_2d.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc))
 $(eval $(call test_rule,test_goldsrc_lightmap_lighting,tests/test_goldsrc_lightmap_lighting.c src/goldsrc_lightmap_lighting.c src/bsp_dynamic_lightmap.c src/ps5_transient_ring.c,-lm))
 $(eval $(call test_rule,test_goldsrc_sprite_particles,tests/test_goldsrc_sprite_particles.c src/goldsrc_sprite_particles.c src/bsp_flat_scene.c src/bsp_texture_descriptor.c src/bsp_bundle.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-lm))
 $(eval $(call test_rule,test_goldsrc_studio_bundle,tests/test_goldsrc_studio_bundle.c src/goldsrc_studio_bundle.c,))
@@ -132,7 +133,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_transient_table test_bsp_resource_frame test_bsp_resource_draw \
 	test_bsp_dynamic_lightmap test_bsp_alpha_test test_bsp_sky \
 	test_bsp_texture_accounting test_goldsrc_render_state \
-	test_goldsrc_state_matrix test_goldsrc_2d \
+	test_goldsrc_state_matrix test_goldsrc_2d test_ref_agc_live_2d \
 	test_goldsrc_lightmap_lighting test_goldsrc_sprite_particles \
 	test_goldsrc_studio_bundle test_goldsrc_studio_model \
 	test_goldsrc_brush_entities test_goldsrc_visibility \

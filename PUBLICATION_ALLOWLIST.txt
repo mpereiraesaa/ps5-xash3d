@@ -97,6 +97,8 @@ src/gears_rt_clear.c
 src/gears_rt_clear.h
 src/ref_agc_live_frame.c
 src/ref_agc_live_frame.h
+src/ref_agc_live_2d.c
+src/ref_agc_live_2d.h
 src/ref_agc_skybox.c
 src/ref_agc_skybox.h
 src/ref_agc_lightmap_atlas.c
@@ -251,6 +253,7 @@ tests/test_mem_ps5.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
+tests/test_ref_agc_live_2d.c
 tests/test_ref_agc_skybox.c
 tests/test_ref_agc_lightmap_atlas.c
 tests/test_ref_agc_gpu_texture_cache.c

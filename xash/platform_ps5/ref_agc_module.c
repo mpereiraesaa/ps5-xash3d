@@ -87,6 +87,7 @@ static int ref_agc_textures_initialized;
 static RefAgcWorldStore ref_agc_world;
 static int ref_agc_world_initialized;
 static poolhandle_t ref_agc_storage_pool;
+static uint8_t ref_agc_draw_color[4] = { 255u, 255u, 255u, 255u };
 
 static void *RefAgcStorageAlloc(size_t bytes, void *unused)
 {
@@ -583,6 +584,7 @@ static qboolean RefAgcInit(void)
 	const RefAgcWorldAllocator world_allocator = {
 		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
 	unsigned attempt;
+	memset( ref_agc_draw_color, 255, sizeof(ref_agc_draw_color) );
 	if( ref_agc_thread_created )
 		return ref_agc_runtime_state == REF_AGC_READY ||
 			ref_agc_runtime_state == REF_AGC_COMPLETE;
@@ -1069,16 +1071,38 @@ static void RefAgcSet2DMode(qboolean enable)
 	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
 }
 
+static void RefAgcColor4f(float r, float g, float b, float a)
+{
+	const float values[4] = { r, g, b, a };
+	for( unsigned channel = 0u; channel < 4u; ++channel )
+	{
+		float value = values[channel];
+		if( value < 0.0f ) value = 0.0f;
+		if( value > 1.0f ) value = 1.0f;
+		ref_agc_draw_color[channel] = (uint8_t)(value * 255.0f + 0.5f);
+	}
+}
+
+static void RefAgcColor4ub(unsigned char r, unsigned char g,
+	unsigned char b, unsigned char a)
+{
+	ref_agc_draw_color[0] = r;
+	ref_agc_draw_color[1] = g;
+	ref_agc_draw_color[2] = b;
+	ref_agc_draw_color[3] = a;
+}
+
 static void RefAgcDrawStretchPic(float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2, int texture)
 {
 	RefAgcLive2DCommand command;
 	memset( &command, 0, sizeof(command) );
 	command.type = REF_AGC_LIVE_2D_STRETCH_PIC;
+	command.render_mode = kRenderTransTexture;
 	command.texture = texture;
 	command.x = x; command.y = y; command.width = w; command.height = h;
 	command.s1 = s1; command.t1 = t1; command.s2 = s2; command.t2 = t2;
-	memset( command.color, 255, sizeof(command.color) );
+	memcpy( command.color, ref_agc_draw_color, sizeof(command.color) );
 	(void)ref_agc_live_add_2d( &ref_agc_live, &command );
 }
 
@@ -1181,6 +1205,8 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_Set2DMode = RefAgcSet2DMode;
 	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
 	funcs->FillRGBA = RefAgcFillRGBA;
+	funcs->Color4f = RefAgcColor4f;
+	funcs->Color4ub = RefAgcColor4ub;
 	funcs->R_GetTextureOriginalBuffer = RefAgcTextureData;
 	funcs->GL_LoadTextureFromBuffer = RefAgcLoadTextureFromBuffer;
 	funcs->RefGetParm = RefAgcGetParm;
