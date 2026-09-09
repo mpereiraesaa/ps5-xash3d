@@ -113,7 +113,7 @@ and moderately larger sprites); set it to 1 for original presentation. It does
 not change damage or give weapons. The normal no-grant build was restored
 without relaunch; graphics QA audio remains disabled.
 
-## DualSense rumble (new, hardware validation pending)
+## DualSense rumble (hardware accepted, 2026-09-09)
 
 The platform backend now owns the DualSense output lifecycle alongside the
 input handle. It uses the clean-room two-byte `ps5_pad_vibration` record
@@ -127,11 +127,14 @@ requests a 55 ms asymmetric shot pulse (`180/235`); callers can also use
 `XASH_PAD_HAPTIC_SUMMARY` make every request and return code auditable.
 
 Host coverage is in `tests/test_in_ps5.c` and the record layout is pinned by
-`tests/test_ps5_platform_abi.c`. The two imported symbols
-`scePadSetVibrationMode` and `scePadSetVibration` are intentionally not yet
-promoted in `ps5_import_evidence.json`: the next hardware run must confirm the
-mode call, feel the R2 pulse in-game, observe automatic expiry, and verify a
-zero-strength packet plus clean pad close. This is ordinary motor rumble; true
+`tests/test_ps5_platform_abi.c`. Run
+`20260909T211522409Z_PPSA99996_xash3d-engine_0x16594d482e533` on FW 12.02
+resolved both imports with `scePadSetVibrationMode(..., 2) rc=0`; the operator
+felt the short R2 shot pulse, and the transcript contains repeated automatic
+expiry markers. The symbols are therefore promoted in `ps5_import_evidence.json`.
+The supervisor close was external (so this run has no final PAD_SUMMARY); the
+neutral-on-expiry path and exact neutral-on-shutdown behavior remain covered by
+the host test and code review. This is ordinary motor rumble; true
 adaptive-trigger effects require a separate ABI investigation.
 
 Historical profile v1 was installed on PPSA99996 on 2026-09-09 with owner approval. Local and FTP

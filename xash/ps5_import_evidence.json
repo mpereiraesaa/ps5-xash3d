@@ -32,6 +32,8 @@
     "scePadInit": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",
     "scePadOpen": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",
     "scePadRead": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",
+    "scePadSetVibration": "Run 20260909T211522409Z_PPSA99996_xash3d-engine_0x16594d482e533 (mode=2 rc=0; operator-confirmed R2 pulse; expiry markers)",
+    "scePadSetVibrationMode": "Run 20260909T211522409Z_PPSA99996_xash3d-engine_0x16594d482e533 (mode=2 rc=0; operator-confirmed R2 pulse; expiry markers)",
     "sceUserServiceGetForegroundUser": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",
     "sceUserServiceInitialize": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",
     "sceUserServiceTerminate": "Run 20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e",

@@ -23,6 +23,15 @@ adapter owned by the Xash3D port; no vendor header is included.
 #include <string.h>
 #include <time.h>
 
+/* The PS5 SDK exposes clock_gettime through its libc headers, while strict
+ * host C11 headers may hide the POSIX declaration.  Keep the clean-room
+ * declaration local instead of changing feature macros seen by Xash headers
+ * (which would hide their strlcpy/strcasecmp compatibility declarations). */
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+extern int clock_gettime( int clock_id, struct timespec *tp );
+#endif
+
 #ifndef PS5_XASH_MODE_CLIENT
 #define PS5_XASH_MODE_CLIENT 0
 #endif
