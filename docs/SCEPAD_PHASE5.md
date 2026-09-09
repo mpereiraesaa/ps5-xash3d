@@ -1,5 +1,26 @@
 # ScePad input — Phase 5
 
+## Opt-in Studio coverage QA (local candidate, not release mapping)
+
+`XASH_STUDIO_COVERAGE_QA=1` enables a temporary touchpad-click cycle, starting
+at mode 0 each launch. It requires a complete MainUI/ref_agc stack and at least
+300 map-relative seconds; it excludes the wall/lighting/HUD/recovery and weapon
+grant probes. All other DualSense v5 controls stay unchanged. The cvar is not
+archived and normal builds do not intercept the touchpad for this test.
+
+| Click mode | What to observe |
+| --- | --- |
+| 0 — Normal | Natural pose transitions and accepted lighting/chrome. |
+| 1 — Linear controller | Deliberate slow sweep of model controller ranges; mouth remains natural. |
+| 2 — Circular controller | Forced wrap from byte 248 to 8 for rotation controls; it should take the short arc, not a full turn. |
+| 3 — 2 blends | First actual two-blend sequence in each visible model, with swept blending. Unsupported models remain unchanged and report `supported=0`. |
+| 4 — 4 blends | Same for a four-blend sequence; unchanged output is NOT proof if no such sequence exists. |
+| 5 — Glowshell | Normal NPC body plus an expanded blue/cyan shell; moving highlight, no persistent state leak after returning to 0. |
+
+Click again after 5 to return to 0. Stay in `c1a0`; approach NPCs and observe
+several angles. Deliberately forced head/pose movement in modes 1–4 is not
+normal gameplay animation. This candidate has not yet been hardware accepted.
+
 This gate adds the native DualSense input backend to the stable dedicated
 Xash3D host. It proves the PS5 platform layer independently of the Phase 6
 client/menu/renderer integration: the gate records canonical Xash events now,

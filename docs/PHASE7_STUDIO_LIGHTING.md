@@ -570,7 +570,7 @@ profile change. It is not yet deployed; no new hardware result is claimed.
 | --- | --- |
 | Controller and 2/4-way blend interpolation | Natural NPC regression accepted below, including sampled controller changes. Forced wrap and 2/4-way cases still need explicit coverage. |
 | Previous-sequence crossfade | Local candidate below implements the reference 0.2-second blend. Hardware acceptance pending; separate from accepted STEP movement. |
-| Forced glowshell / other render effects | Ordinary chrome is accepted; shell expansion/pass state and forced effects are not. |
+| Forced glowshell / other render effects | Local two-pass shell candidate below; ordinary chrome remains accepted, shell hardware acceptance is pending. Other forced render effects remain separate. |
 | Custom viewmodel FOV/handedness | Normal pistol/crowbar path accepted; overrides remain unproven. |
 | Other effect parity | Entity muzzleflash dynamic light, beams, glow/sorting/follow details and Studio wound decals remain outside accepted impact effects. |
 
@@ -602,6 +602,9 @@ PR/merge and the lab plan update have not yet been performed for this increment.
 
 #### Previous-sequence crossfade candidate — not deployed
 
+The following sequence candidate is now included in the combined QA build
+described below; it has not had a separate hardware launch.
+
 The adapter now evaluates the latched previous sequence at its frozen
 `prevframe`, uses its own `prevseqblending` for 2/4-way poses and blends it
 with the current pose over the reference 0.2-second interval. Current and
@@ -629,6 +632,51 @@ Engine SELF remains the normal `6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad47
 No deployment or launch yet; the console retains the accepted controller-only
 candidate. Natural sequence-change QA and paired resource closure are next.
 Forced blend/wrap cases, glowshell and broader Studio parity remain open.
+
+#### Combined Studio coverage candidate — not deployed
+
+The next single QA build combines sequence crossfade, forced controller/blend
+modes and glowshell. `XASH_STUDIO_COVERAGE_QA=1` is off by default, requires
+the complete MainUI/ref_agc stack and at least 300 map-relative seconds, and
+rejects conflicting diagnostics. Touchpad mode 0/1/2/3/4/5 cycles through
+normal, linear controller, circular wrap, actual 2-blend sequence, actual
+4-blend sequence and glowshell. See `SCEPAD_PHASE5.md` for operator guidance.
+Modes 3/4 select only valid existing sequences and explicitly log unsupported
+models; no sequence count or animation allocation is fabricated. Host tests
+already force 2/4-way routing, but absence of matching console assets remains
+an explicit hardware coverage gap. Forced entity state is a local copy, never
+a server-state or on-disk model edit. Cvars are not archived; restart resets 0.
+
+Glowshell adds a second draw pass after each normal Studio entity. Shared
+world-space face normals, accumulated across submodel meshes and normalized,
+expand vertices by `max(1, renderamt)/128`; first-referenced normal indices
+stabilize chrome mapping across shared vertices. The engine owner captures the
+default chrome sprite handle before publication. The second pass has its own
+transient vertices/constants/texture tables, rotating chrome origin using
+`r_glowshellfreq`, additive draw flags, full alpha and rendercolor (white when
+all channels are zero). Normal texture/lighting remain in the first pass.
+No shader change or retained engine pointer crosses the frame boundary.
+
+Host tests verify a normal-plus-shell pair, additive routing, half-unit
+expansion at amount 64, packed tint, invalid texture/nonfinite rollback and
+the existing normal/chrome/viewmodel paths. ASan/UBSan pass for the live Studio
+geometry tests. `REF_AGC_STUDIO_SHELL` reports bounded shell draw/vertex counts
+and texture identity; `REF_AGC_STUDIO_BLEND_QA` reports selected/unsupported
+sequences. Controller samples identify diagnostic mode; their current/previous
+bytes describe raw entity input, not the forced scalar override in modes 1/2.
+
+Hardware acceptance, all-mode observation and paired resource closure remain
+pending. This is not full glow/sorting parity or a release configuration.
+The console still has the accepted controller-only candidate; no combined
+build has been deployed or launched yet.
+
+Final combined candidate: full host suite, native build, publication audit and
+live Studio ASan/UBSan pass. All mode/crossfade/shell markers were verified in
+the actual ELF outputs. Diagnostic engine ELF SHA-256:
+`f769cb704533711d9612a997b6dffc055ab6f46b4ec178ee4394b7e72afa002a`;
+SELF `5b107c76ed3edfd7d8781f0b4e6a7b861b24440ff65e0d14e65b297073bf0f0e`;
+renderer PRX `1ba4540065cd3ecaa16bca5e74b3f90791be1004e9184f14c41c028b3e480ce1`.
+This five-minute build is diagnostic-only and still awaits operator QA.
 
 ### Earlier viewmodel-event implementation record (historical)
 

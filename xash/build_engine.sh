@@ -72,6 +72,9 @@ recovery_gate=${XASH_RECOVERY_GATE:-0}
 [[ $recovery_gate =~ ^[01]$ ]] || { echo "XASH_RECOVERY_GATE must be 0 or 1" >&2; exit 2; }
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
 studio_ab=${XASH_STUDIO_AB:-0}
+studio_coverage_qa=${XASH_STUDIO_COVERAGE_QA:-0}
+[[ $studio_coverage_qa =~ ^[01]$ ]] || { echo "XASH_STUDIO_COVERAGE_QA must be 0 or 1" >&2; exit 2; }
+[[ $studio_coverage_qa != 1 || ( $studio_ab == 0 && $sampling_probe == 0 && $recovery_gate == 0 ) ]] || { echo "Studio coverage QA conflicts with other diagnostics" >&2; exit 2; }
 viewmodel_qa=${XASH_VIEWMODEL_QA:-0}
 [[ $viewmodel_qa =~ ^[01]$ ]] || { echo "XASH_VIEWMODEL_QA must be 0 or 1" >&2; exit 2; }
 [[ $studio_ab =~ ^[01]$ ]] || { echo "XASH_STUDIO_AB must be 0 or 1" >&2; exit 2; }
@@ -177,6 +180,10 @@ ld_reloc=${LD_RELOCATABLE:-$(command -v ld.lld-18 || command -v ld.bfd || comman
 
 [[ $boot_map =~ ^[A-Za-z0-9_]+$ ]] || { echo "XASH_BOOT_MAP must be a map name" >&2; exit 2; }
 [[ $gate_seconds =~ ^[0-9]+$ ]] || { echo "XASH_GATE_SECONDS must be an integer" >&2; exit 2; }
+if [[ $studio_coverage_qa == 1 && ( $phase7_menu_gate != 1 || $gate_from_map != 1 || $gate_seconds -lt 300 || $hud_probe != 0 || $viewmodel_qa != 0 ) ]]; then
+    echo "Studio coverage QA requires MainUI/ref_agc, map-relative >=300s, no HUD or weapon-grant probe" >&2
+    exit 2
+fi
 if [[ $recovery_gate == 1 && ( $phase7_menu_gate != 1 || $gate_from_map != 1 || $gate_seconds -lt 90 || $viewmodel_qa != 0 || $hud_probe != 0 || $studio_ab != 0 || $sampling_probe != 0 ) ]]; then
     echo "XASH_RECOVERY_GATE requires MainUI/ref_agc, map-relative >=90s and no other visual diagnostic" >&2
     exit 2
@@ -278,6 +285,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_RECOVERY_GATE $recovery_gate
 #define PS5_XASH_SAMPLING_PROBE $sampling_probe
 #define PS5_XASH_STUDIO_AB $studio_ab
+#define PS5_XASH_STUDIO_COVERAGE_QA $studio_coverage_qa
 #define PS5_XASH_VIEWMODEL_QA $viewmodel_qa
 #define PS5_XASH_HUD_PROBE $hud_probe
 #define PS5_XASH_TITLE_ID "$title_id"
@@ -963,6 +971,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         -DPS5_TEXTURE_RESERVE_MIB=$texture_reserve_mib
         -DPS5_TEXTURE_AUTO_PERCENT=$texture_auto_percent
         -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
+        -DPS5_REF_AGC_STUDIO_COVERAGE_QA=$studio_coverage_qa
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
         -DPS5_GOLDSRC_PHASE4=1

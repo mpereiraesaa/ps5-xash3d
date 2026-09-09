@@ -70,7 +70,8 @@ def main() -> None:
     if "PS5_StudioCaptureLighting(" in pose_capture:
         raise SystemExit("Studio pose capture precedes current view flags; defer lighting")
     assert "ps5_studio_controller_fraction(client->time" in pose_capture
-    assert "entity->latched.prevcontroller[k], controller_lerp" in pose_capture
+    assert "previous=entity->latched.prevcontroller[k]" in pose_capture
+    assert "ps5_studio_controller(current,previous, controller_lerp" in pose_capture
     assert "entity->latched.prevblending[0], controller_lerp" in pose_capture
     assert "entity->latched.prevblending[1], controller_lerp" in pose_capture
     assert "REF_AGC_STUDIO_CONTROLLERS schema=1" in pose_capture
@@ -79,6 +80,11 @@ def main() -> None:
     assert "if( !crossfade ) entity->latched.prevframe = frame" in pose_capture
     assert pose_capture.index("if( !isfinite(pose->matrices") < pose_capture.index("entity->latched.prevframe = frame")
     assert "REF_AGC_STUDIO_CROSSFADE schema=1" in pose_capture
+    assert "_Static_assert(kRenderFxGlowShell==19" in ref_agc_module
+    assert "REF_CHROME_SPRITE" in end_frame
+    assert end_frame.index("studio_shell_texture=frame->gl_texturenum") < end_frame.index("ref_agc_live_publish(")
+    assert "diagnostic=*entity; entity=&diagnostic" in ref_agc_module
+    assert "selected=%d supported=%d" in ref_agc_module
     if "funcs->CL_RunLightStyles = RefAgcRunLightStyles" not in ref_agc_module:
         raise SystemExit("Studio shared lightstyles callback missing")
     filesystem_prx_module = (

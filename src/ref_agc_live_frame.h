@@ -135,6 +135,8 @@ typedef struct RefAgcLive2DCommand {
 } RefAgcLive2DCommand;
 
 typedef struct RefAgcLiveFrame {
+    uint32_t studio_shell_texture;
+    float studio_shell_frequency;
     uint16_t studio_light_gamma[1024];
     uint64_t serial;
     uint64_t map_serial;

@@ -724,6 +724,11 @@ static qboolean RefAgcInit(void)
 	const RefAgcStudioAllocator studio_allocator = {
 		RefAgcStorageAlloc, RefAgcStorageFree, NULL };
 	unsigned attempt;
+#if PS5_REF_AGC_STUDIO_COVERAGE_QA
+	if(!ref_agc_engine.Cvar_Get || !ref_agc_engine.Cvar_SetValue ||
+		!ref_agc_engine.Cvar_Get("r_agc_studio_coverage","0",0,"Opt-in Studio coverage QA")) return false;
+	ref_agc_engine.Cvar_SetValue("r_agc_studio_coverage",0);
+#endif
 #if PS5_REF_AGC_STUDIO_AB
 	if(!ref_agc_engine.Cvar_Get || !ref_agc_engine.Cvar_SetValue ||
 		!ref_agc_engine.Cvar_Get("r_agc_studio_unlit", "0", 0, "Studio CPU-only A/B")) return false;
@@ -1426,6 +1431,24 @@ static void RefAgcEndFrame(void)
 {
 	int wait_result;
 	uint64_t view_hash;
+	if(!ref_agc_live_initialized) return;
+	ref_agc_live.building.studio_shell_texture=0;
+	ref_agc_live.building.studio_shell_frequency=2.2f;
+	_Static_assert(kRenderFxGlowShell==19,"live glowshell ABI");
+	for(uint32_t i=0;i<ref_agc_live.building.entity_count+ref_agc_live.building.viewmodel_valid;++i) {
+		const RefAgcLiveEntity *shell_entity=i==ref_agc_live.building.entity_count ?
+			&ref_agc_live.building.viewmodel : &ref_agc_live.building.entities[i];
+		if(shell_entity->render_fx!=kRenderFxGlowShell) continue;
+		model_t *sprite=ref_agc_engine.GetDefaultSprite ? ref_agc_engine.GetDefaultSprite(REF_CHROME_SPRITE) : NULL;
+		const mspriteframe_t *frame=sprite && ref_agc_engine.R_GetSpriteFrame ? ref_agc_engine.R_GetSpriteFrame(sprite,0,0) : NULL;
+		if(!frame || frame->gl_texturenum<=0) {
+			ref_agc_engine.Host_Error("ref_agc: glowshell sprite unavailable"); return;
+		}
+		ref_agc_live.building.studio_shell_texture=frame->gl_texturenum;
+		if(ref_agc_engine.pfnGetCvarFloat)
+			ref_agc_live.building.studio_shell_frequency=ref_agc_engine.pfnGetCvarFloat("r_glowshellfreq");
+		break;
+	}
 	++ref_agc_end_calls;
 	/* R_AddEntity may precede GL_RenderFrame. Only now is this frame's
 	 * RF_DRAW_WORLD known; sampling at pose capture would select fullbright. */
@@ -1609,8 +1632,13 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	if( !isfinite(frame) ) return -4;
 	frame = bound(0.0f, frame, (float)(seq->numframes - 1));
 	float adj[MAXSTUDIOCONTROLLERS] = {0};
-	const float controller_lerp = ps5_studio_controller_fraction(client->time,
+	float controller_lerp = ps5_studio_controller_fraction(client->time,
 		entity->curstate.animtime, entity->latched.prevanimtime, 1);
+	int coverage_mode=0;
+#if PS5_REF_AGC_STUDIO_COVERAGE_QA
+	coverage_mode=(int)ref_agc_engine.pfnGetCvarFloat("r_agc_studio_coverage");
+	if(coverage_mode==1 || coverage_mode==2) controller_lerp=0.5f-0.5f*cosf((float)client->time*2);
+#endif
 	if( !isfinite(controller_lerp) ) return -4;
 	if( h->numbonecontrollers < 0 || h->numbonecontrollers > MAXSTUDIOCONTROLLERS ||
 		h->bonecontrollerindex < 0 || (size_t)h->bonecontrollerindex +
@@ -1623,9 +1651,12 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 			float t = bound(0.0f, entity->mouth.mouthopen / 64.0f, 1.0f);
 			value = controls[i].start + t * (controls[i].end - controls[i].start);
 		} else if( k >= 0 && k < 4 ) {
-			value = ps5_studio_controller(entity->curstate.controller[k],
-				entity->latched.prevcontroller[k], controller_lerp,
-				controls[i].start, controls[i].end, controls[i].type & STUDIO_RLOOP);
+			uint8_t current=entity->curstate.controller[k],previous=entity->latched.prevcontroller[k];
+			if(coverage_mode==1) { current=255;previous=0; }
+			int force_wrap=coverage_mode==2 && (controls[i].type & (STUDIO_XR|STUDIO_YR|STUDIO_ZR));
+			if(force_wrap) { current=8;previous=248; }
+			value = ps5_studio_controller(current,previous, controller_lerp,
+				controls[i].start, controls[i].end, force_wrap || (controls[i].type & STUDIO_RLOOP));
 		} else return -6;
 		if( !isfinite(value) ) return -6;
 		adj[i] = controls[i].type & (STUDIO_XR|STUDIO_YR|STUDIO_ZR) ? DEG2RAD(value) : value;
@@ -1680,7 +1711,7 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	if( (h->numbonecontrollers || seq->numblends > 1) &&
 		(ref_agc_scene_calls < 3u || ref_agc_scene_calls % 600u == 0u) && ref_agc_engine.Con_Printf )
 		ref_agc_engine.Con_Printf(
-			"REF_AGC_STUDIO_CONTROLLERS schema=1 entity=%d sequence=%d controllers=%d blends=%d fraction=%.6f current=%u,%u,%u,%u previous=%u,%u,%u,%u blend=%.6f,%.6f owner=engine-thread\n",
+			"REF_AGC_STUDIO_CONTROLLERS schema=1 entity=%d sequence=%d controllers=%d blends=%d fraction=%.6f current=%u,%u,%u,%u previous=%u,%u,%u,%u blend=%.6f,%.6f diagnostic_mode=%d owner=engine-thread\n",
 			entity->index, live->sequence, h->numbonecontrollers, seq->numblends,
 			(double)controller_lerp,
 			(unsigned)entity->curstate.controller[0], (unsigned)entity->curstate.controller[1],
@@ -1688,7 +1719,7 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 			(unsigned)entity->latched.prevcontroller[0], (unsigned)entity->latched.prevcontroller[1],
 			(unsigned)entity->latched.prevcontroller[2], (unsigned)entity->latched.prevcontroller[3],
 			(double)ps5_studio_blend(entity->curstate.blending[0],entity->latched.prevblending[0],controller_lerp),
-			(double)ps5_studio_blend(entity->curstate.blending[1],entity->latched.prevblending[1],controller_lerp));
+			(double)ps5_studio_blend(entity->curstate.blending[1],entity->latched.prevblending[1],controller_lerp),coverage_mode);
 	ref_agc_studio_light_entities[f->studio_pose_count]=*entity;
 	live->studio_pose = ++f->studio_pose_count;
 	return 0;
@@ -1699,6 +1730,36 @@ static qboolean RefAgcAddEntity(struct cl_entity_s *entity, int type)
 	RefAgcLiveEntity live;
 	if( !entity )
 		return false;
+#if PS5_REF_AGC_STUDIO_COVERAGE_QA
+	cl_entity_t diagnostic;
+	if(entity->model && entity->model->type==mod_studio) {
+		int mode=(int)ref_agc_engine.pfnGetCvarFloat("r_agc_studio_coverage");
+		if(mode>=3 && mode<=5) {
+			diagnostic=*entity; entity=&diagnostic;
+			if(mode==5) {
+				entity->curstate.renderfx=kRenderFxGlowShell;
+				entity->curstate.renderamt=64;
+				entity->curstate.rendercolor.r=64;entity->curstate.rendercolor.g=160;entity->curstate.rendercolor.b=255;
+			} else {
+				studiohdr_t *h=entity->model->cache.data; int selected=-1;
+				if(h && h->numseq>0 && h->seqindex>=0 &&
+					(size_t)h->seqindex+(size_t)h->numseq*sizeof(mstudioseqdesc_t)<=(size_t)h->length) {
+					mstudioseqdesc_t *seq=(void *)((byte *)h+h->seqindex);
+					for(int i=0;i<h->numseq;++i) if(seq[i].numblends==(mode==3?2:4)) {selected=i;break;}
+				}
+				if(selected>=0) {
+					const ref_client_t *client=(void *)ref_agc_engine.EngineGetParm(PARM_GET_CLIENT_PTR,0);
+					if(client) {
+						entity->curstate.sequence=selected;entity->latched.sequencetime=0;
+						for(int k=0;k<2;++k) entity->curstate.blending[k]=entity->latched.prevblending[k]=(byte)(127.5f+127.5f*sinf((float)client->time*(k?0.7f:1.1f)));
+					}
+				}
+				if(ref_agc_scene_calls%120u==0u && ref_agc_engine.Con_Printf)
+					ref_agc_engine.Con_Printf("REF_AGC_STUDIO_BLEND_QA schema=1 mode=%d entity=%d selected=%d supported=%d\n",mode,entity->index,selected,selected>=0);
+			}
+		}
+	}
+#endif
 	memset( &live, 0, sizeof(live) );
 	live.index = entity->index;
 	live.entity_type = type;

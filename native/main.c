@@ -2676,6 +2676,9 @@ static int frame_compose(const GearsAnimationFrame *frame, void *opaque)
         state->live_studio_pose_hash = studio->pose_hash;
         if (state->live_studio_draw_frames == 1 || frame->frame_index % 600 == 0) {
             (void)ps5log_printf(PS5LOG_MARK,
+                "REF_AGC_STUDIO_SHELL schema=1 serial=%llu draws=%u vertices=%u texture=%u passes=base-then-shell ownership=transient-slot",
+                (unsigned long long)state->live_frame.serial,studio->shell_draws,studio->shell_vertices,state->live_frame.studio_shell_texture);
+            (void)ps5log_printf(PS5LOG_MARK,
                 "REF_AGC_VIEWMODEL schema=1 serial=%llu valid=%u draws=%u vertices=%u model=%s sequence=%d frame=%.3f depth=0..0.3 order=after-npc-before-hud",
                 (unsigned long long)state->live_frame.serial,state->live_frame.viewmodel_valid,
                 studio->viewmodel_draws,studio->viewmodel_vertices,state->live_frame.viewmodel.model_name,
