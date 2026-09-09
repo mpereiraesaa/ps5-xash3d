@@ -192,7 +192,34 @@ before the background clear and after every native base-pipeline bind. It
 does not alter depth/cull or the HUD's requested blend modes. Host regression
 tests verify the register source, preservation of prior HUD state tables and
 both native reset call sites. The upcoming native validation build disables
-the diagnostic trace. Do not claim the visual flash fixed until operator QA.
+the diagnostic trace.
+
+Operator QA after the correction: "si todo ok ya esta resuelto". This accepts
+the chapter title without a black background and its disappearance without
+the white-scene flash. Corrected renderer ELF SHA-256:
+`72b77e924283b3f9c5452ec63d63593a570fc90895e715e33d8e6073f3e6ab5a`;
+PRX SHA-256:
+`1037c7fc64a0a95d7cec55540b14835c56d28769856fe40ee3dcc5e6b126e6bf`.
+The normal build passes `make all`; its ELF contains
+`opaque_blend=explicit` and no HUD batch-trace marker.
+
+The first corrected paired session (`20260909T133533679Z` engine /
+`20260909T133533738Z` renderer) ended with connection EOF, not BYE, at
+13:36:27 UTC. It cannot prove exact teardown. A subsequent session
+(`20260909T133633232Z` engine / `20260909T133633292Z` renderer) was followed
+by the operator reporting a manual close. Do not infer a crash from EOF alone,
+and do not combine partial sessions into one accepted resource run.
+
+At the operator's request, a fresh uninterrupted normal run completed:
+`20260909T134011789Z_PPSA99996_xash3d-engine_0x14cbe2b57d1b9` and
+`20260909T134011848Z_PPSA99996_ps5-xash3d_0x14cbe2ed915f6`.
+It passed 10,992 frames, nine exact resource reclaims, intact guards,
+renderer teardown result zero and paired clean BYEs. The paired validator
+passes live lightmaps, 2D, menu, brush and Studio requirements. Independent
+post-run status confirms no BigApp and all four required services healthy.
+This accepts the corrected build's resource regression together with the
+earlier operator visual confirmation. Additional font-mode/multiplicative-fade
+coverage and PR/lab integration still remain for the full HUD task.
 
 Do not interpret a timer, draw count or clean exit as visual acceptance.
 Confirm operator availability before the launch; use the existing 5-second
