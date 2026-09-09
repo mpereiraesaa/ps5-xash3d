@@ -30,6 +30,10 @@ int main(void)
         1, 2, 3, 255, 4, 5, 6, 255,
         7, 8, 9, 255, 10, 11, 12, 255,
     };
+    const uint8_t lightmap_pixels[16] = {
+        31, 32, 33, 255, 34, 35, 36, 255,
+        37, 38, 39, 255, 40, 41, 42, 255,
+    };
     const RefAgcTextureView texture = {
         .handle = 5, .width = 2, .height = 2, .depth = 1,
         .mip_count = 1, .revision = 1, .content_hash = 0x55,
@@ -47,7 +51,7 @@ int main(void)
     };
     const uint32_t indices[9] = {0, 1, 2, 0, 2, 3, 4, 5, 6};
     const RefAgcWorldDraw draws[2] = {
-        {0, 6, 5, 10, 0, 0, {0, 0}},
+        {0, 6, 5, 10, 0, REF_AGC_WORLD_DRAW_LIGHTMAP, {0, 0}},
         {6, 3, 5, 11, 0, REF_AGC_WORLD_DRAW_ALPHA_TEST, {0, 0}},
     };
     const RefAgcWorldView view = {
@@ -56,6 +60,11 @@ int main(void)
         .vertices = vertices, .vertex_count = 7,
         .indices = indices, .index_count = 9,
         .draws = draws, .draw_count = 2, .active = 1,
+        .lightmap_pixels = lightmap_pixels,
+        .lightmap_width = 2, .lightmap_height = 2,
+        .lightmap_row_pitch = 8,
+        .lightmap_pixel_bytes = sizeof(lightmap_pixels),
+        .lightmapped_draw_count = 1,
     };
     RefAgcGpuWorldStats stats;
 
@@ -73,9 +82,27 @@ int main(void)
     assert(stats.revision == 1u && stats.publishes == 1u && stats.active);
     assert(stats.vertex_count == 7u && stats.index_count == 9u &&
            stats.draw_count == 2u && stats.texture_tables == 2u);
+    assert(stats.lightmapped_draw_count == 1u &&
+           stats.lightmap_width == 2u && stats.lightmap_height == 2u &&
+           stats.lightmap_row_pitch == 256u &&
+           stats.lightmap_bytes == 512u);
+    assert(stats.lightmap_rgb_sum == 438u &&
+           stats.lightmap_nonzero_texels == 4u &&
+           stats.lightmap_rgb_min == 31u && stats.lightmap_rgb_max == 42u);
     assert(stats.resident_bytes > 7u * sizeof(RefAgcWorldVertex));
     assert(stats.source_hash == 0x1234 && stats.upload_hash != 0u);
     assert(world_flush.calls == 1u);
+
+    const RefAgcGpuWorldDraw *first =
+        ref_agc_gpu_world_cache_draw(world, 0u);
+    const uint32_t *first_texture_table =
+        ref_agc_gpu_world_cache_texture_table(world, first);
+    assert(memcmp(first_texture_table + REF_AGC_GPU_TEXTURE_DESCRIPTOR_DWORDS,
+                  world->lightmap_descriptor,
+                  sizeof(world->lightmap_descriptor)) == 0);
+    assert(memcmp(first_texture_table,
+                  first_texture_table + REF_AGC_GPU_TEXTURE_DESCRIPTOR_DWORDS,
+                  sizeof(world->lightmap_descriptor)) != 0);
 
     const RefAgcGpuWorldDraw *second =
         ref_agc_gpu_world_cache_draw(world, 1u);

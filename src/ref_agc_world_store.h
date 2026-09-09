@@ -10,6 +10,7 @@ enum {
     REF_AGC_WORLD_DRAW_ALPHA_TEST = 1u << 0,
     REF_AGC_WORLD_DRAW_SKY = 1u << 1,
     REF_AGC_WORLD_DRAW_TURB = 1u << 2,
+    REF_AGC_WORLD_DRAW_LIGHTMAP = 1u << 3,
 };
 
 typedef enum RefAgcWorldResult {
@@ -57,6 +58,11 @@ typedef struct RefAgcWorldInput {
     uint32_t index_count;
     const RefAgcWorldDraw *draws;
     uint32_t draw_count;
+    const uint8_t *lightmap_pixels;
+    uint32_t lightmap_width;
+    uint32_t lightmap_height;
+    uint32_t lightmap_row_pitch;
+    size_t lightmap_pixel_bytes;
 } RefAgcWorldInput;
 
 /* Pointers in a view remain valid only for the duration of its visitor. */
@@ -71,6 +77,12 @@ typedef struct RefAgcWorldView {
     uint32_t index_count;
     const RefAgcWorldDraw *draws;
     uint32_t draw_count;
+    const uint8_t *lightmap_pixels;
+    uint32_t lightmap_width;
+    uint32_t lightmap_height;
+    uint32_t lightmap_row_pitch;
+    size_t lightmap_pixel_bytes;
+    uint32_t lightmapped_draw_count;
     int active;
 } RefAgcWorldView;
 
@@ -82,6 +94,11 @@ typedef struct RefAgcWorldStats {
     uint32_t vertex_count;
     uint32_t index_count;
     uint32_t draw_count;
+    uint32_t lightmap_width;
+    uint32_t lightmap_height;
+    uint32_t lightmap_row_pitch;
+    size_t lightmap_pixel_bytes;
+    uint32_t lightmapped_draw_count;
     size_t resident_bytes;
     size_t peak_resident_bytes;
     int active;
@@ -95,6 +112,7 @@ typedef struct RefAgcWorldStore {
     RefAgcWorldVertex *vertices;
     uint32_t *indices;
     RefAgcWorldDraw *draws;
+    uint8_t *lightmap_pixels;
     RefAgcWorldStats stats;
     char model_name[REF_AGC_WORLD_NAME_MAX];
     uint32_t model_flags;

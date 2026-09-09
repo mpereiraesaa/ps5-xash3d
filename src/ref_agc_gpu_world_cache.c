@@ -48,10 +48,10 @@ static int copy_texture_table(RefAgcGpuWorldCache *cache,
         return REF_AGC_GPU_WORLD_TEXTURE_MISSING;
     table = (uint32_t *)(cache->base + draw->texture_table_offset);
     memcpy(table, texture.descriptor, sizeof(texture.descriptor));
-    /* The no-lightmap shader does not read binding 1. Keeping a valid second
-     * combined descriptor makes the table safe for the later lightmap gate. */
     memcpy(table + REF_AGC_GPU_TEXTURE_DESCRIPTOR_DWORDS,
-           texture.descriptor, sizeof(texture.descriptor));
+           (draw->draw_flags & REF_AGC_WORLD_DRAW_LIGHTMAP) ?
+               cache->lightmap_descriptor : texture.descriptor,
+           sizeof(texture.descriptor));
     return REF_AGC_GPU_WORLD_OK;
 }
 
@@ -81,6 +81,12 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
 {
     size_t cursor = 0u;
     uint32_t total_vertices = 0u;
+    uint32_t lightmapped_draws = 0u;
+    uint32_t lightmap_gpu_row_pitch = 0u;
+    uint64_t lightmap_rgb_sum = 0u;
+    uint32_t lightmap_nonzero_texels = 0u;
+    uint8_t lightmap_rgb_min = UINT8_MAX;
+    uint8_t lightmap_rgb_max = 0u;
     uint64_t upload_hash = UINT64_C(14695981039346656037);
     if (!cache || !cache->initialized || !view || !textures ||
         !textures->initialized || view->revision == 0u ||
@@ -100,6 +106,18 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
         cache->stats.index_count = 0u;
         cache->stats.draw_count = 0u;
         cache->stats.texture_tables = 0u;
+        cache->stats.lightmap_width = 0u;
+        cache->stats.lightmap_height = 0u;
+        cache->stats.lightmap_row_pitch = 0u;
+        cache->stats.lightmapped_draw_count = 0u;
+        cache->stats.lightmap_bytes = 0u;
+        cache->stats.lightmap_rgb_sum = 0u;
+        cache->stats.lightmap_nonzero_texels = 0u;
+        cache->stats.lightmap_rgb_min = 0u;
+        cache->stats.lightmap_rgb_max = 0u;
+        cache->lightmap_offset = 0u;
+        memset(cache->lightmap_descriptor, 0,
+               sizeof(cache->lightmap_descriptor));
         cache->stats.active = 0;
         ++cache->stats.clears;
         return REF_AGC_GPU_WORLD_OK;
@@ -109,6 +127,75 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
         view->draw_count == 0u ||
         view->draw_count > REF_AGC_GPU_WORLD_MAX_DRAWS)
         return REF_AGC_GPU_WORLD_INVALID;
+    for (uint32_t i = 0u; i < view->draw_count; ++i)
+        if (view->draws[i].draw_flags & REF_AGC_WORLD_DRAW_LIGHTMAP)
+            ++lightmapped_draws;
+    if (lightmapped_draws != view->lightmapped_draw_count)
+        return REF_AGC_GPU_WORLD_INVALID;
+    if (view->lightmapped_draw_count) {
+        size_t source_bytes, gpu_row_pitch, lightmap_bytes;
+        if (!view->lightmap_pixels || !view->lightmap_width ||
+            !view->lightmap_height ||
+            view->lightmap_width > UINT32_MAX / 4u ||
+            view->lightmap_row_pitch < view->lightmap_width * 4u ||
+            view->lightmap_height > SIZE_MAX / view->lightmap_row_pitch)
+            return REF_AGC_GPU_WORLD_INVALID;
+        source_bytes = (size_t)view->lightmap_row_pitch *
+                       view->lightmap_height;
+        gpu_row_pitch = (size_t)view->lightmap_width * 4u;
+        if (align_cursor(&gpu_row_pitch, 256u) != 0 ||
+            gpu_row_pitch > UINT32_MAX ||
+            view->lightmap_height > SIZE_MAX / gpu_row_pitch)
+            return REF_AGC_GPU_WORLD_INVALID;
+        lightmap_bytes = gpu_row_pitch * view->lightmap_height;
+        lightmap_gpu_row_pitch = (uint32_t)gpu_row_pitch;
+        if (view->lightmap_pixel_bytes != source_bytes ||
+            reserve(&cursor, lightmap_bytes, cache->bytes, 256u,
+                    &cache->lightmap_offset) != 0)
+            return view->lightmap_pixel_bytes != source_bytes ?
+                REF_AGC_GPU_WORLD_INVALID : REF_AGC_GPU_WORLD_EXHAUSTED;
+        memset(cache->base + cache->lightmap_offset, 0, lightmap_bytes);
+        for (uint32_t row = 0u; row < view->lightmap_height; ++row) {
+            memcpy(cache->base + cache->lightmap_offset +
+                       (size_t)row * gpu_row_pitch,
+                   view->lightmap_pixels +
+                       (size_t)row * view->lightmap_row_pitch,
+                   (size_t)view->lightmap_width * 4u);
+            const uint8_t *source = view->lightmap_pixels +
+                (size_t)row * view->lightmap_row_pitch;
+            for (uint32_t column = 0u; column < view->lightmap_width;
+                 ++column) {
+                const uint8_t *pixel = source + (size_t)column * 4u;
+                const uint32_t rgb = (uint32_t)pixel[0] + pixel[1] + pixel[2];
+                lightmap_rgb_sum += rgb;
+                if (rgb != 0u) ++lightmap_nonzero_texels;
+                for (unsigned channel = 0u; channel < 3u; ++channel) {
+                    if (pixel[channel] < lightmap_rgb_min)
+                        lightmap_rgb_min = pixel[channel];
+                    if (pixel[channel] > lightmap_rgb_max)
+                        lightmap_rgb_max = pixel[channel];
+                }
+            }
+        }
+        if (ps5_gfx1013_build_tsharp_rgba8(
+                cache->lightmap_descriptor,
+                cache->gpu_base + cache->lightmap_offset,
+                view->lightmap_width, view->lightmap_height,
+                (uint32_t)gpu_row_pitch) != 0 ||
+            ps5_gfx1013_build_ssharp(
+                cache->lightmap_descriptor + PS5_GFX1013_TSHARP_DWORDS,
+                PS5_GFX1013_CLAMP_LAST_TEXEL,
+                PS5_GFX1013_FILTER_BILINEAR) != 0)
+            return REF_AGC_GPU_WORLD_DESCRIPTOR_FAILED;
+    } else if (view->lightmap_pixels || view->lightmap_width ||
+               view->lightmap_height || view->lightmap_row_pitch ||
+               view->lightmap_pixel_bytes) {
+        return REF_AGC_GPU_WORLD_INVALID;
+    } else {
+        cache->lightmap_offset = 0u;
+        memset(cache->lightmap_descriptor, 0,
+               sizeof(cache->lightmap_descriptor));
+    }
     memset(cache->draws, 0, sizeof(cache->draws));
     for (uint32_t i = 0u; i < view->draw_count; ++i) {
         const RefAgcWorldDraw *source = &view->draws[i];
@@ -176,6 +263,17 @@ int ref_agc_gpu_world_cache_apply(RefAgcGpuWorldCache *cache,
     cache->stats.index_count = view->index_count;
     cache->stats.draw_count = view->draw_count;
     cache->stats.texture_tables = view->draw_count;
+    cache->stats.lightmap_width = view->lightmap_width;
+    cache->stats.lightmap_height = view->lightmap_height;
+    cache->stats.lightmap_row_pitch = lightmap_gpu_row_pitch;
+    cache->stats.lightmapped_draw_count = lightmapped_draws;
+    cache->stats.lightmap_bytes = (size_t)lightmap_gpu_row_pitch *
+                                  view->lightmap_height;
+    cache->stats.lightmap_rgb_sum = lightmap_rgb_sum;
+    cache->stats.lightmap_nonzero_texels = lightmap_nonzero_texels;
+    cache->stats.lightmap_rgb_min = view->lightmapped_draw_count ?
+        lightmap_rgb_min : 0u;
+    cache->stats.lightmap_rgb_max = lightmap_rgb_max;
     cache->stats.resident_bytes = cursor;
     if (cursor > cache->stats.peak_resident_bytes)
         cache->stats.peak_resident_bytes = cursor;
@@ -220,6 +318,13 @@ int ref_agc_gpu_world_cache_validate(const RefAgcGpuWorldCache *cache)
     if (!cache || !cache->initialized ||
         cache->stats.draw_count > REF_AGC_GPU_WORLD_MAX_DRAWS ||
         cache->stats.resident_bytes > cache->bytes ||
+        (cache->stats.lightmapped_draw_count != 0u &&
+         (cache->stats.lightmap_bytes == 0u ||
+          cache->stats.lightmap_nonzero_texels == 0u ||
+          cache->stats.lightmap_rgb_sum == 0u ||
+          cache->lightmap_offset > cache->stats.resident_bytes ||
+          cache->stats.lightmap_bytes >
+              cache->stats.resident_bytes - cache->lightmap_offset)) ||
         (!!cache->stats.active != (cache->stats.draw_count != 0u)))
         return REF_AGC_GPU_WORLD_INVALID;
     for (uint32_t i = 0u; i < cache->stats.draw_count; ++i) {

@@ -426,6 +426,24 @@ These fields prove that the live camera affected every accepted native frame.
 Entity and 2D counts remain capture evidence until their actual engine resource
 and draw translations are bound to GPU-visible hashes.
 
+### Live engine-lightmap atlas
+
+The lightmap checkpoint adds `lightmaps=live-atlas` to `BSP_LOOP_BEGIN` and
+extends `REF_AGC_GPU_WORLD` with `lightmapped_draws`, `lightmap`, `row_pitch`,
+`lightmap_bytes`, `lightmap_rgb_sum`, `lightmap_nonzero_texels` and
+`lightmap_rgb_range`. Strict acceptance requires positive draw and texel
+counts, `lightmapped_draws <= draws`, a pitch large enough for RGBA8 rows,
+consistent dimensions/byte size, and an ordered `0..255` channel range.
+
+`REF_AGC_LIVE_COMPLETE` reports the two individual framebuffer hashes and a
+separate nonzero `frame_hash`. The aggregate is the hash of the ordered pair,
+not their XOR: identical double-buffer images are valid and must not cancel to
+zero. The paired validator cross-checks this value against the engine's
+`ref_agc_frame_hash`, in addition to the existing serial, ownership and
+teardown invariants. Pass `--require-live-lightmaps` to make all atlas fields
+and the `live-atlas` marker mandatory; earlier immutable checkpoints remain
+valid without that opt-in.
+
 ## Continuous-runtime closure
 
 The production runtime uses one persistent frame state machine and emits a

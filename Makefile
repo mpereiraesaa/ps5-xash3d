@@ -107,6 +107,7 @@ $(eval $(call test_rule,test_ref_agc_live_frame,tests/test_ref_agc_live_frame.c 
 $(eval $(call test_rule,test_ref_agc_texture_store,tests/test_ref_agc_texture_store.c src/ref_agc_texture_store.c,-Isrc -lpthread))
 $(eval $(call test_rule,test_ref_agc_gpu_texture_cache,tests/test_ref_agc_gpu_texture_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_world_store,tests/test_ref_agc_world_store.c src/ref_agc_world_store.c,-Isrc -lpthread))
+$(eval $(call test_rule,test_ref_agc_lightmap_atlas,tests/test_ref_agc_lightmap_atlas.c src/ref_agc_lightmap_atlas.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_gpu_world_cache,tests/test_ref_agc_gpu_world_cache.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_gpu_world_draw,tests/test_ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c src/ps5_gpu_span.c,-Isrc))
 $(eval $(call test_rule,test_bsp_resource_draw,tests/test_bsp_resource_draw.c src/bsp_resource_draw.c src/ps5_gpu_span.c,))
@@ -138,7 +139,8 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
 	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache \
-	test_ref_agc_world_store test_ref_agc_gpu_world_cache \
+	test_ref_agc_world_store test_ref_agc_lightmap_atlas \
+	test_ref_agc_gpu_world_cache \
 	test_ref_agc_gpu_world_draw
 
 test: $(addprefix $(BUILD)/,$(TESTS))

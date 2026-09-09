@@ -5,10 +5,11 @@ It preserves the pre-Phase-1 capability analysis that led to the native Gears
 and GoldSrc renderer. All renderer gates through Phase 4 have since passed on
 FW 12.02. The final Phase 6 `ref_agc.prx` conversion also passed: RefAPI v18
 drives the native backend while `c1a0` runs through the dynamic engine stack.
-Phase 7 now has compositor-visible live world geometry and base textures after
-an exact hardware A/B fixed the required post-camera scheduler handoff.
-Translating entities, viewmodel and 2D/UI into native AGC draw lists remains the
-next boundary rather than a hidden requirement of the module-loader gate.
+Phase 7 now has compositor-visible live world geometry, base textures and
+engine-authored lightmaps after hardware gates fixed the required post-camera
+scheduler handoff and uploaded a deterministic owned atlas. Native
+sky/turbulent semantics, entities, viewmodel and 2D/UI remain the next boundary
+rather than a hidden requirement of the module-loader gate.
 
 ## Hardware-proven core
 

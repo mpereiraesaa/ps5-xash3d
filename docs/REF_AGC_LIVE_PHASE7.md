@@ -302,3 +302,71 @@ The accepted validator result is:
 ```json
 {"engine_frame_hash":"5724000629ec5fa0","frames":1076,"gpu_bright_pixels":4066868,"gpu_buffers":["553ced9a3817b91b","0218ed9c11fbe6bb"],"ownership":"exact","pass":true,"phase":7,"ref_agc_world_texture_refs":164,"ref_agc_world_textures_resolved":164,"start_skew_ms":55}
 ```
+
+## Accepted FW 12.02 live-lightmap gate
+
+The producer now builds one deterministic owned lightmap atlas directly from
+the parsed engine world. It validates surface extents and sample spans,
+combines the active `MAXLIGHTMAPS` style planes through the engine lightstyle
+values and gamma table, reserves one-texel gutters, duplicates every edge and
+publishes normalized atlas coordinates with the pointer-free world snapshot.
+The packing width is fixed at 1,024 texels, the height is the smallest fitting
+power of two up to the guarded 4,096-texel bound, and a failed build cannot
+replace the prior revision.
+
+The native consumer places the RGBA8 atlas in the existing 32 MiB world
+direct-memory arena with a 256-byte-aligned row pitch, flushes the owned span,
+and creates one clamp-plus-bilinear descriptor. Lightmapped opaque draws bind
+the already hardware-proven Phase 2–4 `bsp_resource` pipeline and lightmapped
+masked draws bind `bsp_alpha_test`; unlit classes retain the GoldSrc pipeline
+runtime. This reuses native AGC contracts and introduces no OpenGL emulation
+layer.
+
+The final five-module bundle was staged, verified and promoted as one
+transaction. Launch verification then identified `PPSA99996` active, and the
+CLI Remote Play stream was independently captured while known live. Correlated
+runs began 53 ms apart:
+
+- Engine: `20260909T022301539Z_PPSA99996_xash3d-engine_0x127ca54ee550a`
+- Renderer: `20260909T022301592Z_PPSA99996_ps5-xash3d_0x127ca581d165f`
+
+The strict paired validator accepted 1,075 matched frames, 17,245 vertices,
+29,565 indices and 3,695 lightmapped draws. The 1024x256 atlas used a 4,096-byte
+row pitch and 1,048,576 bytes, with RGB sum 66,594,990, 186,051 nonzero texels
+and channel range 0..255. Both framebuffer slots produced
+`49b1297de5cef0a0`; their ordered aggregate is the nonzero engine/renderer hash
+`a3219a480a7a1c41`. Identical slot images are valid, so the aggregate hashes
+the ordered pair rather than XORing it. All eight parent allocations were
+reclaimed, renderer errors remained zero and the five modules unloaded in
+order to zero.
+
+The accepted result is:
+
+```json
+{"engine_frame_hash":"a3219a480a7a1c41","engine_run_id":"20260909T022301539Z_PPSA99996_xash3d-engine_0x127ca54ee550a","frames":1075,"gpu_bright_pixels":3989406,"gpu_buffers":["49b1297de5cef0a0","49b1297de5cef0a0"],"ownership":"exact","pass":true,"phase":7,"renderer_run_id":"20260909T022301592Z_PPSA99996_ps5-xash3d_0x127ca581d165f","start_skew_ms":53}
+```
+
+Artifact and private-evidence hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Engine ELF | `8256012d69c65d8d3680c6cf8429e358ec009d557c6ec01a7cbb9dd02865de31` |
+| Engine fSELF | `dbe3cd647c381bf679980c1888f96d88889ab43fd14cb5150e6936a442e4e329` |
+| `ref_agc` ELF | `d9f58ce2dd4b7a868e48ad6e6dbfa5234c0690c1fa0d7d22b13fbd07740fd0ad` |
+| `ref_agc.prx` | `424faba887f0b86980d436022a123e5fd04405d22ea98701b2d1f7b7331e2ed4` |
+| Engine transcript | `b36a05dacb88caf7aba56428844a0365cc8781310602cac0171440177025bf8c` |
+| Renderer transcript | `b8e40713dc664181cd2214960d94fb8e0eff5a6b59721f4dc060904417e09e3b` |
+| Engine manifest | `e459bc1ae18910ad9b2d71c867ea3c99e09283d56faba97c68edeccb4c30ea09` |
+| Renderer manifest | `7a587ae6a151c022b788f191a693bd08f2349022cc0e471b1b77216f1fa9e9a4` |
+| Transaction journal | `89428b3481202b699c3ff4e0b5a28368f9c62539c8a42bece530eb31b5e0cb96` |
+| Launch-verified visible capture | `2b8bd9ea8dd5345463f7bd9363ee79df36ae77af76cc635c54b8859699cdbfd7` |
+
+A separate valid-stream no-lightmap control produced a visibly unlit scene
+(`f8c457fc5fa90042e695871994189776cb0c67c1b7628482d85e0073e404c758`).
+Earlier byte-identical black captures were discarded after a PS home capture
+proved that the CLI Chiaki process itself was stale; they are not renderer
+evidence. The accepted image came only after a fresh visible home-frame check.
+
+This closes live engine-lightmap atlas construction, direct-memory residency,
+native pipeline binding and compositor-visible sampling. Native sky/turbulent
+semantics, entities, viewmodel and 2D/menu/HUD translation remain open.
