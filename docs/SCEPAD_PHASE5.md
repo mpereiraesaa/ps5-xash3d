@@ -86,8 +86,17 @@ This cvar also affects keyboard/mouse weapon cycling, but their bindings are
 unchanged. The operator confirmed immediate cycling with either direction
 and repeated presses returning to the pistol, without R1. With two weapons,
 both directions and `lastinv` look equivalent; `lastinv` still means the
-previously equipped weapon, not inventory cycling. D-pad up remains spray;
-no cheats have been added to the release profile.
+previously equipped weapon, not inventory cycling. D-pad up is the contextual
+`givecurrentammo` helper: with `sv_cheats 1` enabled, the server inspects the
+equipped weapon and gives only its matching reserve-ammo pickup
+(`ammo_9mmclip`, `ammo_9mmAR`, `ammo_buckshot`, `ammo_357`, `ammo_crossbow`,
+`ammo_gaussclip`, `ammo_egonclip` or `ammo_rpgclip`). For hand grenade,
+tripmine, satchel, snark and hornet gun, which have no `ammo_*` pickup entity,
+it gives the same `weapon_*` pickup so HL1's duplicate-item path increments
+their reserve. Crowbar is the sole no-op because it has no ammunition. It never
+grants unrelated weapons or all ammo; with cheats disabled it is a no-op,
+matching the existing `give` command policy. The generated server translation
+unit is source-drift checked and leaves the pinned HLSDK untouched.
 
 Profile v2 deployment: FTP readback matches local SHA-256
 `f704d6d8ec6cf166ecd8c978842108f21a54e9f137e75123cf582ad454438eba`.
@@ -229,7 +238,7 @@ exhaustively excluded.
 | L2 / L3 | Speed modifier (`+speed`) | Neither rebound |
 | D-pad left/right | Previous/next inventory weapon | Not rebound |
 | D-pad down | Last weapon | Not rebound |
-| D-pad up | Spray | Not rebound |
+| D-pad up | Contextual current-weapon ammo helper (`givecurrentammo`) | Explicitly bound |
 | Options | Cancel selection/menu (`cancelselect`) | Explicitly bound |
 | Create | Pause | Not rebound |
 | Touchpad | Unassigned | Unassigned in normal/viewmodel builds |

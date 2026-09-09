@@ -195,6 +195,7 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_validate_gpu_flip_timing_evidence.py
 	python3 tests/test_generate_static_library_tables.py
 	python3 -B tests/test_prepare_client_ammo.py
+	python3 -B tests/test_prepare_server_client.py
 	python3 -B tests/test_prepare_blood_effects.py
 	python3 tests/test_generate_prx_descriptor.py
 	python3 tests/test_deploy_engine_bundle.py
