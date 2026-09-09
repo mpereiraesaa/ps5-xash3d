@@ -20,6 +20,7 @@ callbacks below are always the project-owned AGC implementation.
 #include <time.h>
 
 #include "ref_agc_live_frame.h"
+#include "ref_agc_2d_state.h"
 #include "ref_agc_lightmap_atlas.h"
 #include "ref_agc_studio_store.h"
 #include "ref_agc_texture_store.h"
@@ -32,6 +33,12 @@ callbacks below are always the project-owned AGC implementation.
 #undef GetRefAPI
 #include "ref_params.h"
 #include "enginefeatures.h"
+
+_Static_assert(kRenderNormal == 0 && kRenderTransColor == 1 &&
+	kRenderTransTexture == 2 && kRenderGlow == 3 &&
+	kRenderTransAlpha == 4 && kRenderTransAdd == 5 &&
+	kRenderScreenFadeModulate == REF_AGC_2D_SCREEN_FADE_MODULATE,
+	"RefAPI render modes must match the captured 2D state");
 
 int ps5_ref_agc_native_main(void);
 
@@ -94,6 +101,7 @@ static int ref_agc_world_capture_pending;
 static uint64_t ref_agc_world_capture_attempts;
 static poolhandle_t ref_agc_storage_pool;
 static uint8_t ref_agc_draw_color[4] = { 255u, 255u, 255u, 255u };
+static RefAgc2DState ref_agc_2d_state;
 
 static void RefAgcStudioLoadTextures(model_t *model, void *data);
 static void RefAgcStudioUnloadTextures(model_t *model);
@@ -645,6 +653,7 @@ static qboolean RefAgcInit(void)
 	ref_agc_engine.Cvar_SetValue( "r_agc_qa_mode", 0.0f );
 #endif
 	memset( ref_agc_draw_color, 255, sizeof(ref_agc_draw_color) );
+	ref_agc_2d_set_render_mode( &ref_agc_2d_state, kRenderNormal );
 	if( ref_agc_thread_created )
 		return ref_agc_runtime_state == REF_AGC_READY ||
 			ref_agc_runtime_state == REF_AGC_COMPLETE;
@@ -1555,13 +1564,18 @@ static void RefAgcColor4ub(unsigned char r, unsigned char g,
 	ref_agc_draw_color[3] = a;
 }
 
+static void RefAgcSetRenderMode(int mode)
+{
+	ref_agc_2d_set_render_mode( &ref_agc_2d_state, mode );
+}
+
 static void RefAgcDrawStretchPic(float x, float y, float w, float h,
 	float s1, float t1, float s2, float t2, int texture)
 {
 	RefAgcLive2DCommand command;
 	memset( &command, 0, sizeof(command) );
 	command.type = REF_AGC_LIVE_2D_STRETCH_PIC;
-	command.render_mode = kRenderTransTexture;
+	command.render_mode = ref_agc_2d_state.render_mode;
 	command.texture = texture;
 	command.x = x; command.y = y; command.width = w; command.height = h;
 	command.s1 = s1; command.t1 = t1; command.s2 = s2; command.t2 = t2;
@@ -1667,6 +1681,7 @@ int EXPORT GetRefAPI(int version, ref_interface_t *funcs,
 	funcs->R_ClearScene = RefAgcClearScene;
 	funcs->R_AddEntity = RefAgcAddEntity;
 	funcs->R_Set2DMode = RefAgcSet2DMode;
+	funcs->GL_SetRenderMode = RefAgcSetRenderMode;
 	funcs->R_DrawStretchPic = RefAgcDrawStretchPic;
 	funcs->FillRGBA = RefAgcFillRGBA;
 	funcs->Color4f = RefAgcColor4f;
