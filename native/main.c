@@ -236,9 +236,12 @@ enum {
 #endif
 #endif
 #ifdef PS5_REF_AGC_LIVE_PHASE7
-    /* Two 1 MiB slots cover the complete 4096-command live 2D contract,
-     * its worst-case per-command texture tables and the world frame tables. */
-    RESOURCE_TRANSIENT_BYTES = 0x200000u,
+    /* Two 2 MiB slots cover the complete live 2D contract together with the
+     * intro's high-density console/HUD glyph burst, world tables, studio
+     * vertices and effects in the same frame.  The former 1 MiB slots could
+     * park the renderer while audio continued when the intro emitted 3,767
+     * quads. */
+    RESOURCE_TRANSIENT_BYTES = 0x400000u,
 #else
     RESOURCE_TRANSIENT_BYTES = 0x40000u,
 #endif

@@ -393,7 +393,7 @@ def main() -> None:
         "REF_AGC_LIVE_2D_FRAME", "REF_AGC_LIVE_2D_COMPLETE",
         "REF_AGC_LIVE_COMPOSE_FAILURE_DETAIL",
         "ref_agc_live_2d_frame_build", "ref_agc_live_2d_compose_batch",
-        "RESOURCE_TRANSIENT_BYTES = 0x200000u",
+        "RESOURCE_TRANSIENT_BYTES = 0x400000u",
         "REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u",
         "REF_AGC_LIVE_STUDIO_SYNC", "REF_AGC_GPU_STUDIO_CACHE_COMPLETE",
         "REF_AGC_GPU_STUDIO_ARENA_BYTES = 32u * 1024u * 1024u",
