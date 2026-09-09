@@ -113,6 +113,27 @@ and moderately larger sprites); set it to 1 for original presentation. It does
 not change damage or give weapons. The normal no-grant build was restored
 without relaunch; graphics QA audio remains disabled.
 
+## DualSense rumble (new, hardware validation pending)
+
+The platform backend now owns the DualSense output lifecycle alongside the
+input handle. It uses the clean-room two-byte `ps5_pad_vibration` record
+(`large_motor` low-frequency, `small_motor` high-frequency), selects native
+vibration mode `2` on first use, clamps pulse duration to 5 seconds, and sends
+a neutral packet on expiry or teardown so a failed session cannot leave the
+controller vibrating. A rising R2 edge (the release primary-fire binding)
+requests a 55 ms asymmetric shot pulse (`180/235`); callers can also use
+`PS5_PadInputVibrate` for future damage/impact patterns. Structured markers
+`XASH_PAD_HAPTIC_MODE`, `XASH_PAD_HAPTIC`, `XASH_PAD_HAPTIC_STOP`, and
+`XASH_PAD_HAPTIC_SUMMARY` make every request and return code auditable.
+
+Host coverage is in `tests/test_in_ps5.c` and the record layout is pinned by
+`tests/test_ps5_platform_abi.c`. The two imported symbols
+`scePadSetVibrationMode` and `scePadSetVibration` are intentionally not yet
+promoted in `ps5_import_evidence.json`: the next hardware run must confirm the
+mode call, feel the R2 pulse in-game, observe automatic expiry, and verify a
+zero-strength packet plus clean pad close. This is ordinary motor rumble; true
+adaptive-trigger effects require a separate ABI investigation.
+
 Historical profile v1 was installed on PPSA99996 on 2026-09-09 with owner approval. Local and FTP
 readback SHA-256 both:
 `d3aac3278dfab617475bf146ec5385ad07311b05def365d10bff5a53d25c45ca`.

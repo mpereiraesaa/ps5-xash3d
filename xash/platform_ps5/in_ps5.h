@@ -76,6 +76,11 @@ struct ps5_xash_pad_stats {
 	uint64_t use_releases;
 	uint64_t fire_presses;
 	uint64_t fire_releases;
+	uint64_t vibration_requests;
+	uint64_t vibration_stops;
+	uint64_t vibration_errors;
+	int vibration_mode_result;
+	int vibration_last_result;
 	int user_service_result;
 	int user_service_owned;
 	int user_id;
@@ -92,6 +97,11 @@ int PS5_PadInputGatePassed( void );
 int PS5_PadInputShutdown( void );
 int PS5_PadInputRuntimePoll( void );
 int PS5_PadInputRuntimeShutdown( void );
+/* Set both DualSense rumble motors for duration_ms.  A zero duration stops
+ * immediately; active pulses are expired by RuntimePoll or an explicit tick. */
+int PS5_PadInputVibrate( uint8_t large_motor, uint8_t small_motor,
+	uint32_t duration_ms );
+int PS5_PadInputVibrationTick( uint64_t now_us );
 const struct ps5_xash_pad_stats *PS5_PadInputStats( void );
 
 #ifdef __cplusplus

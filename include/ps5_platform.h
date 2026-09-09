@@ -88,6 +88,14 @@ struct ps5_pad_data {
     uint8_t device_unique_data[12];
 };
 
+/* DualSense output contract.  The two byte fields are the large (low
+ * frequency) and small (high frequency) rumble motors, matching the native
+ * ScePad layout used by the PS5 SDL backend. */
+struct ps5_pad_vibration {
+    uint8_t large_motor;
+    uint8_t small_motor;
+};
+
 int sceKernelReserveVirtualRange(void **address, size_t bytes,
                                  int flags, size_t alignment);
 int sceKernelAllocateMainDirectMemory(size_t bytes, size_t alignment,
@@ -135,6 +143,8 @@ int scePadOpen(int32_t user_id, int32_t type, int32_t index,
 int scePadRead(int32_t handle, struct ps5_pad_data *states, int32_t count);
 int scePadReadState(int32_t handle, struct ps5_pad_data *state);
 int scePadClose(int32_t handle);
+int scePadSetVibrationMode(int32_t handle, int32_t mode);
+int scePadSetVibration(int32_t handle, const struct ps5_pad_vibration *vibration);
 
 /*
  * libSceAudioOut PCM output.  The six-argument sceAudioOutOpen signature, the
