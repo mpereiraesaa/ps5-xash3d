@@ -30,6 +30,7 @@ docs/ARCHITECTURE.md
 docs/BACKEND_PROVENANCE.md
 docs/CAPABILITY_MATRIX.md
 docs/DEVELOPMENT.md
+docs/PHASE7_BASELINE_REGRESSION.md
 docs/GOLDSRC_RENDER_STATES_PHASE4.md
 docs/GPU_FLIP_TIMING_PHASE5.md
 docs/HARDWARE_VALIDATION.md
@@ -96,6 +97,12 @@ src/gears_telemetry.h
 src/gears_rt_clear.c
 src/gears_rt_clear.h
 src/ref_agc_live_frame.c
+src/ref_agc_live_brush.c
+src/ref_agc_live_brush.h
+src/ref_agc_studio_store.c
+src/ref_agc_studio_store.h
+src/ref_agc_gpu_studio_cache.c
+src/ref_agc_gpu_studio_cache.h
 src/ref_agc_live_frame.h
 src/ref_agc_live_2d.c
 src/ref_agc_live_2d.h
@@ -253,6 +260,9 @@ tests/test_mem_ps5.c
 tests/test_ps5_transient_ring.c
 tests/test_ps5_transient_table.c
 tests/test_ref_agc_live_frame.c
+tests/test_ref_agc_live_brush.c
+tests/test_ref_agc_studio_store.c
+tests/test_ref_agc_gpu_studio_cache.c
 tests/test_ref_agc_live_2d.c
 tests/test_ref_agc_skybox.c
 tests/test_ref_agc_lightmap_atlas.c

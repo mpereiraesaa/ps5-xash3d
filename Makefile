@@ -105,6 +105,9 @@ $(eval $(call test_rule,test_ps5_viewport_scissor,tests/test_ps5_viewport_scisso
 $(eval $(call test_rule,test_ps5_shader_pipeline_slot,tests/test_ps5_shader_pipeline_slot.c src/ps5_shader_pipeline_slot.c src/ps5_shader_header.c src/ps5_pipeline.c,))
 $(eval $(call test_rule,test_ps5_goldsrc_pipeline_runtime,tests/test_ps5_goldsrc_pipeline_runtime.c src/ps5_goldsrc_pipeline_runtime.c src/goldsrc_pipeline_cache.c src/ps5_goldsrc_render_state.c src/goldsrc_render_state.c src/ps5_gpu_span.c,))
 $(eval $(call test_rule,test_ref_agc_live_frame,tests/test_ref_agc_live_frame.c src/ref_agc_live_frame.c,-Isrc -lpthread -lm))
+$(eval $(call test_rule,test_ref_agc_live_brush,tests/test_ref_agc_live_brush.c src/ref_agc_live_brush.c src/ref_agc_gpu_world_draw.c src/ref_agc_gpu_world_cache.c src/ref_agc_gpu_texture_cache.c src/bsp_flat_scene.c src/ps5_gfx1013_descriptor.c src/ps5_transient_table.c src/ps5_transient_ring.c src/ps5_gpu_span.c,-Isrc -lm))
+$(eval $(call test_rule,test_ref_agc_studio_store,tests/test_ref_agc_studio_store.c src/ref_agc_studio_store.c,-Isrc -lpthread))
+$(eval $(call test_rule,test_ref_agc_gpu_studio_cache,tests/test_ref_agc_gpu_studio_cache.c src/ref_agc_gpu_studio_cache.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_texture_store,tests/test_ref_agc_texture_store.c src/ref_agc_texture_store.c,-Isrc -lpthread))
 $(eval $(call test_rule,test_ref_agc_gpu_texture_cache,tests/test_ref_agc_gpu_texture_cache.c src/ref_agc_gpu_texture_cache.c src/ps5_gfx1013_descriptor.c,-Isrc))
 $(eval $(call test_rule,test_ref_agc_world_store,tests/test_ref_agc_world_store.c src/ref_agc_world_store.c,-Isrc -lpthread))
@@ -140,6 +143,8 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_goldsrc_render_state test_goldsrc_pipeline_cache \
 	test_ps5_viewport_scissor test_ps5_shader_pipeline_slot \
 	test_ps5_goldsrc_pipeline_runtime test_ref_agc_live_frame \
+	test_ref_agc_live_brush test_ref_agc_studio_store \
+	test_ref_agc_gpu_studio_cache \
 	test_ref_agc_texture_store test_ref_agc_gpu_texture_cache \
 	test_ref_agc_world_store test_ref_agc_lightmap_atlas \
 	test_ref_agc_gpu_world_cache \
@@ -181,10 +186,11 @@ test: $(addprefix $(BUILD)/,$(TESTS))
 	python3 tests/test_ps5_libc_contract.py
 	python3 tests/test_validate_engine_boot_evidence.py
 	python3 tests/test_validate_ref_agc_prx_evidence.py
-	rm -rf build tools/__pycache__ xash/tools/__pycache__ tests/__pycache__
+	rm -rf tools/__pycache__ xash/tools/__pycache__ tests/__pycache__
 
 bsp-bundle: $(BUILD)/inspect_bsp_bundle
 	@test -n "$(BSP_INPUT)" || { echo 'BSP_INPUT is required' >&2; exit 2; }
+	@if [ "$(PHASE7_BASELINE)" = 1 ]; then test "$(notdir $(BSP_INPUT))" = c1a0.bsp || { echo 'Phase 7 baseline requires BSP_INPUT=c1a0.bsp' >&2; exit 2; }; fi
 	mkdir -p build/bsp
 	python3 tools/bake_bsp.py "$(BSP_INPUT)" build/bsp/map.ps5bsp
 	$(BUILD)/inspect_bsp_bundle build/bsp/map.ps5bsp
@@ -367,6 +373,7 @@ engine-ref-agc-prx-native-release: bsp-bundle studio-bundle shaders
 
 # Phase 7 native-menu gate: present MainUI through live AGC 2D first, then
 # enter c1a0 through the engine command buffer and retain the accepted stack.
+engine-phase7-menu-native-release: PHASE7_BASELINE=1
 engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
 	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \

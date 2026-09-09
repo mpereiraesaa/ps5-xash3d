@@ -360,6 +360,26 @@ def main() -> None:
         world_summary = json.loads(world_valid.stdout)
         assert world_summary["gpu_world"]["draws"] == "3695"
         assert world_summary["gpu_world"]["vertices"] == "17245"
+        studio_marker = (
+            "REF_AGC_GPU_STUDIO_CACHE_COMPLETE schema=1 revision=74 creates=74 "
+            "updates=0 deletes=0 active=74 peak=74 resident_bytes=3077376 "
+            "peak_bytes=3077376 source_bytes=3069050 flushes=74 arena_bytes=33554432 "
+            "source=engine-decoded-studio-v10 memory=direct "
+            "ownership=fence+videoout-before-reuse errors=0")
+        nine_reclaims = [m.replace("resource_reclaimed=8", "resource_reclaimed=9")
+                         for m in phase7_renderer_messages(resources=True, world=True)]
+        for name, markers, accepted in (
+            ("studio-valid", [studio_marker, *nine_reclaims], True),
+            ("studio-missing", nine_reclaims, False),
+            ("studio-unretired", [studio_marker, *phase7_renderer_messages(
+                resources=True, world=True)], False),
+            ("studio-overflow", [studio_marker.replace("peak_bytes=3077376",
+                "peak_bytes=33554433"), *nine_reclaims], False),
+        ):
+            candidate = write_run(directory, name, "ps5-xash3d", markers,
+                                  started="2026-09-08T19:13:27.984+00:00")
+            checked = run(resource_engine, candidate, require_live_lightmaps=True)
+            assert (checked.returncode == 0) == accepted, checked.stderr
 
         special_engine = write_run(
             directory, "special-engine", "xash3d-engine",

@@ -47,6 +47,25 @@ def main() -> int:
             "/data/homebrew/PPSA99996/map.ps5bsp",
         ]
         assert [is_self for _, _, is_self in items] == [True, True, False]
+        for name in deploy.AGC_MODULES:
+            (module_dir / name).write_bytes(self_data)
+        (root / "model.ps5mdl").write_bytes(b"model")
+        try:
+            deploy.bundle(root, ["ref_agc.prx"], ["map.ps5bsp"])
+        except ValueError as exc:
+            assert "all six PRXs" in str(exc)
+        else:
+            raise AssertionError("accepted a partial AGC deployment")
+        try:
+            deploy.bundle(root, sorted(deploy.AGC_MODULES), sorted(deploy.SAFE_ASSETS))
+        except ValueError as exc:
+            assert "identity mismatch" in str(exc)
+        else:
+            raise AssertionError("accepted mismatched renderer and bundle")
+        (module_dir / "ref_agc.prx").write_bytes(
+            self_data + deploy.digest(root / "map.ps5bsp").encode("ascii"))
+        assert len(deploy.bundle(root, sorted(deploy.AGC_MODULES),
+                                 sorted(deploy.SAFE_ASSETS))) == 9
         for modules in (["server.prx", "server.prx"], ["../server.prx"]):
             try:
                 deploy.bundle(root, modules)

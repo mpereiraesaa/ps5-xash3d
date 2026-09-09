@@ -40,6 +40,7 @@ static struct vidmode_s ps5_vidmode = { "PS5 headless", PS5_XASH_VIDEO_WIDTH, PS
 static void *sw_buffer;
 static size_t sw_buffer_bytes;
 static unsigned sw_frames, presented_frames;
+static int mode_reported;
 
 static unsigned long long hash_buffer( const unsigned char *bytes, size_t count, int *nonzero )
 {
@@ -99,6 +100,13 @@ rserr_t R_ChangeDisplaySettings( int width, int height, window_mode_t window_mod
 {
 	(void)width; (void)height; (void)window_mode;
 	R_SaveVideoMode( ps5_vidmode.width, ps5_vidmode.height, ps5_vidmode.width, ps5_vidmode.height, false );
+	if( !mode_reported )
+	{
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_VIDEO_MODE logical_width=%d logical_height=%d window=fullscreen backend=ps5",
+			ps5_vidmode.width, ps5_vidmode.height );
+		mode_reported = 1;
+	}
 	return rserr_ok;
 }
 

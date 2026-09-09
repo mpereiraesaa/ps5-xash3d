@@ -174,7 +174,7 @@ process and keeps the complete stack alive until the 25-second teardown:
 
 ```sh
 XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
-  BSP_INPUT=/private/path/valve/maps/c1a0e.bsp \
+  BSP_INPUT=/private/path/valve/maps/c1a0.bsp \
   STUDIO_INPUT=/private/path/valve/models/sphere.mdl \
   make engine-phase7-menu-native-release
 ```

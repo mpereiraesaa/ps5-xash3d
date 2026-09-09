@@ -201,8 +201,12 @@ int ref_agc_live_2d_frame_build(
 
     GoldSrc2DConstants *constants = constants_slice.cpu;
     memset(constants, 0, sizeof(*constants));
-    constants->projection[0] = 2.0f / (float)framebuffer_width;
-    constants->projection[5] = -2.0f / (float)framebuffer_height;
+    const uint32_t canvas_width = live->canvas_width != 0u ?
+        live->canvas_width : framebuffer_width;
+    const uint32_t canvas_height = live->canvas_height != 0u ?
+        live->canvas_height : framebuffer_height;
+    constants->projection[0] = 2.0f / (float)canvas_width;
+    constants->projection[5] = -2.0f / (float)canvas_height;
     constants->projection[10] = 1.0f;
     constants->projection[12] = -1.0f;
     constants->projection[13] = 1.0f;

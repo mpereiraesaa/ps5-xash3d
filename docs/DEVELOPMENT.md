@@ -72,5 +72,25 @@ never rolls back an already committed live bundle; it is journaled and leaves
 the explicit backup for manual recovery. Omit `--apply` to print the immutable
 local/remote/hash plan without changing the console.
 
+For the Phase 7 menu-to-c1a0 regression, build with `BSP_INPUT` pointing to
+`valve/maps/c1a0.bsp`. Deploy the complete native stack:
+
+```sh
+python3 xash/tools/deploy_engine_bundle.py --host <console-ip> \
+  --local-root dist/engine-boot/PPSA99996 \
+  --module filesystem_stdio.prx --module server.prx --module menu.prx \
+  --module client.prx --module ref_agc.prx --module libc.prx \
+  --asset map.ps5bsp --asset model.ps5mdl \
+  --journal /absolute/private/deploy.jsonl --apply
+```
+
+The preflight rejects incomplete AGC module/asset sets and requires the staged
+BSP SHA-256 to occur in the plaintext renderer SELF's compiled metadata before
+opening FTP. Raw readback then verifies every staged file. This prevents mixing
+a renderer compiled against one proof bundle with another installed bundle.
+It does not replace the paired runtime and visual validation. Preserve the
+successful `build/` and `dist/` together; host tests no longer delete build
+evidence. `make clean` remains the explicit cleanup operation.
+
 The private laboratory may retain source notes and hardware evidence, but its
 generated stage directories and title packages are never inputs to this repo.

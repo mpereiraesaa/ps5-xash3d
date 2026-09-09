@@ -307,6 +307,12 @@ else
     # for anything but SOUND_NULL, so the two never both define SNDDMA_*.
     engine_defines+=(-DXASH_REF_SOFT_ENABLED=1 -DXASH_VIDEO=99 -DXASH_INPUT=INPUT_NULL
         -DXASH_SOUND=$([[ $audio == 1 ]] && echo 99 || echo SOUND_NULL))
+    if [[ $ref_agc_prx == 1 ]]; then
+        # The live AGC backend owns a 1080p logical canvas.  The historical
+        # 640x480 headless default would otherwise make MainUI occupy only the
+        # upper-left corner of the native framebuffer.
+        engine_defines+=(-DPS5_XASH_VIDEO_WIDTH=1920 -DPS5_XASH_VIDEO_HEIGHT=1080)
+    fi
     engine_includes_client=(
         -I"$xash/3rdparty/opus/opus/include" -I"$xash/3rdparty/opusfile/opusfile/include"
         -I"$xash/3rdparty/libogg/libogg/include" -I"$gen/ogg"
@@ -903,11 +909,14 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/xash/platform_ps5/ref_agc_module.c"
         "$root/src/ref_agc_live_frame.c"
         "$root/src/ref_agc_live_2d.c"
+        "$root/src/ref_agc_live_brush.c"
         "$root/src/ref_agc_lightmap_atlas.c"
+        "$root/src/ref_agc_gpu_studio_cache.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
         "$root/src/ref_agc_gpu_world_cache.c"
         "$root/src/ref_agc_gpu_world_draw.c"
         "$root/src/ref_agc_skybox.c"
+        "$root/src/ref_agc_studio_store.c"
         "$root/src/ref_agc_texture_store.c"
         "$root/src/ref_agc_world_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"

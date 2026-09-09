@@ -16,6 +16,8 @@ TITLE_ID = "PPSA99996"
 REMOTE_ROOT = PurePosixPath("/data/homebrew") / TITLE_ID
 SAFE_MODULE = re.compile(r"^[A-Za-z0-9_-]+\.prx$")
 SAFE_ASSETS = {"map.ps5bsp", "model.ps5mdl"}
+AGC_MODULES = {"filesystem_stdio.prx", "server.prx", "menu.prx",
+               "client.prx", "ref_agc.prx", "libc.prx"}
 _RAW_SELF_MARKER = "_ps5_raw_self_transfer_enabled"
 
 
@@ -104,6 +106,14 @@ def bundle(local_root: Path, modules: list[str],
         if is_self and local.read_bytes()[:4] not in (
                 bytes.fromhex("4f153d1d"), bytes.fromhex("5414f5ee")):
             raise ValueError(f"artifact is not a SELF container: {local}")
+    if "ref_agc.prx" in modules:
+        if not AGC_MODULES.issubset(modules) or set(assets) != SAFE_ASSETS:
+            raise ValueError("AGC deployment requires all six PRXs and both bundles")
+        renderer = (local_root / "sce_module/ref_agc.prx").read_bytes()
+        # The plaintext SELF retains the renderer's compiled BSP identity.
+        # Check that identity before opening FTP, not just upload integrity.
+        if digest(local_root / "map.ps5bsp").encode("ascii") not in renderer:
+            raise ValueError("ref_agc.prx and map.ps5bsp build identity mismatch")
     return items
 
 

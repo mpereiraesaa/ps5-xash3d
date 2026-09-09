@@ -10,6 +10,11 @@ enum {
     REF_AGC_LIVE_MODEL_NAME = 64,
     REF_AGC_LIVE_SKY_SIDES = 6,
     REF_AGC_LIVE_RF_DRAW_WORLD = 1u << 0,
+    REF_AGC_LIVE_ENTITY_NORMAL = 0,
+    REF_AGC_LIVE_MODEL_BRUSH = 0,
+    REF_AGC_LIVE_MODEL_SPRITE = 1,
+    REF_AGC_LIVE_MODEL_ALIAS = 2,
+    REF_AGC_LIVE_MODEL_STUDIO = 3,
 };
 
 typedef enum RefAgcLive2DCommandType {
@@ -49,6 +54,8 @@ typedef struct RefAgcLiveWorld {
     uint32_t leafs;
     uint32_t has_visibility;
     uint32_t has_lightdata;
+    uint32_t first_surface;
+    uint32_t surface_count;
     float mins[3];
     float maxs[3];
 } RefAgcLiveWorld;
@@ -58,6 +65,7 @@ typedef struct RefAgcLiveEntity {
     int32_t entity_type;
     int32_t model_type;
     int32_t model_index;
+    uint32_t studio_handle;
     int32_t sequence;
     int32_t body;
     int32_t skin;
@@ -70,6 +78,11 @@ typedef struct RefAgcLiveEntity {
     float angles[3];
     float scale;
     float frame;
+    uint32_t first_surface;
+    uint32_t surface_count;
+    float mins[3];
+    float maxs[3];
+    float radius;
     char model_name[REF_AGC_LIVE_MODEL_NAME];
 } RefAgcLiveEntity;
 
@@ -95,9 +108,12 @@ typedef struct RefAgcLiveFrame {
     uint64_t begin_calls;
     uint64_t scene_calls;
     uint64_t end_calls;
+    uint32_t canvas_width;
+    uint32_t canvas_height;
     RefAgcLiveWorld world;
     RefAgcLiveSky sky;
     RefAgcLiveView view;
+    RefAgcLiveEntity viewmodel;
     RefAgcLiveEntity entities[REF_AGC_LIVE_MAX_ENTITIES];
     RefAgcLive2DCommand commands_2d[REF_AGC_LIVE_MAX_2D_COMMANDS];
     uint32_t entity_count;
@@ -106,6 +122,7 @@ typedef struct RefAgcLiveFrame {
     uint32_t dropped_2d_commands;
     uint32_t clear_scene;
     uint32_t scene_clears;
+    uint32_t viewmodel_valid;
 } RefAgcLiveFrame;
 
 typedef struct RefAgcLiveStore {
@@ -130,6 +147,8 @@ int ref_agc_live_store_init(RefAgcLiveStore *store);
 void ref_agc_live_store_destroy(RefAgcLiveStore *store);
 void ref_agc_live_set_world(RefAgcLiveStore *store,
                             const RefAgcLiveWorld *world);
+void ref_agc_live_set_canvas(RefAgcLiveStore *store,
+                             uint32_t width, uint32_t height);
 void ref_agc_live_set_sky(
     RefAgcLiveStore *store,
     const uint32_t texture_handles[REF_AGC_LIVE_SKY_SIDES]);
@@ -138,6 +157,8 @@ void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
 void ref_agc_live_clear_scene(RefAgcLiveStore *store);
 int ref_agc_live_add_entity(RefAgcLiveStore *store,
                             const RefAgcLiveEntity *entity);
+void ref_agc_live_set_viewmodel(RefAgcLiveStore *store,
+                                const RefAgcLiveEntity *viewmodel);
 void ref_agc_live_set_view(RefAgcLiveStore *store,
                            const RefAgcLiveView *view,
                            uint64_t scene_calls);

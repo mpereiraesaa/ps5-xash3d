@@ -140,6 +140,25 @@ def validate_renderer(
                     or marker.get("serial") != marker.get("consumed"):
                 fail("Phase 7 live frame ACK contract mismatch")
         complete = one(messages, "REF_AGC_LIVE_COMPLETE")
+        studio_markers = [parse_fields(message) for message in messages
+                          if message.startswith("REF_AGC_GPU_STUDIO_CACHE_COMPLETE ")]
+        if len(studio_markers) > 1:
+            fail("Phase 7 Studio cache completion is duplicated")
+        studio_cache = studio_markers[0] if studio_markers else None
+        if studio_cache is not None:
+            if not live_world_loop or not exact(studio_cache, {
+                "schema": "1", "arena_bytes": "33554432",
+                "source": "engine-decoded-studio-v10", "memory": "direct",
+                "ownership": "fence+videoout-before-reuse", "errors": "0",
+            }) or any(int(studio_cache.get(key, "0")) <= 0 for key in (
+                "revision", "creates", "active", "resident_bytes", "source_bytes", "flushes"
+            )) or not (int(studio_cache["resident_bytes"]) <=
+                       int(studio_cache.get("peak_bytes", "0")) <= 33554432) \
+                    or not (int(studio_cache["active"]) <=
+                            int(studio_cache.get("peak", "0")) <=
+                            int(studio_cache["creates"])):
+                fail("Phase 7 Studio cache ownership/accounting mismatch")
+        allowed_reclaims = ("9",) if studio_cache is not None else ("6", "7", "8")
         frames = int(complete.get("frames", "0"), 10)
         views = int(complete.get("view_frames", "0"), 10)
         bright = int(complete.get("bright_pixels", "0"), 10)
@@ -150,7 +169,7 @@ def validate_renderer(
                 or complete.get("buffer1") in (None, "0000000000000000") \
                 or complete.get("frame_hash") in (
                     None, "0000000000000000") \
-                or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7", "8") \
+                or bright <= 0 or complete.get("resource_reclaimed") not in allowed_reclaims \
                 or complete.get("ownership") != "fence+videoout+ack" \
                 or complete.get("guards") != "intact" \
                 or complete.get("errors") != "0":
@@ -481,6 +500,7 @@ def validate_renderer(
             "resource_reclaimed": int(complete["resource_reclaimed"], 10),
             "gpu_texture": texture,
             "gpu_world": world,
+            "studio_cache": studio_cache,
             "special_surfaces": special_summary,
             "live_2d": live_2d_summary,
             "live_menu": live_menu_summary,
@@ -664,7 +684,8 @@ def main() -> int:
             if engine["ref_agc_exports"] == 40:
                 texture = renderer["gpu_texture"]
                 world = renderer["gpu_world"]
-                expected_reclaims = 8 if world is not None else 7
+                expected_reclaims = (8 if world is not None else 7) + \
+                    int(renderer.get("studio_cache") is not None)
                 if texture is None \
                         or renderer["resource_reclaimed"] != expected_reclaims \
                         or int(texture["revision"], 10) > \

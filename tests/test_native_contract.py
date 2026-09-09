@@ -54,6 +54,12 @@ def main() -> None:
     ref_agc_gpu_texture_cache = (
         ROOT / "src/ref_agc_gpu_texture_cache.c"
     ).read_text(encoding="utf-8")
+    ref_agc_studio_store = (
+        ROOT / "src/ref_agc_studio_store.c"
+    ).read_text(encoding="utf-8")
+    ref_agc_gpu_studio_cache = (
+        ROOT / "src/ref_agc_gpu_studio_cache.c"
+    ).read_text(encoding="utf-8")
     ref_agc_gpu_world_cache = (
         ROOT / "src/ref_agc_gpu_world_cache.c"
     ).read_text(encoding="utf-8")
@@ -313,6 +319,7 @@ def main() -> None:
     for item in (
         "PS5_REF_AGC_LIVE_PHASE7=1", "src/ref_agc_live_frame.c",
         "src/ref_agc_gpu_texture_cache.c",
+        "src/ref_agc_studio_store.c", "src/ref_agc_gpu_studio_cache.c",
         "src/ref_agc_gpu_world_cache.c", "src/ref_agc_gpu_world_draw.c",
         "src/ref_agc_live_2d.c",
         "src/ref_agc_texture_store.c",
@@ -332,10 +339,13 @@ def main() -> None:
         "REF_AGC_GPU_TEXTURE_ARENA_BYTES = 64u * 1024u * 1024u",
         "REF_AGC_LIVE_WORLD_SYNC", "REF_AGC_GPU_WORLD_COMPLETE",
         "REF_AGC_LIVE_2D_FRAME", "REF_AGC_LIVE_2D_COMPLETE",
+        "REF_AGC_LIVE_COMPOSE_FAILURE_DETAIL",
         "ref_agc_live_2d_frame_build", "ref_agc_live_2d_compose_batch",
         "RESOURCE_TRANSIENT_BYTES = 0x200000u",
         "REF_AGC_GPU_WORLD_ARENA_BYTES = 32u * 1024u * 1024u",
-        "live_reclaimed != 8u",
+        "REF_AGC_LIVE_STUDIO_SYNC", "REF_AGC_GPU_STUDIO_CACHE_COMPLETE",
+        "REF_AGC_GPU_STUDIO_ARENA_BYTES = 32u * 1024u * 1024u",
+        "live_reclaimed != 9u",
         "#define PS5_BSP_FINAL_WINDOW(index) 0",
         "PS5_RefAgcWaitLiveFrame", "PS5_RefAgcConsumeLiveFrame",
     ):
@@ -370,9 +380,16 @@ def main() -> None:
         "RefGetParm = RefAgcGetParm",
         "PS5_RefAgcVisitTextures",
         "Mod_ProcessRenderData = RefAgcProcessRenderData",
+        "Mod_StudioLoadTextures = RefAgcStudioLoadTextures",
+        "RefAgcStudioUnloadTextures( model )",
+        "REF_AGC_STUDIO_TEXTURE_FAILURE",
         "PS5_RefAgcVisitWorld",
         "Color4f = RefAgcColor4f", "Color4ub = RefAgcColor4ub",
         "memcpy( command.color, ref_agc_draw_color",
+        "ref_agc_live_set_canvas",
+        "(uint32_t)model->nummodelsurfaces : world.surfaces",
+        "REF_AGC_LIVE_WORLD_CAPTURE",
+        "ref_agc_world_capture_pending",
     ):
         if item not in ref_agc_module:
             raise SystemExit(f"Phase 7 texture callback contract missing: {item}")
@@ -380,6 +397,7 @@ def main() -> None:
         "REF_AGC_LIVE_2D_TEXTURE_UNRESOLVED",
         "ref_agc_gpu_texture_cache_get", "ps5_transient_table_allocate",
         "i < live->command_2d_count",
+        "live->canvas_width", "live->canvas_height",
     ):
         if item not in ref_agc_live_2d:
             raise SystemExit(f"Phase 7 live 2D contract missing: {item}")
@@ -393,6 +411,21 @@ def main() -> None:
     ):
         if item not in ref_agc_texture_store:
             raise SystemExit(f"Phase 7 texture store contract missing: {item}")
+    for item in (
+        "REF_AGC_STUDIO_MAX", "ref_agc_studio_store_upsert",
+        "ref_agc_studio_store_free_name",
+        "ref_agc_studio_store_visit_changed", "content_hash",
+        "peak_resident_bytes",
+    ):
+        if item not in ref_agc_studio_store:
+            raise SystemExit(f"Phase 7 studio store contract missing: {item}")
+    for item in (
+        "ref_agc_gpu_studio_cache_apply", "prior_use_retired",
+        "REF_AGC_GPU_STUDIO_RETIREMENT_REQUIRED", "source_bytes_copied",
+        "peak_resident_bytes",
+    ):
+        if item not in ref_agc_gpu_studio_cache:
+            raise SystemExit(f"Phase 7 GPU studio cache contract missing: {item}")
     for item in (
         "ref_agc_world_store_publish", "ref_agc_world_store_clear",
         "ref_agc_world_store_visit_changed", "uint32_t *indices",
