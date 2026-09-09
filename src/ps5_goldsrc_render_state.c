@@ -24,6 +24,12 @@ enum {
 
 static uint32_t blend_control(GoldSrcBlendMode blend)
 {
+    if (blend == GOLDSRC_BLEND_SCREEN_ALPHA_MASKED)
+        blend = GOLDSRC_BLEND_ALPHA;
+    else if (blend == GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED)
+        blend = GOLDSRC_BLEND_ADDITIVE;
+    else if (blend == GOLDSRC_BLEND_SCREEN_MODULATE_MASKED)
+        blend = GOLDSRC_BLEND_SCREEN_MODULATE;
     if (blend == GOLDSRC_BLEND_SCREEN_MODULATE) {
         /* glBlendFunc(GL_ZERO, GL_SRC_COLOR): dst *= source, including A. */
         return PS5_BLEND_ENABLE | PS5_BLEND_SEPARATE_ALPHA |

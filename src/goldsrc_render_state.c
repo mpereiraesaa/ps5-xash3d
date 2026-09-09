@@ -12,7 +12,8 @@ int goldsrc_render_state_validate(const GoldSrcRenderState *state)
     if (!state ||
         ((unsigned)state->blend >= GOLDSRC_BLEND_MODE_COUNT &&
          !(state->screen_space == 1u &&
-           state->blend == GOLDSRC_BLEND_SCREEN_MODULATE)) ||
+           state->blend >= GOLDSRC_BLEND_SCREEN_MODULATE &&
+           state->blend <= GOLDSRC_BLEND_SCREEN_MODULATE_MASKED)) ||
         state->cull >= GOLDSRC_CULL_MODE_COUNT ||
         !valid_boolean(state->depth_write) ||
         !valid_boolean(state->fog) || !valid_boolean(state->lightmap) ||
@@ -72,7 +73,8 @@ int goldsrc_render_state_2d(GoldSrcBlendMode blend,
                  blend != GOLDSRC_BLEND_ALPHA &&
                  blend != GOLDSRC_BLEND_ADDITIVE &&
                  blend != GOLDSRC_BLEND_ALPHA_TEST &&
-                 blend != GOLDSRC_BLEND_SCREEN_MODULATE))
+                 !(blend >= GOLDSRC_BLEND_SCREEN_MODULATE &&
+                   blend <= GOLDSRC_BLEND_SCREEN_MODULATE_MASKED)))
         return -1;
     const GoldSrcRenderState state = {
         blend, GOLDSRC_CULL_NONE, 0u, 0u, 0u, 1u
@@ -86,8 +88,9 @@ int goldsrc_render_state_key(const GoldSrcRenderState *state,
 {
     if (!out_key || goldsrc_render_state_validate(state) != 0)
         return -1;
-    if (state->blend == GOLDSRC_BLEND_SCREEN_MODULATE) {
-        *out_key = GOLDSRC_RENDER_KEY_SCREEN_MODULATE;
+    if (state->blend >= GOLDSRC_BLEND_SCREEN_MODULATE) {
+        *out_key = GOLDSRC_RENDER_KEY_SCREEN_MODULATE +
+            (state->blend - GOLDSRC_BLEND_SCREEN_MODULATE);
         return 0;
     }
     *out_key = ((uint32_t)state->blend <<

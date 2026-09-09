@@ -188,6 +188,20 @@ int main(void)
         &ordered, &textures) == REF_AGC_LIVE_2D_SEQUENCE_INVALID);
     assert(ring.slots[0].used == used_before_invalid);
 
+    assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);
+    assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
+    ordered.commands_2d[1].render_mode = 0;
+    for (unsigned i = 1; i < ordered.command_2d_count; ++i)
+        ordered.commands_2d[i].enabled = 1u;
+    assert(ref_agc_live_2d_frame_build(
+        &frame, &ring, 0u, memory, sizeof(memory), 1920u, 1080u,
+        &ordered, &textures) == REF_AGC_LIVE_2D_OK);
+    assert(frame.masked_batches == 7u && frame.batch_count == 7u);
+    assert(frame.batches[0].blend == GOLDSRC_BLEND_ALPHA_TEST);
+    assert(frame.batches[1].blend == GOLDSRC_BLEND_SCREEN_ALPHA_MASKED);
+    assert(frame.batches[2].blend == GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED);
+    assert(frame.batches[5].blend == GOLDSRC_BLEND_SCREEN_MODULATE_MASKED);
+
     /* FillRGBA's mode argument is not GL_SetRenderMode: only TransAdd adds. */
     for (unsigned i = 0; i < 8u; ++i) {
         assert(ps5_transient_ring_abort_unsubmitted(&ring, 0u) == 0);

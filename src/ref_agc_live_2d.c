@@ -135,7 +135,7 @@ int ref_agc_live_2d_frame_build(
             ++out->mode_commands;
             continue;
         }
-        if (!mode_enabled || !finite_quad(command))
+        if (!mode_enabled || !finite_quad(command) || command->enabled > 1u)
             return REF_AGC_LIVE_2D_SEQUENCE_INVALID;
         if (command->type == REF_AGC_LIVE_2D_STRETCH_PIC) {
             GoldSrcBlendMode blend;
@@ -267,6 +267,15 @@ int ref_agc_live_2d_frame_build(
             }
             memcpy(descriptor, texture.descriptor, sizeof(descriptor));
         }
+        if (command.enabled) {
+            switch (blend) {
+            case GOLDSRC_BLEND_OPAQUE: blend = GOLDSRC_BLEND_ALPHA_TEST; break;
+            case GOLDSRC_BLEND_ALPHA: blend = GOLDSRC_BLEND_SCREEN_ALPHA_MASKED; break;
+            case GOLDSRC_BLEND_ADDITIVE: blend = GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED; break;
+            case GOLDSRC_BLEND_SCREEN_MODULATE: blend = GOLDSRC_BLEND_SCREEN_MODULATE_MASKED; break;
+            default: break;
+            }
+        }
         if (!batch || batch->blend != blend || batch->fill != fill ||
             batch->texture_handle != texture_handle) {
             if (out->batch_count >= REF_AGC_LIVE_2D_MAX_BATCHES) {
@@ -293,7 +302,7 @@ int ref_agc_live_2d_frame_build(
                 ++out->alpha_batches;
             else if (blend == GOLDSRC_BLEND_ADDITIVE)
                 ++out->additive_batches;
-            else if (blend == GOLDSRC_BLEND_ALPHA_TEST)
+            else if (goldsrc_blend_screen_masked(blend))
                 ++out->masked_batches;
             else if (blend == GOLDSRC_BLEND_SCREEN_MODULATE)
                 ++out->modulate_batches;

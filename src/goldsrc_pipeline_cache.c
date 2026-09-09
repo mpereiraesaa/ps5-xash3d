@@ -9,7 +9,7 @@ int goldsrc_pipeline_shader_variant(const GoldSrcRenderState *state,
     if (!out_variant || goldsrc_render_state_validate(state) != 0)
         return -1;
     if (state->screen_space) {
-        *out_variant = state->blend == GOLDSRC_BLEND_ALPHA_TEST ?
+        *out_variant = goldsrc_blend_screen_masked(state->blend) ?
             GOLDSRC_SHADER_SCREEN_2D_MASKED : GOLDSRC_SHADER_SCREEN_2D;
         return 0;
     }
@@ -78,6 +78,9 @@ int goldsrc_pipeline_cache_build(GoldSrcPipelineCache *out,
     const GoldSrcBlendMode screen_blends[GOLDSRC_PIPELINE_2D_COUNT] = {
         GOLDSRC_BLEND_OPAQUE, GOLDSRC_BLEND_ALPHA, GOLDSRC_BLEND_ADDITIVE,
         GOLDSRC_BLEND_ALPHA_TEST, GOLDSRC_BLEND_SCREEN_MODULATE,
+        GOLDSRC_BLEND_SCREEN_ALPHA_MASKED,
+        GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED,
+        GOLDSRC_BLEND_SCREEN_MODULATE_MASKED,
     };
     for (unsigned i = 0; i < GOLDSRC_PIPELINE_2D_COUNT; ++i) {
         GoldSrcRenderState state;

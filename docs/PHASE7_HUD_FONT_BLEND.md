@@ -31,8 +31,7 @@ not change audio, Studio, asset packs or the accepted memory policy.
 state preserves all six standard modes and the modulate extension; unknown
 modes fall back to opaque as upstream does. Each stretch-pic command snapshots
 that mode instead of forcing alpha blend. Static ABI assertions bind the
-numeric contract to the actual pinned engine definitions. This is not yet
-ready for deployment: alpha-test and modulate consumers still need work.
+numeric contract to the actual pinned engine definitions.
 
 Tests cover ordered normal/alpha/additive/reset/masked/modulate sequences and
 invalid-mode fallback. The existing full host suite passes, but this does not
@@ -41,14 +40,15 @@ Play was performed for this partial change.
 
 The render-state layer now accepts masked 2D and a screen-only modulate
 extension. Existing 96 3D permutations and numeric keys remain unchanged;
-the five screen keys are 128, 129, 130, 131 and 384. Invalid/negative blends
+the screen keys are 128, 129, 130, 131 and 384..387. Invalid/negative blends
 and modulate in 3D are rejected. Register tests cover depth/cull disabled
 for masked and modulate screen draws. Modulate encodes ZERO/SRC_COLOR for
 RGB and ZERO/SRC_ALPHA for alpha (`0x64000200`); SRC_COLOR=2 was checked
 against AMD PAL's `gfx9_plus_merged_enum.h`.
 
-The pipeline cache now contains 101 entries: the unchanged 96 3D entries
-plus five screen entries. The dedicated `screen_2d_masked` shader is generated
+The pipeline cache now contains 104 entries: the unchanged 96 3D entries
+plus eight screen entries. Alpha test can accompany opaque, alpha, additive
+or modulate composition. The dedicated `screen_2d_masked` shader is generated
 from the ordinary screen source with only a post-multiply alpha-zero discard;
 vertex layout and color transport stay unchanged. Asset/catalog generators,
 build rules and manifest validation include all ten shader variants. Host
@@ -77,13 +77,34 @@ batch accounting. Historical schema 1 remains supported. Tests accept a
 mixed schema-2 sample and reject missing, negative, overcounted counters and
 unknown schemas. `make all` passes.
 
-This remains preparation, not hardware or visual acceptance. Next: complete
-adapter state/color side effects around FillRGBA and entering/leaving 2D,
-then build the complete engine/PRX bundle and run paired hardware QA. In
-particular, upstream FillRGBA leaves its color active and disables blending;
-R_Set2DMode enables alpha test and resets white only on an actual transition
-into 2D. These effects must not be confused with explicit GL_SetRenderMode.
-Do not deploy this partial checkpoint.
+The adapter now owns independent alpha-test and 2D-entry state alongside its
+color. FillRGBA leaves its color active and disables blending, preserving
+alpha test; R_Set2DMode enables alpha test and resets white only on an actual
+transition into 2D. Repeated enable calls do not reset color. Host tests cover
+these transitions, including retained modulate blending on 2D entry.
+
+The existing command `enabled` word retains its meaning for MODE commands;
+for draw commands it now carries the independently captured alpha-test flag
+(0/1). This preserves struct size but is an internal protocol extension, so
+producer and consumer must be built/deployed together. The compositor rejects
+non-boolean flags and selects a masked shader with the requested blend
+registers when both are enabled. Telemetry classifies every alpha-tested batch
+as masked (mutually exclusive counters), including masked blended batches.
+
+The complete client/AGC engine build passed with all five project PRXs,
+5-second MainUI entry and 180-second map-relative timeout. Audio remains
+disabled for this isolated HUD gate. Renderer ELF SHA-256:
+`88ca05fbf445e532fa91e92c5d420b43dc9b90fbb73a0cd07fe0821f669e66b4`;
+renderer PRX SHA-256:
+`23672468d2920dc78096a7224744d254be1a82c590038b974252084ba9864ad9`.
+An exact byte comparison located the new 200-byte pixel shader in the ELF
+at file offset 295680, matching the shader hash above. The engine ELF and
+SELF retain the accepted texture-policy identities; `--dyn-syms` still has
+no strcasestr import.
+
+This is not hardware or visual acceptance. Next: paired hardware QA with
+the operator, followed by documentation/HTML and green PR integration.
+No console deployment or launch has been made for this HUD build yet.
 
 ## Required closure
 

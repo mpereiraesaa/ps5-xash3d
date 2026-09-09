@@ -22,7 +22,17 @@ typedef enum GoldSrcBlendMode {
     GOLDSRC_BLEND_MODE_COUNT = 4,
     /* Screen-only extension: do not expand the contiguous 3D permutations. */
     GOLDSRC_BLEND_SCREEN_MODULATE = 0x1000,
+    GOLDSRC_BLEND_SCREEN_ALPHA_MASKED = 0x1001,
+    GOLDSRC_BLEND_SCREEN_ADDITIVE_MASKED = 0x1002,
+    GOLDSRC_BLEND_SCREEN_MODULATE_MASKED = 0x1003,
 } GoldSrcBlendMode;
+
+static inline int goldsrc_blend_screen_masked(GoldSrcBlendMode blend)
+{
+    return blend == GOLDSRC_BLEND_ALPHA_TEST ||
+        (blend >= GOLDSRC_BLEND_SCREEN_ALPHA_MASKED &&
+         blend <= GOLDSRC_BLEND_SCREEN_MODULATE_MASKED);
+}
 
 typedef enum GoldSrcCullMode {
     GOLDSRC_CULL_NONE = 0,
