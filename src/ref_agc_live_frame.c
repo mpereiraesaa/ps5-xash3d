@@ -58,6 +58,15 @@ void ref_agc_live_set_world(RefAgcLiveStore *store,
     store->building.map_serial = store->current_world.serial;
 }
 
+void ref_agc_live_set_canvas(RefAgcLiveStore *store,
+                             uint32_t width, uint32_t height)
+{
+    if (!store || !store->initialized || width == 0u || height == 0u)
+        return;
+    store->building.canvas_width = width;
+    store->building.canvas_height = height;
+}
+
 void ref_agc_live_set_sky(
     RefAgcLiveStore *store,
     const uint32_t texture_handles[REF_AGC_LIVE_SKY_SIDES])
@@ -92,6 +101,8 @@ void ref_agc_live_begin_frame(RefAgcLiveStore *store, int clear_scene,
     store->building.sky = store->current_sky;
     store->building.map_serial = store->current_world.serial;
     memset(&store->building.view, 0, sizeof(store->building.view));
+    memset(&store->building.viewmodel, 0, sizeof(store->building.viewmodel));
+    store->building.viewmodel_valid = 0u;
     store->building.command_2d_count = 0;
     store->building.dropped_2d_commands = 0;
     store->building.clear_scene = clear_scene != 0;
@@ -108,6 +119,7 @@ void ref_agc_live_clear_scene(RefAgcLiveStore *store)
     if (!store || !store->initialized)
         return;
     store->building.entity_count = 0;
+    store->building.studio_pose_count = 0;
     store->building.dropped_entities = 0;
     store->scene_serial++;
     store->building.scene_clears++;
@@ -127,6 +139,21 @@ int ref_agc_live_add_entity(RefAgcLiveStore *store,
     *target = *entity;
     copy_name(target->model_name, entity->model_name);
     return 0;
+}
+
+void ref_agc_live_set_viewmodel(RefAgcLiveStore *store,
+                                const RefAgcLiveEntity *viewmodel)
+{
+    if (!store || !store->initialized)
+        return;
+    memset(&store->building.viewmodel, 0,
+           sizeof(store->building.viewmodel));
+    store->building.viewmodel_valid = 0u;
+    if (!viewmodel)
+        return;
+    store->building.viewmodel = *viewmodel;
+    copy_name(store->building.viewmodel.model_name, viewmodel->model_name);
+    store->building.viewmodel_valid = 1u;
 }
 
 void ref_agc_live_set_view(RefAgcLiveStore *store,
@@ -305,7 +332,12 @@ int ref_agc_live_view_camera(const RefAgcLiveView *view,
 int ref_agc_live_world_view_ready(const RefAgcLiveFrame *frame)
 {
     return frame && frame->map_serial != 0u &&
-        frame->world.surfaces != 0u && frame->view.valid &&
+        frame->world.surfaces != 0u &&
+        frame->world.surface_count != 0u &&
+        frame->world.first_surface < frame->world.surfaces &&
+        frame->world.surface_count <=
+            frame->world.surfaces - frame->world.first_surface &&
+        frame->view.valid &&
         (frame->view.flags & REF_AGC_LIVE_RF_DRAW_WORLD) != 0u &&
         frame->view.viewport[2] > 0 && frame->view.viewport[3] > 0;
 }

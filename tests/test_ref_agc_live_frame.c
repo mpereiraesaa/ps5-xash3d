@@ -46,11 +46,17 @@ int main(void)
         .entity_type = 2,
         .model_type = 1,
         .model_index = 12,
+        .studio_handle = 27u,
         .render_mode = 0,
         .render_amount = 255,
         .render_color = {255, 128, 64, 255},
         .origin = {1.0f, 2.0f, 3.0f},
         .scale = 1.0f,
+        .first_surface = 120,
+        .surface_count = 8,
+        .mins = {-16.0f, -16.0f, -36.0f},
+        .maxs = {16.0f, 16.0f, 36.0f},
+        .radius = 44.0f,
     };
     RefAgcLive2DCommand command = {
         .type = REF_AGC_LIVE_2D_STRETCH_PIC,
@@ -80,21 +86,33 @@ int main(void)
     world.textures = 92;
     world.has_visibility = 1;
     world.has_lightdata = 1;
+    world.first_surface = 0;
+    world.surface_count = 117;
     ref_agc_live_set_world(&store, &world);
 
     strcpy(entity.model_name, "models/barney.mdl");
     /* Xash calls CL_EmitEntities (ClearScene/AddEntity) before V_PreRender
      * calls BeginFrame. The frame reset must preserve that staged scene. */
     ref_agc_live_clear_scene(&store);
+    store.building.studio_pose_count = 1;
+    store.building.studio_poses[0].bones = 1;
+    store.building.studio_poses[0].matrices[0][0][3] = 123.0f;
+    entity.studio_pose = 1;
     assert(ref_agc_live_add_entity(&store, &entity) == 0);
     ref_agc_live_begin_frame(&store, 1, 41);
+    ref_agc_live_set_canvas(&store, 1920u, 1080u);
     ref_agc_live_set_view(&store, &view, 42);
+    ref_agc_live_set_viewmodel(&store, &entity);
     assert(ref_agc_live_add_2d(&store, &command) == 0);
     assert(ref_agc_live_publish(&store, 43) == 0);
     assert(ref_agc_live_take_latest(&store, 0, &frame) == 0);
     assert(frame.serial == 1 && frame.map_serial == 1);
+    assert(frame.studio_pose_count == 1 && frame.entities[0].studio_pose == 1);
+    store.building.studio_poses[0].matrices[0][0][3] = 999.0f;
+    assert(frame.studio_poses[0].matrices[0][0][3] == 123.0f);
     assert(frame.begin_calls == 41 && frame.scene_calls == 42 &&
            frame.end_calls == 43);
+    assert(frame.canvas_width == 1920u && frame.canvas_height == 1080u);
     assert(frame.view.valid && frame.view.viewport[2] == 1920);
     assert(frame.view.time_seconds == 12.25 && !frame.view.paused);
     assert(frame.sky.active && frame.sky.revision == 1u &&
@@ -103,6 +121,13 @@ int main(void)
     assert(frame.world.surfaces == 1234);
     assert(strcmp(frame.world.model_name, "maps/c1a0.bsp") == 0);
     assert(frame.entity_count == 1 && frame.entities[0].index == 7);
+    assert(frame.entities[0].first_surface == 120 &&
+           frame.entities[0].surface_count == 8 &&
+           frame.entities[0].radius == 44.0f);
+    assert(frame.world.first_surface == 0 && frame.world.surface_count == 117);
+    assert(frame.viewmodel_valid && frame.viewmodel.model_index == 12 &&
+           frame.viewmodel.studio_handle == 27u &&
+           strcmp(frame.viewmodel.model_name, "models/barney.mdl") == 0);
     assert(frame.scene_clears == 1);
     assert(strcmp(frame.entities[0].model_name, "models/barney.mdl") == 0);
     assert(frame.command_2d_count == 1 &&
@@ -121,10 +146,17 @@ int main(void)
     frame.view.flags = 0u;
     assert(ref_agc_live_world_view_ready(&frame) == 0);
     frame.view.flags = REF_AGC_LIVE_RF_DRAW_WORLD;
+    frame.world.surface_count = 0u;
+    assert(ref_agc_live_world_view_ready(&frame) == 0);
+    frame.world.surface_count = 117u;
+    frame.world.first_surface = frame.world.surfaces;
+    assert(ref_agc_live_world_view_ready(&frame) == 0);
+    frame.world.first_surface = 0u;
     frame.map_serial = 0u;
     assert(ref_agc_live_world_view_ready(&frame) == 0);
 
     ref_agc_live_begin_frame(&store, 0, 44);
+    assert(!store.building.viewmodel_valid);
     ref_agc_live_clear_scene(&store);
     for (unsigned i = 0; i < REF_AGC_LIVE_MAX_ENTITIES; ++i)
         assert(ref_agc_live_add_entity(&store, &entity) == 0);

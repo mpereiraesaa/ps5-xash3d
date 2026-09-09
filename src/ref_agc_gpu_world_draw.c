@@ -18,8 +18,46 @@ int ref_agc_gpu_world_required_dwords(uint32_t draws, uint32_t *out)
     return 0;
 }
 
+int ref_agc_gpu_world_count_surface_range(
+    const RefAgcGpuWorldCache *cache, uint32_t first_surface,
+    uint32_t surface_count, uint32_t flag_mask, uint32_t flag_value,
+    RefAgcGpuWorldComposeResult *out)
+{
+    if (!cache || !cache->initialized || !cache->stats.active || !out ||
+        surface_count == 0u ||
+        first_surface > UINT32_MAX - (surface_count - 1u) ||
+        (flag_value & ~flag_mask) != 0u)
+        return -1;
+    *out = (RefAgcGpuWorldComposeResult){0};
+    for (uint32_t i = 0u; i < cache->stats.draw_count; ++i) {
+        const RefAgcGpuWorldDraw *draw = &cache->draws[i];
+        if (draw->surface_id < first_surface ||
+            draw->surface_id - first_surface >= surface_count ||
+            (draw->draw_flags & flag_mask) != flag_value)
+            continue;
+        ++out->draws;
+        out->indices += draw->index_count;
+    }
+    return 0;
+}
+
 int ref_agc_gpu_world_compose(
     uint32_t **cursor, uint32_t *end, const RefAgcGpuWorldCache *cache,
+    uint32_t flag_mask, uint32_t flag_value,
+    const uint32_t *constant_table, const void *gpu_mapping,
+    size_t gpu_mapping_bytes, uint64_t modifier,
+    BspSetShDirectFn set_sh_direct, BspDrawIndexedFn draw_indexed,
+    RefAgcGpuWorldComposeResult *out)
+{
+    return ref_agc_gpu_world_compose_surface_range(
+        cursor, end, cache, 0u, UINT32_MAX, flag_mask, flag_value,
+        constant_table, gpu_mapping, gpu_mapping_bytes, modifier,
+        set_sh_direct, draw_indexed, out);
+}
+
+int ref_agc_gpu_world_compose_surface_range(
+    uint32_t **cursor, uint32_t *end, const RefAgcGpuWorldCache *cache,
+    uint32_t first_surface, uint32_t surface_count,
     uint32_t flag_mask, uint32_t flag_value,
     const uint32_t *constant_table, const void *gpu_mapping,
     size_t gpu_mapping_bytes, uint64_t modifier,
@@ -30,7 +68,9 @@ int ref_agc_gpu_world_compose(
     if (!cursor || !*cursor || !end || *cursor > end || !cache ||
         !cache->initialized || !cache->stats.active || !constant_table ||
         !gpu_mapping || !gpu_mapping_bytes || !modifier || !set_sh_direct ||
-        !draw_indexed || !out || flag_value & ~flag_mask ||
+        !draw_indexed || !out || surface_count == 0u ||
+        first_surface > UINT32_MAX - (surface_count - 1u) ||
+        flag_value & ~flag_mask ||
         ((uintptr_t)constant_table & 15u) != 0u ||
         !ps5_gpu_span_visible(gpu_mapping, gpu_mapping_bytes,
                               constant_table,
@@ -39,6 +79,9 @@ int ref_agc_gpu_world_compose(
         return -1;
     for (uint32_t i = 0u; i < cache->stats.draw_count; ++i) {
         const RefAgcGpuWorldDraw *draw = &cache->draws[i];
+        if (draw->surface_id < first_surface ||
+            draw->surface_id - first_surface >= surface_count)
+            continue;
         if ((draw->draw_flags & flag_mask) != flag_value)
             continue;
         const uint16_t *indices = ref_agc_gpu_world_cache_indices(cache, draw);
@@ -67,6 +110,9 @@ int ref_agc_gpu_world_compose(
     RefAgcGpuWorldComposeResult result = {0};
     for (uint32_t i = 0u; i < cache->stats.draw_count; ++i) {
         const RefAgcGpuWorldDraw *draw = &cache->draws[i];
+        if (draw->surface_id < first_surface ||
+            draw->surface_id - first_surface >= surface_count)
+            continue;
         if ((draw->draw_flags & flag_mask) != flag_value)
             continue;
         const uint32_t gs_values[2] = {

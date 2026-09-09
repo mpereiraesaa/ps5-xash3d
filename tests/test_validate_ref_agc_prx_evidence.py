@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import sys
 from pathlib import Path
 
 
@@ -14,6 +15,49 @@ ENGINE = "9aa39ad"
 HLSDK = "e277ffa"
 BUNDLE = "1" * 64
 STUDIO = "2" * 64
+
+sys.path.insert(0, str(ROOT / "tools"))
+from validate_ref_agc_prx_evidence import validate_live_brush, validate_live_studio, EvidenceError
+
+
+def test_studio_validation():
+    valid = [
+        "REF_AGC_LIVE_STUDIO_FRAME schema=1 serial=10 entities=1 draws=2 vertices=4 indices=6 ownership=transient-slot lighting=unlit",
+        "REF_AGC_LIVE_STUDIO_ENTITY serial=10 index=4 model=models/test.mdl sequence=1 bones=24 frame_milli=2500",
+        "REF_AGC_LIVE_STUDIO_COMPLETE schema=1 frames=10 draws=20 indices=60 pose_hash=123456789abcdef0 pose_changes=9 ownership=fence+videoout+ack lighting=unlit errors=0",
+    ]
+    assert validate_live_studio(valid, 10)["models"] == ["models/test.mdl"]
+    for bad in (valid[:-1], [m.replace("bones=24", "bones=129") for m in valid],
+                [m.replace("pose_changes=9", "pose_changes=0") for m in valid],
+                [m.replace("entities=1", "entities=2") for m in valid],
+                [m.replace("indices=60", "indices=59") for m in valid]):
+        try:
+            validate_live_studio(bad, 10)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("invalid Studio evidence accepted")
+
+
+def test_brush_validation():
+    sample = "REF_AGC_LIVE_BRUSH_FRAME serial=1 instances=1 input_entities=1 opaque=1 alpha=0 additive=0 rejected=0 draws=2 indices=6 ownership=transient-slot"
+    entity = "REF_AGC_LIVE_BRUSH_ENTITY serial=1 index=5 model=*2 first_surface=10 surface_count=2 mode=0 origin_milli=0,0,0 angles_milli=0,0,0"
+    complete = "REF_AGC_LIVE_BRUSH_COMPLETE schema=1 frames=2 instances=2 draws=4 indices=12 transform_hash=123456789abcdef0 ownership=fence+videoout+ack errors=0"
+    valid = [sample, entity, sample.replace("serial=1", "serial=2"),
+             entity.replace("serial=1", "serial=2").replace("angles_milli=0,0,0", "angles_milli=0,90000,0"), complete]
+    assert validate_live_brush(valid, 2, 20)["moving_entities"] == [["5", "*2"]]
+    for bad in (
+        [m.replace("surface_count=2", "surface_count=21") for m in valid],
+        [m.replace("instances=1", "instances=2") for m in valid],
+        [m.replace("draws=4", "draws=1") for m in valid],
+        valid[:-1],
+    ):
+        try:
+            validate_live_brush(bad, 2, 20)
+        except EvidenceError:
+            pass
+        else:
+            raise AssertionError("accepted invalid brush evidence")
 
 
 def write_run(directory: Path, name: str, app: str, messages: list[str], *,
@@ -343,6 +387,14 @@ def main() -> None:
             phase7_renderer_messages(resources=True),
             started="2026-09-08T19:13:27.984+00:00")
         resource_valid = run(resource_engine, resource_renderer)
+        for budget, should_pass in (("83886080", True), ("1024", False)):
+            mip_messages = [m.replace("arena_bytes=67108864", "arena_bytes=" + budget)
+                            .replace("descriptors=rgba8+bilinear ",
+                                     "descriptors=rgba8+bilinear+studio-trilinear ")
+                            for m in phase7_renderer_messages(resources=True)]
+            mip_renderer = write_run(directory, "mip-" + budget, "ps5-xash3d",
+                mip_messages, started="2026-09-08T19:13:27.984+00:00")
+            assert (run(resource_engine, mip_renderer).returncode == 0) == should_pass
         assert resource_valid.returncode == 0, resource_valid.stderr
         resource_summary = json.loads(resource_valid.stdout)
         assert resource_summary["ref_agc_texture_handles"] == 250
@@ -360,6 +412,26 @@ def main() -> None:
         world_summary = json.loads(world_valid.stdout)
         assert world_summary["gpu_world"]["draws"] == "3695"
         assert world_summary["gpu_world"]["vertices"] == "17245"
+        studio_marker = (
+            "REF_AGC_GPU_STUDIO_CACHE_COMPLETE schema=1 revision=74 creates=74 "
+            "updates=0 deletes=0 active=74 peak=74 resident_bytes=3077376 "
+            "peak_bytes=3077376 source_bytes=3069050 flushes=74 arena_bytes=33554432 "
+            "source=engine-decoded-studio-v10 memory=direct "
+            "ownership=fence+videoout-before-reuse errors=0")
+        nine_reclaims = [m.replace("resource_reclaimed=8", "resource_reclaimed=9")
+                         for m in phase7_renderer_messages(resources=True, world=True)]
+        for name, markers, accepted in (
+            ("studio-valid", [studio_marker, *nine_reclaims], True),
+            ("studio-missing", nine_reclaims, False),
+            ("studio-unretired", [studio_marker, *phase7_renderer_messages(
+                resources=True, world=True)], False),
+            ("studio-overflow", [studio_marker.replace("peak_bytes=3077376",
+                "peak_bytes=33554433"), *nine_reclaims], False),
+        ):
+            candidate = write_run(directory, name, "ps5-xash3d", markers,
+                                  started="2026-09-08T19:13:27.984+00:00")
+            checked = run(resource_engine, candidate, require_live_lightmaps=True)
+            assert (checked.returncode == 0) == accepted, checked.stderr
 
         special_engine = write_run(
             directory, "special-engine", "xash3d-engine",
@@ -632,4 +704,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    test_studio_validation()
+    test_brush_validation()
     main()

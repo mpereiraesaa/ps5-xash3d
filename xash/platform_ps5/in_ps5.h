@@ -90,6 +90,8 @@ int PS5_PadInputInit( void );
 int PS5_PadInputPoll( void );
 int PS5_PadInputGatePassed( void );
 int PS5_PadInputShutdown( void );
+int PS5_PadInputRuntimePoll( void );
+int PS5_PadInputRuntimeShutdown( void );
 const struct ps5_xash_pad_stats *PS5_PadInputStats( void );
 
 #ifdef __cplusplus

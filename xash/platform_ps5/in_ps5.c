@@ -31,6 +31,7 @@ adapter owned by the Xash3D port; no vendor header is included.
 #include "input.h"
 #include "keydefs.h"
 #include "client.h"
+#include "ps5_xash_build.h"
 #endif
 
 #define PS5_PAD_MAX_SAMPLES 64
@@ -234,6 +235,20 @@ static void xash_axis_event( void *opaque, enum ps5_xash_pad_axis axis, int16_t 
 static void xash_button_event( void *opaque, enum ps5_xash_pad_button button, int down )
 {
 	(void)opaque;
+#if PS5_XASH_SAMPLING_PROBE
+	if( button == PS5_XASH_BUTTON_TOUCHPAD && cls.state == ca_active )
+	{
+		if( down )
+		{
+			float current = Cvar_VariableValue( "r_agc_qa_mode" );
+			int next = current >= 0.0f && current < 3.0f ? (int)current + 1 : 0;
+			Cvar_SetValue( "r_agc_qa_mode", (float)next );
+			(void)ps5log_printf( PS5LOG_MARK,
+				"XASH_QA_MODE_REQUEST schema=1 mode=%d source=touchpad", next );
+		}
+		return;
+	}
+#endif
 	if( button >= 0 && button < PS5_XASH_BUTTON_COUNT )
 		Key_Event( xash_button_map[button], down );
 }
@@ -449,4 +464,32 @@ int PS5_PadInputShutdown( void )
 const struct ps5_xash_pad_stats *PS5_PadInputStats( void )
 {
 	return &pad.stats;
+}
+
+/* Normal client input is independent of the dedicated six-action gate.
+ * Start only after client signon, when Joy/Key/Cvar are initialized. */
+static int runtime_state;
+int PS5_PadInputRuntimePoll( void )
+{
+	if( runtime_state == 0 )
+	{
+		int result = PS5_PadInputInit( );
+		runtime_state = result == 0 ? 1 : -1;
+		(void)ps5log_printf( result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+			"XASH_PAD_RUNTIME_BEGIN schema=1 result=%d autoquit=0", result );
+	}
+	return runtime_state == 1 ? PS5_PadInputPoll( ) : -1;
+}
+
+int PS5_PadInputRuntimeShutdown( void )
+{
+	if( runtime_state == 0 ) return 0;
+	/* Host_Main may already have destroyed input/cvars. Do not send events
+	 * into those subsystems while releasing the platform-owned handle. */
+	PS5_PadInputSetSink( NULL );
+	int result = PS5_PadInputShutdown( );
+	runtime_state = 0;
+	(void)ps5log_printf( result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
+		"XASH_PAD_RUNTIME_END schema=1 result=%d ownership=exact", result );
+	return result;
 }

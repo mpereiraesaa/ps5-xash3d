@@ -24,6 +24,7 @@ typedef struct RefAgcGpuTextureEntry {
     uint32_t width;
     uint32_t height;
     uint32_t row_pitch;
+    uint32_t mip_count;
     int active;
 } RefAgcGpuTextureEntry;
 

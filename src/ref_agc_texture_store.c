@@ -79,6 +79,7 @@ static void make_view(const RefAgcTextureEntry *entry, uint32_t handle,
     out->format = entry->format;
     out->flags = entry->flags;
     out->mip_count = entry->mip_count;
+    out->generate_mips = entry->generate_mips;
     out->sampler_clamp = entry->sampler_clamp;
     out->revision = entry->revision;
     out->content_hash = entry->content_hash;
@@ -178,6 +179,7 @@ int ref_agc_texture_store_upsert(RefAgcTextureStore *store,
     entry->format = input->format;
     entry->flags = input->flags;
     entry->mip_count = input->mip_count;
+    entry->generate_mips = input->generate_mips != 0;
     entry->sampler_clamp = input->sampler_clamp != 0;
     entry->content_hash = hash_bytes(copy, input->pixel_bytes);
     entry->revision = ++store->stats.revision;

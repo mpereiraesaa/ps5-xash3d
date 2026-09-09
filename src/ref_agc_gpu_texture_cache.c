@@ -87,6 +87,9 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
     uint32_t descriptor[REF_AGC_GPU_TEXTURE_DESCRIPTOR_DWORDS];
     RefAgcGpuTextureEntry *entry;
     int replacing;
+    uint32_t mip_count = 1u;
+    size_t mip_offsets[15] = {0}, mip_pitches[15] = {0};
+    uint32_t mip_widths[15] = {0}, mip_heights[15] = {0};
     if (!cache || !cache->initialized || !view || view->handle == 0u ||
         view->handle > REF_AGC_TEXTURE_MAX || view->revision == 0u)
         return REF_AGC_GPU_TEXTURE_INVALID;
@@ -114,7 +117,7 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
         return REF_AGC_GPU_TEXTURE_OK;
     }
     if (!view->pixels || view->width == 0u || view->height == 0u ||
-        view->depth != 1u || view->width > UINT32_MAX / 4u)
+        view->depth != 1u || view->width > 16384u || view->height > 16384u)
         return REF_AGC_GPU_TEXTURE_INVALID;
     source_row = (size_t)view->width * 4u;
     if (view->height > SIZE_MAX / source_row)
@@ -124,7 +127,25 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
         align_size(source_row, REF_AGC_GPU_TEXTURE_ALIGNMENT, &row_pitch) != 0 ||
         view->height > SIZE_MAX / row_pitch)
         return REF_AGC_GPU_TEXTURE_INVALID;
-    allocation_bytes = row_pitch * view->height;
+    if (view->generate_mips)
+        for (uint32_t d = view->width > view->height ? view->width : view->height;
+             d > 1u; d >>= 1u)
+            ++mip_count;
+    /* Same reverse level order and 256-byte pitch as BSP's validated linear
+     * AddrLib layout: smallest level at allocation start, level zero last. */
+    allocation_bytes = 0u;
+    for (uint32_t level = mip_count; level-- > 0u;) {
+        mip_widths[level] = view->width >> level;
+        mip_heights[level] = view->height >> level;
+        if (!mip_widths[level]) mip_widths[level] = 1u;
+        if (!mip_heights[level]) mip_heights[level] = 1u;
+        if (align_size((size_t)mip_widths[level] * 4u, 256u,
+                       &mip_pitches[level]) != 0 ||
+            mip_heights[level] > (SIZE_MAX - allocation_bytes) / mip_pitches[level])
+            return REF_AGC_GPU_TEXTURE_INVALID;
+        mip_offsets[level] = allocation_bytes;
+        allocation_bytes += mip_pitches[level] * mip_heights[level];
+    }
     if (replacing && !prior_use_retired)
         return REF_AGC_GPU_TEXTURE_RETIREMENT_REQUIRED;
     if (replacing && entry->allocation_bytes >= allocation_bytes)
@@ -137,21 +158,42 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
             return space_result;
     }
     if (row_pitch > UINT32_MAX ||
-        ps5_gfx1013_build_tsharp_rgba8(
+        ps5_gfx1013_build_tsharp_rgba8_mip(
             descriptor, cache->gpu_base + offset, view->width, view->height,
-            (uint32_t)row_pitch) != 0 ||
-        ps5_gfx1013_build_ssharp(
+            (uint32_t)row_pitch, mip_count) != 0 ||
+        ps5_gfx1013_build_ssharp_mip(
             descriptor + 8,
             view->sampler_clamp ? PS5_GFX1013_CLAMP_LAST_TEXEL
                                 : PS5_GFX1013_REPEAT,
-            PS5_GFX1013_FILTER_BILINEAR) != 0)
+            mip_count > 1u ? PS5_GFX1013_FILTER_TRILINEAR : PS5_GFX1013_FILTER_BILINEAR,
+            mip_count) != 0)
         return REF_AGC_GPU_TEXTURE_DESCRIPTOR_FAILED;
 
     uint8_t *destination = cache->base + offset;
     memset(destination, 0, allocation_bytes);
     for (uint32_t row = 0u; row < view->height; ++row)
-        memcpy(destination + (size_t)row * row_pitch,
+        memcpy(destination + mip_offsets[0] + (size_t)row * row_pitch,
                view->pixels + (size_t)row * source_row, source_row);
+    for (uint32_t level = 1u; level < mip_count; ++level) {
+        const uint8_t *previous = destination + mip_offsets[level - 1u];
+        uint8_t *current = destination + mip_offsets[level];
+        const uint32_t width = mip_widths[level], height = mip_heights[level];
+        const uint32_t pw = mip_widths[level - 1u], ph = mip_heights[level - 1u];
+        for (uint32_t y = 0u; y < height; ++y)
+            for (uint32_t x = 0u; x < width; ++x) {
+                const uint32_t x0 = x * pw / width, x1 = (x + 1u) * pw / width;
+                const uint32_t y0 = y * ph / height, y1 = (y + 1u) * ph / height;
+                const uint32_t samples = (x1 - x0) * (y1 - y0);
+                for (uint32_t c = 0u; c < 4u; ++c) {
+                    uint32_t sum = 0u;
+                    for (uint32_t sy = y0; sy < y1; ++sy)
+                        for (uint32_t sx = x0; sx < x1; ++sx)
+                            sum += previous[(size_t)sy * mip_pitches[level - 1u] + sx * 4u + c];
+                    current[(size_t)y * mip_pitches[level] + x * 4u + c] =
+                        (uint8_t)((sum + samples / 2u) / samples);
+                }
+            }
+    }
     cache->flush(destination, allocation_bytes, cache->flush_user);
 
     if (replacing) {
@@ -172,6 +214,7 @@ int ref_agc_gpu_texture_cache_apply(RefAgcGpuTextureCache *cache,
         .width = view->width,
         .height = view->height,
         .row_pitch = (uint32_t)row_pitch,
+        .mip_count = mip_count,
         .active = 1,
     };
     memcpy(entry->descriptor, descriptor, sizeof(descriptor));

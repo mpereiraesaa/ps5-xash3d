@@ -22,6 +22,10 @@ def main() -> int:
     first = MODULE.variants(template)
     second = MODULE.variants(template)
     assert first == second and len(first) == 8
+    for source in first.values():
+        assert source.index("if (render_color.g > 3.5)") < source.index("vec4 base = texture(")
+        assert "vec4(0.0, 1.0, 1.0, render_color.a)" in source
+        assert "@QA_LIGHTMAP_EXPR@" not in source
     assert set(first) == {
         "goldsrc_surface", "goldsrc_surface_lightmap",
         "goldsrc_surface_fog", "goldsrc_surface_lightmap_fog",

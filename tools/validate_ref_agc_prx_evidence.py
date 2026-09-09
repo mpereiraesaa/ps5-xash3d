@@ -74,6 +74,90 @@ def exact(fields: dict[str, str], expected: dict[str, str]) -> bool:
     return all(fields.get(key) == value for key, value in expected.items())
 
 
+def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
+    complete = one(messages, "REF_AGC_LIVE_BRUSH_COMPLETE")
+    samples = [parse_fields(m) for m in messages
+               if m.startswith("REF_AGC_LIVE_BRUSH_FRAME ")]
+    entities = [parse_fields(m) for m in messages
+                if m.startswith("REF_AGC_LIVE_BRUSH_ENTITY ")]
+    if not exact(complete, {"schema": "1", "errors": "0",
+                           "ownership": "fence+videoout+ack"}) \
+            or not samples or not entities \
+            or not 0 < int(complete.get("frames", "0")) <= views \
+            or any(int(complete.get(k, "0")) <= 0 for k in ("instances", "draws", "indices")) \
+            or complete.get("transform_hash") in (None, "0000000000000000"):
+        fail("live brush completion missing or invalid")
+    prior = {}
+    moved = set()
+    for sample in samples:
+        selected = [e for e in entities if e.get("serial") == sample.get("serial")]
+        count = int(sample.get("instances", "0"))
+        if count <= 0 or len(selected) != count or len({e["index"] for e in selected}) != count \
+                or int(sample.get("input_entities", "0")) < count \
+                or sample.get("rejected") != "0" \
+                or sample.get("ownership") != "transient-slot" \
+                or sum(int(sample.get(k, "0")) for k in ("opaque", "alpha", "additive")) != count \
+                or int(sample.get("draws", "0")) <= 0 \
+                or int(sample.get("indices", "0")) <= 0:
+            fail("live brush sample accounting mismatch")
+        for entity in selected:
+            first, length = int(entity["first_surface"]), int(entity["surface_count"])
+            if first < 0 or length <= 0 or first + length > surfaces \
+                    or not entity.get("model", "").startswith("*") \
+                    or int(entity["mode"]) not in range(6):
+                fail("live brush entity range/model mismatch")
+            pose = tuple(int(v) for k in ("origin_milli", "angles_milli")
+                         for v in entity[k].split(","))
+            if len(pose) != 6:
+                fail("live brush pose mismatch")
+            key = (entity["index"], entity["model"])
+            if key in prior and prior[key] != pose:
+                moved.add(key)
+            prior[key] = pose
+    for key in ("instances", "draws", "indices"):
+        if sum(int(s[key]) for s in samples) > int(complete[key]):
+            fail("live brush sample totals exceed completion")
+    return {"frames": int(complete["frames"]), "instances": int(complete["instances"]),
+            "draws": int(complete["draws"]), "indices": int(complete["indices"]),
+            "samples": len(samples), "entities_observed": len(prior),
+            "moving_entities": [list(k) for k in sorted(moved)]}
+
+
+def validate_live_studio(messages: list[str], views: int) -> dict:
+    complete = one(messages, "REF_AGC_LIVE_STUDIO_COMPLETE")
+    samples = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_FRAME ")]
+    entities = [parse_fields(m) for m in messages if m.startswith("REF_AGC_LIVE_STUDIO_ENTITY ")]
+    if not exact(complete, {"schema": "1", "errors": "0", "lighting": "unlit",
+                           "ownership": "fence+videoout+ack"}) or not samples:
+        fail("missing live Studio completion/samples")
+    frames = int(complete["frames"])
+    if not 0 < frames <= views or any(int(complete[k]) <= 0 for k in ("draws", "indices", "pose_changes")) \
+            or complete.get("pose_hash") in (None, "0000000000000000"):
+        fail("invalid live Studio totals/pose changes")
+    if int(complete["indices"]) % 3 or int(complete["pose_changes"]) >= frames:
+        fail("invalid live Studio triangles/animation accounting")
+    observed = set()
+    for sample in samples:
+        selected = [e for e in entities if e.get("serial") == sample.get("serial")]
+        if sample.get("ownership") != "transient-slot" or sample.get("lighting") != "unlit" \
+                or len(selected) != int(sample["entities"]) or not selected \
+                or len({e["index"] for e in selected}) != len(selected) \
+                or any(int(sample[k]) <= 0 for k in ("draws", "vertices", "indices")) \
+                or int(sample["indices"]) % 3:
+            fail("invalid live Studio sample accounting")
+        for entity in selected:
+            if not 0 < int(entity["bones"]) <= 128 or int(entity["sequence"]) < 0 \
+                    or int(entity["frame_milli"]) < 0 or not entity["model"].endswith(".mdl"):
+                fail("invalid live Studio entity pose")
+            observed.add(entity["model"])
+    for key in ("draws", "indices"):
+        if sum(int(s[key]) for s in samples) > int(complete[key]):
+            fail("live Studio samples exceed completion")
+    return {"frames": frames, "draws": int(complete["draws"]),
+            "indices": int(complete["indices"]), "pose_changes": int(complete["pose_changes"]),
+            "models": sorted(observed), "lighting": "unlit"}
+
+
 def validate_renderer(
     manifest_path: Path, *, bundle_sha256: str, bundle_bytes: int,
     studio_sha256: str, studio_bytes: int,
@@ -81,6 +165,8 @@ def validate_renderer(
     require_live_special_surfaces: bool = False,
     require_live_2d: bool = False,
     require_live_menu: bool = False,
+    require_live_brush: bool = False,
+    require_live_studio: bool = False,
 ) -> dict[str, object]:
     manifest, messages, data = load_renderer(manifest_path)
     boot = one(messages, "BSP_TEXTURE_PATH_BOOT")
@@ -140,6 +226,25 @@ def validate_renderer(
                     or marker.get("serial") != marker.get("consumed"):
                 fail("Phase 7 live frame ACK contract mismatch")
         complete = one(messages, "REF_AGC_LIVE_COMPLETE")
+        studio_markers = [parse_fields(message) for message in messages
+                          if message.startswith("REF_AGC_GPU_STUDIO_CACHE_COMPLETE ")]
+        if len(studio_markers) > 1:
+            fail("Phase 7 Studio cache completion is duplicated")
+        studio_cache = studio_markers[0] if studio_markers else None
+        if studio_cache is not None:
+            if not live_world_loop or not exact(studio_cache, {
+                "schema": "1", "arena_bytes": "33554432",
+                "source": "engine-decoded-studio-v10", "memory": "direct",
+                "ownership": "fence+videoout-before-reuse", "errors": "0",
+            }) or any(int(studio_cache.get(key, "0")) <= 0 for key in (
+                "revision", "creates", "active", "resident_bytes", "source_bytes", "flushes"
+            )) or not (int(studio_cache["resident_bytes"]) <=
+                       int(studio_cache.get("peak_bytes", "0")) <= 33554432) \
+                    or not (int(studio_cache["active"]) <=
+                            int(studio_cache.get("peak", "0")) <=
+                            int(studio_cache["creates"])):
+                fail("Phase 7 Studio cache ownership/accounting mismatch")
+        allowed_reclaims = ("9",) if studio_cache is not None else ("6", "7", "8")
         frames = int(complete.get("frames", "0"), 10)
         views = int(complete.get("view_frames", "0"), 10)
         bright = int(complete.get("bright_pixels", "0"), 10)
@@ -150,7 +255,7 @@ def validate_renderer(
                 or complete.get("buffer1") in (None, "0000000000000000") \
                 or complete.get("frame_hash") in (
                     None, "0000000000000000") \
-                or bright <= 0 or complete.get("resource_reclaimed") not in ("6", "7", "8") \
+                or bright <= 0 or complete.get("resource_reclaimed") not in allowed_reclaims \
                 or complete.get("ownership") != "fence+videoout+ack" \
                 or complete.get("guards") != "intact" \
                 or complete.get("errors") != "0":
@@ -170,15 +275,17 @@ def validate_renderer(
                    for field in positive) \
                     or texture.get("descriptor_hash") in (
                         None, "0000000000000000") \
-                    or texture.get("arena_bytes") != "67108864" \
-                    or texture.get("descriptors") != "rgba8+bilinear" \
+                    or (texture.get("arena_bytes"), texture.get("descriptors")) not in (
+                        ("67108864", "rgba8+bilinear"),
+                        ("83886080", "rgba8+bilinear+studio-trilinear")) \
                     or texture.get("memory") != "direct" \
                     or texture.get("ownership") != \
                     "fence+videoout-before-reuse" \
                     or texture.get("errors") != "0" \
                     or int(texture["active"], 10) > int(texture["peak"], 10) \
                     or int(texture["resident_bytes"], 10) > int(
-                        texture["peak_bytes"], 10):
+                        texture["peak_bytes"], 10) \
+                    or int(texture["peak_bytes"], 10) > int(texture["arena_bytes"], 10):
                 fail("Phase 7 GPU texture cache contract mismatch")
         world_markers = [parse_fields(message) for message in messages
                          if message.startswith("REF_AGC_GPU_WORLD_COMPLETE ")]
@@ -463,6 +570,12 @@ def validate_renderer(
                 "map_serial": map_serial,
                 "presentation": "native-agc",
             }
+        brush_summary = None
+        if require_live_brush:
+            if world is None:
+                fail("live brush requires a live world cache")
+            brush_summary = validate_live_brush(messages, views, int(world["draws"]))
+        studio_summary = validate_live_studio(messages, views) if require_live_studio else None
         teardown = one(messages, "REF_AGC_TEARDOWN")
         if not exact(teardown, {
             "videoout": "closed", "direct_memory": "released",
@@ -481,9 +594,12 @@ def validate_renderer(
             "resource_reclaimed": int(complete["resource_reclaimed"], 10),
             "gpu_texture": texture,
             "gpu_world": world,
+            "studio_cache": studio_cache,
             "special_surfaces": special_summary,
             "live_2d": live_2d_summary,
             "live_menu": live_menu_summary,
+            "live_brush": brush_summary,
+            "live_studio": studio_summary,
         }
     if not exact(boot, {
         "schema": "1", "slice": "goldsrc-phase4-final", "target": "gfx1013",
@@ -619,6 +735,8 @@ def main() -> int:
     parser.add_argument("--require-live-special-surfaces", action="store_true")
     parser.add_argument("--require-live-2d", action="store_true")
     parser.add_argument("--require-live-menu", action="store_true")
+    parser.add_argument("--require-live-brush", action="store_true")
+    parser.add_argument("--require-live-studio", action="store_true")
     parser.add_argument("--map", default="c1a0")
     args = parser.parse_args()
     try:
@@ -637,6 +755,8 @@ def main() -> int:
                 args.require_live_special_surfaces,
             require_live_2d=args.require_live_2d,
             require_live_menu=args.require_live_menu,
+            require_live_brush=args.require_live_brush,
+            require_live_studio=args.require_live_studio,
         )
         engine_menu = validate_engine_menu(
             args.engine_manifest, boot_map=args.map,
@@ -664,7 +784,8 @@ def main() -> int:
             if engine["ref_agc_exports"] == 40:
                 texture = renderer["gpu_texture"]
                 world = renderer["gpu_world"]
-                expected_reclaims = 8 if world is not None else 7
+                expected_reclaims = (8 if world is not None else 7) + \
+                    int(renderer.get("studio_cache") is not None)
                 if texture is None \
                         or renderer["resource_reclaimed"] != expected_reclaims \
                         or int(texture["revision"], 10) > \
@@ -712,6 +833,8 @@ def main() -> int:
             "special_surfaces": renderer.get("special_surfaces"),
             "live_2d": renderer.get("live_2d"),
             "live_menu": renderer.get("live_menu"),
+            "live_brush": renderer.get("live_brush"),
+            "live_studio": renderer.get("live_studio"),
             "engine_menu": engine_menu,
             "ownership": "exact",
             "pass": True,

@@ -13,6 +13,7 @@
 #                          under dist/.../xash3d, never committed)
 #   XASH_BOOT_MAP          map executed after boot (default c1a0)
 #   XASH_GATE_SECONDS      queue "quit" after N seconds (default 90; 0 = never)
+#   XASH_GATE_FROM_MAP     1 rebases the timeout once at active client signon
 #   XASH_JOBS              parallel compile jobs (default nproc)
 #   XASH_MODE              dedicated (Phase 5 evidence) or client (early Phase 6
 #                          diagnostic: engine, mainui, hlsdk client, ref_null
@@ -66,6 +67,10 @@ xash=$root/third_party/xash3d-fwgs
 hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
+gate_from_map=${XASH_GATE_FROM_MAP:-0}
+sampling_probe=${XASH_SAMPLING_PROBE:-0}
+[[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
+[[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
@@ -233,6 +238,8 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_HLSDK_COMMIT "$hlsdk_commit"
 #define PS5_XASH_BOOT_MAP "$boot_map"
 #define PS5_XASH_GATE_SECONDS $gate_seconds
+#define PS5_XASH_GATE_FROM_MAP $gate_from_map
+#define PS5_XASH_SAMPLING_PROBE $sampling_probe
 #define PS5_XASH_TITLE_ID "$title_id"
 #define PS5_XASH_MODE "$mode"
 #define PS5_XASH_MODE_CLIENT $([[ $mode == client ]] && echo 1 || echo 0)
@@ -307,6 +314,12 @@ else
     # for anything but SOUND_NULL, so the two never both define SNDDMA_*.
     engine_defines+=(-DXASH_REF_SOFT_ENABLED=1 -DXASH_VIDEO=99 -DXASH_INPUT=INPUT_NULL
         -DXASH_SOUND=$([[ $audio == 1 ]] && echo 99 || echo SOUND_NULL))
+    if [[ $ref_agc_prx == 1 ]]; then
+        # The live AGC backend owns a 1080p logical canvas.  The historical
+        # 640x480 headless default would otherwise make MainUI occupy only the
+        # upper-left corner of the native framebuffer.
+        engine_defines+=(-DPS5_XASH_VIDEO_WIDTH=1920 -DPS5_XASH_VIDEO_HEIGHT=1080)
+    fi
     engine_includes_client=(
         -I"$xash/3rdparty/opus/opus/include" -I"$xash/3rdparty/opusfile/opusfile/include"
         -I"$xash/3rdparty/libogg/libogg/include" -I"$gen/ogg"
@@ -887,6 +900,7 @@ if [[ $ref_agc_prx == 1 ]]; then
     ref_agc_defines=(
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
         -DPS5_REF_AGC_LIVE_PHASE7=1
+        -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
         -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
@@ -903,11 +917,17 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/xash/platform_ps5/ref_agc_module.c"
         "$root/src/ref_agc_live_frame.c"
         "$root/src/ref_agc_live_2d.c"
+        "$root/src/ref_agc_live_brush.c"
+        "$root/src/ref_agc_live_studio.c"
+        "$xash/public/xash3d_mathlib.c"
+        "$xash/public/matrixlib.c"
         "$root/src/ref_agc_lightmap_atlas.c"
+        "$root/src/ref_agc_gpu_studio_cache.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
         "$root/src/ref_agc_gpu_world_cache.c"
         "$root/src/ref_agc_gpu_world_draw.c"
         "$root/src/ref_agc_skybox.c"
+        "$root/src/ref_agc_studio_store.c"
         "$root/src/ref_agc_texture_store.c"
         "$root/src/ref_agc_world_store.c"
         "$root/src/bsp_bundle.c" "$root/src/bsp_command_plan.c"

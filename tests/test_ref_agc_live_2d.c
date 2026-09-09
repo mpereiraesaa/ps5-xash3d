@@ -1,6 +1,7 @@
 #include "ref_agc_live_2d.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -105,6 +106,8 @@ int main(void)
                                    2u, 256u) == 0);
     assert(ps5_transient_ring_begin(&ring, 0u, 0u, 0) == 0);
     RefAgcLiveFrame live = {0};
+    live.canvas_width = 640u;
+    live.canvas_height = 480u;
     live.commands_2d[live.command_2d_count++] = mode(0u);
     live.commands_2d[live.command_2d_count++] = mode(1u);
     live.commands_2d[live.command_2d_count++] = stretch(12.0f, 128u);
@@ -132,6 +135,9 @@ int main(void)
            frame.vertices[0].color[3] < 0.51f);
     assert(frame.command_hash != 0u && frame.layout_hash != 0u &&
            frame.transient_bytes != 0u && frame.unresolved_textures == 0u);
+    const GoldSrc2DConstants *constants = (const GoldSrc2DConstants *)memory;
+    assert(fabsf(constants->projection[0] - 2.0f / 640.0f) < 0.000001f);
+    assert(fabsf(constants->projection[5] + 2.0f / 480.0f) < 0.000001f);
 
     uint32_t commands[128] = {0};
     uint32_t *cursor = commands;

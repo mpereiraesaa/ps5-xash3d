@@ -70,6 +70,7 @@ int main(void)
         .format = 3,
         .flags = 0x1200,
         .mip_count = 1,
+        .generate_mips = 1,
         .pixels = checker,
         .pixel_bytes = sizeof(checker),
     };
@@ -88,6 +89,7 @@ int main(void)
     assert(ref_agc_texture_store_get(&store, first, &view) == 0);
     assert(strcmp(view.name, input.name) == 0 && view.width == 2u);
     assert(view.pixel_bytes == sizeof(checker) && view.active);
+    assert(view.generate_mips == 1);
     assert(ref_agc_texture_store_copy_pixels(
         &store, first, copied, sizeof(copied) - 1u, &copied_bytes) ==
         REF_AGC_TEXTURE_TOO_SMALL);
