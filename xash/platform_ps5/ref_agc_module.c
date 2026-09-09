@@ -1527,6 +1527,41 @@ static void RefAgcStudioLerpMovement(cl_entity_t *entity, double time,
 	else VectorCopy(entity->curstate.angles, angles);
 }
 
+/* Shared evaluator for current and latched sequences. Only the caller fetches
+ * engine-owned animation groups; no pointers survive immutable publication. */
+static int RefAgcStudioSequence(studiohdr_t *h, mstudioseqdesc_t *seq,
+	mstudioanim_t *anim, float frame, const float *adj, float blend0, float blend1,
+	vec3_t *out_positions, vec4_t *out_rotations)
+{
+	if( !anim || seq->numframes < 1 ||
+		(seq->numblends != 1 && seq->numblends != 2 && seq->numblends != 4) ||
+		!isfinite(frame) || !isfinite(blend0) || !isfinite(blend1) ) return -1;
+	vec3_t positions[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
+	vec4_t rotations[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
+	mstudiobone_t *bones = (void *)((byte *)h + h->boneindex);
+	for( int b = 0; b < seq->numblends; ++b ) {
+		for( int i = 0; i < h->numbones; ++i ) {
+			if( bones[i].parent < -1 || bones[i].parent >= i ) return -1;
+			for( int j = 0; j < 6; ++j )
+				if( bones[i].bonecontroller[j] < -1 || bones[i].bonecontroller[j] >= h->numbonecontrollers ) return -1;
+			R_StudioCalcBones((int)frame, frame-(int)frame, &bones[i],
+				&anim[b*h->numbones+i], adj, positions[b][i], rotations[b][i]);
+		}
+		if( seq->motionbone >= 0 && seq->motionbone < h->numbones )
+			for( int axis = 0; axis < 3; ++axis )
+				if( seq->motiontype & (1 << axis) ) positions[b][seq->motionbone][axis] = 0;
+	}
+	if( seq->numblends >= 2 )
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[1], positions[1], blend0);
+	if( seq->numblends == 4 ) {
+		R_StudioSlerpBones(h->numbones, rotations[2], positions[2], rotations[3], positions[3], blend0);
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[2], positions[2], blend1);
+	}
+	memcpy(out_positions, positions[0], h->numbones*sizeof(vec3_t));
+	memcpy(out_rotations, rotations[0], h->numbones*sizeof(vec4_t));
+	return 0;
+}
+
 static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 {
 	studiohdr_t *h = entity->model->cache.data;
@@ -1595,39 +1630,53 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 		if( !isfinite(value) ) return -6;
 		adj[i] = controls[i].type & (STUDIO_XR|STUDIO_YR|STUDIO_ZR) ? DEG2RAD(value) : value;
 	}
-	vec3_t positions[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
-	vec4_t rotations[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
+	vec3_t positions[REF_AGC_LIVE_MAX_STUDIO_BONES];
+	vec4_t rotations[REF_AGC_LIVE_MAX_STUDIO_BONES];
 	mstudiobone_t *bones = (void *)((byte *)h + h->boneindex);
-	for( int b = 0; b < seq->numblends; ++b ) {
-		for( int i = 0; i < h->numbones; ++i ) {
-			if( bones[i].parent < -1 || bones[i].parent >= i ) return -7;
-			for( int j = 0; j < 6; ++j )
-				if( bones[i].bonecontroller[j] < -1 || bones[i].bonecontroller[j] >= h->numbonecontrollers ) return -8;
-			R_StudioCalcBones((int)frame, frame-(int)frame, &bones[i],
-				&anim[b*h->numbones+i], adj, positions[b][i], rotations[b][i]);
-		}
-		if( seq->motionbone >= 0 && seq->motionbone < h->numbones )
-			for( int axis = 0; axis < 3; ++axis )
-				if( seq->motiontype & (1 << axis) ) positions[b][seq->motionbone][axis] = 0;
-	}
-	if( seq->numblends >= 2 )
-		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[1], positions[1], ps5_studio_blend(entity->curstate.blending[0], entity->latched.prevblending[0], controller_lerp));
-	if( seq->numblends == 4 ) {
-		R_StudioSlerpBones(h->numbones, rotations[2], positions[2], rotations[3], positions[3], ps5_studio_blend(entity->curstate.blending[0], entity->latched.prevblending[0], controller_lerp));
-		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[2], positions[2], ps5_studio_blend(entity->curstate.blending[1], entity->latched.prevblending[1], controller_lerp));
+	if( RefAgcStudioSequence(h,seq,anim,frame,adj,
+		ps5_studio_blend(entity->curstate.blending[0], entity->latched.prevblending[0], controller_lerp),
+		ps5_studio_blend(entity->curstate.blending[1], entity->latched.prevblending[1], controller_lerp),
+		positions,rotations) ) return -7;
+	float previous_weight;
+	const int crossfade = ps5_studio_sequence_weight(client->time,
+		entity->latched.sequencetime, entity->latched.prevsequence, h->numseq, &previous_weight);
+	if( crossfade < 0 ) return -8;
+	if( crossfade ) {
+		mstudioseqdesc_t *previous = (void *)((byte *)h + h->seqindex);
+		previous += entity->latched.prevsequence;
+		if( previous->numframes < 1 || (previous->numblends != 1 &&
+			previous->numblends != 2 && previous->numblends != 4) ) return -8;
+		vec3_t previous_positions[REF_AGC_LIVE_MAX_STUDIO_BONES];
+		vec4_t previous_rotations[REF_AGC_LIVE_MAX_STUDIO_BONES];
+		float previous_frame = ps5_studio_previous_frame(entity->latched.prevframe,previous->numframes);
+		if( RefAgcStudioSequence(h,previous,
+			ref_agc_engine.R_StudioGetAnim(h,entity->model,previous),previous_frame,adj,
+			entity->latched.prevseqblending[0]/255.0f, entity->latched.prevseqblending[1]/255.0f,
+			previous_positions,previous_rotations) ) return -8;
+		R_StudioSlerpBones(h->numbones,rotations,positions,
+			previous_rotations,previous_positions,previous_weight);
 	}
 	RefAgcLiveStudioPose *pose = &f->studio_poses[f->studio_pose_count];
 	matrix3x4 model;
 	Matrix3x4_CreateFromEntity(model, live->angles, live->origin, live->scale > 0 ? live->scale : 1.0f);
 	for( int i = 0; i < h->numbones; ++i ) {
 		matrix3x4 local;
-		Matrix3x4_FromOriginQuat(local, rotations[0][i], positions[0][i]);
+		Matrix3x4_FromOriginQuat(local, rotations[i], positions[i]);
 		Matrix3x4_ConcatTransforms(pose->matrices[i], bones[i].parent < 0 ? model : pose->matrices[bones[i].parent], local);
 		for( int r = 0; r < 3; ++r ) for( int c = 0; c < 4; ++c )
 			if( !isfinite(pose->matrices[i][r][c]) ) return -9;
 	}
 	pose->bones = h->numbones;
 	pose->frame = frame;
+	/* Commit the latch only after a valid pose, as in the reference renderer.
+	 * During crossfade the previous sequence's sampled frame stays frozen. */
+	if( !crossfade ) entity->latched.prevframe = frame;
+	if( crossfade && ref_agc_engine.Con_Printf && ref_agc_scene_calls % 6u == 0u )
+		ref_agc_engine.Con_Printf(
+			"REF_AGC_STUDIO_CROSSFADE schema=1 entity=%d current=%d previous=%d previous_frame=%.6f previous_weight=%.6f time=%.6f sequence_time=%.6f owner=engine-thread\n",
+			entity->index,live->sequence,entity->latched.prevsequence,
+			(double)entity->latched.prevframe,(double)previous_weight,client->time,
+			(double)entity->latched.sequencetime);
 	if( (h->numbonecontrollers || seq->numblends > 1) &&
 		(ref_agc_scene_calls < 3u || ref_agc_scene_calls % 600u == 0u) && ref_agc_engine.Con_Printf )
 		ref_agc_engine.Con_Printf(

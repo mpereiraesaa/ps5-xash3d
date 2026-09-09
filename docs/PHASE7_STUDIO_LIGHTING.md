@@ -569,7 +569,7 @@ profile change. It is not yet deployed; no new hardware result is claimed.
 | Remaining case | Current boundary / required proof |
 | --- | --- |
 | Controller and 2/4-way blend interpolation | Natural NPC regression accepted below, including sampled controller changes. Forced wrap and 2/4-way cases still need explicit coverage. |
-| Previous-sequence crossfade | Not implemented; reference blends the latched prior sequence over 0.2 seconds. Keep separate from accepted STEP movement. |
+| Previous-sequence crossfade | Local candidate below implements the reference 0.2-second blend. Hardware acceptance pending; separate from accepted STEP movement. |
 | Forced glowshell / other render effects | Ordinary chrome is accepted; shell expansion/pass state and forced effects are not. |
 | Custom viewmodel FOV/handedness | Normal pistol/crowbar path accepted; overrides remain unproven. |
 | Other effect parity | Entity muzzleflash dynamic light, beams, glow/sorting/follow details and Studio wound decals remain outside accepted impact effects. |
@@ -599,6 +599,36 @@ The exact raw-FTP verified candidate above remains installed after its automatic
 close. No second launch, manual close, control-profile edit or asset change was
 performed for this validation. Code is local on `feat/phase7-studio-coverage`;
 PR/merge and the lab plan update have not yet been performed for this increment.
+
+#### Previous-sequence crossfade candidate — not deployed
+
+The adapter now evaluates the latched previous sequence at its frozen
+`prevframe`, uses its own `prevseqblending` for 2/4-way poses and blends it
+with the current pose over the reference 0.2-second interval. Current and
+previous evaluation share one function; external animation groups remain
+engine-owned and only finished matrices cross the immutable frame boundary.
+The previous-frame latch is updated only outside the active crossfade and
+after successful finite-matrix validation. Sequence bounds, blend counts,
+bone parent/controller references, nonfinite frames and weights are checked.
+The reference previous-frame clamp/reset behavior is retained.
+
+Host tests execute the actual extracted adapter evaluator with deterministic
+bone-math doubles to verify 1/2/4-way routing, axis order, motion suppression
+and malformed-input rejection. This does not independently validate upstream
+quaternion interpolation or compressed animation decoding. Timing/latch-weight
+tests include start/midpoint/expiry, an unset latch, invalid indices, frame
+clamps and nonfinite values; scalar ASan/UBSan checks pass. Full host suite and
+native build pass. Source checks enforce previous-sequence blending inputs and
+the successful-pose-before-latch-update order.
+
+`REF_AGC_STUDIO_CROSSFADE` samples active transitions every six scene calls,
+reporting current/previous sequence, frozen previous frame, weight and times.
+The marker was verified in the renderer ELF. Candidate renderer PRX SHA-256:
+`f5f8bf3d52244f2eb1a0979aa04e09027e6e82008cf8b3d241820964471892e5`.
+Engine SELF remains the normal `6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`.
+No deployment or launch yet; the console retains the accepted controller-only
+candidate. Natural sequence-change QA and paired resource closure are next.
+Forced blend/wrap cases, glowshell and broader Studio parity remain open.
 
 ### Earlier viewmodel-event implementation record (historical)
 

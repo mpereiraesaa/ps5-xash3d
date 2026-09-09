@@ -74,6 +74,11 @@ def main() -> None:
     assert "entity->latched.prevblending[0], controller_lerp" in pose_capture
     assert "entity->latched.prevblending[1], controller_lerp" in pose_capture
     assert "REF_AGC_STUDIO_CONTROLLERS schema=1" in pose_capture
+    assert "entity->latched.prevseqblending[0]/255.0f" in pose_capture
+    assert "entity->latched.prevseqblending[1]/255.0f" in pose_capture
+    assert "if( !crossfade ) entity->latched.prevframe = frame" in pose_capture
+    assert pose_capture.index("if( !isfinite(pose->matrices") < pose_capture.index("entity->latched.prevframe = frame")
+    assert "REF_AGC_STUDIO_CROSSFADE schema=1" in pose_capture
     if "funcs->CL_RunLightStyles = RefAgcRunLightStyles" not in ref_agc_module:
         raise SystemExit("Studio shared lightstyles callback missing")
     filesystem_prx_module = (

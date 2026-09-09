@@ -4,6 +4,20 @@
 #define NEAR(a,b) assert(fabsf((a)-(b)) < 0.0001f)
 int main(void)
 {
+    float weight;
+    assert(ps5_studio_sequence_weight(1,1,0,2,&weight)==1); NEAR(weight,1);
+    assert(ps5_studio_sequence_weight(1.1,1,0,2,&weight)==1); NEAR(weight,0.5f);
+    assert(ps5_studio_sequence_weight(1.3,1,0,2,&weight)==0); NEAR(weight,0);
+    assert(ps5_studio_sequence_weight((double)(1.0f+0.2f),1,0,2,&weight)==0);
+    assert(ps5_studio_sequence_weight(0.9,1,0,2,&weight)==1); NEAR(weight,1);
+    assert(ps5_studio_sequence_weight(1,0,0,2,&weight)==0);
+    assert(ps5_studio_sequence_weight(1,1,-1,2,&weight)==-1);
+    assert(ps5_studio_sequence_weight(1,1,2,2,&weight)==-1);
+    assert(ps5_studio_sequence_weight(NAN,1,0,2,&weight)==-1);
+    NEAR(ps5_studio_previous_frame(10,5),0);
+    NEAR(ps5_studio_previous_frame(-1,5),-0.01f);
+    NEAR(ps5_studio_previous_frame(2.5f,5),2.5f);
+    assert(isnan(ps5_studio_previous_frame(NAN,5)));
     NEAR(ps5_studio_controller_fraction(1.05,1.0f,0.9f,1),0.5f);
     NEAR(ps5_studio_controller_fraction(2,1.0f,0.9f,1),2.0f);
     NEAR(ps5_studio_controller_fraction(0.95,1.0f,0.9f,1),-0.5f);
