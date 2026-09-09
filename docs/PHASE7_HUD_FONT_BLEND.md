@@ -1,7 +1,32 @@
-# Phase 7 HUD/font blend gate — in progress
+# Phase 7 HUD/font blend gate — hardware accepted
 
 Baseline: merged texture-memory policy PR #26 (`70ebea8`). This gate does
 not change audio, Studio, asset packs or the accepted memory policy.
+
+## Current acceptance (2026-09-09)
+
+The owner confirmed all three font modes and both fade stages: "todo perfecto
+lo vi todo bien letras sin tecuadros etc". This follows the separately accepted
+transparent chapter title and white-scene-flash correction. No Remote Play or
+recording was needed. All earlier pending declarations below are historical;
+hardware coverage is now complete and repository integration is the remaining
+closure step. Studio lighting/viewmodel follows, then audio and `valve_hd`.
+
+Diagnostic engine run
+`20260909T140302704Z_PPSA99996_xash3d-engine_0x14dfd5b292543` and renderer run
+`20260909T140302761Z_PPSA99996_ps5-xash3d_0x14dfd5e51453b` start 57 ms apart.
+All six consecutive observation stages and the completion marker appear.
+Renderer schema-2 records demonstrate additive, masked, alpha and multiplicative
+batches (including `modulate_batches=1` during the multiplicative stage).
+The strict paired validator passes menu, lightmap, 2D, brush and Studio checks:
+10,993 frames, nine exact reclaims, intact guards, zero errors and clean BYEs.
+Framebuffer hashes are `876b8a4183ac60d6` / `ca66705a912988f1`, with final
+frame hash `76df8a97303432a2`. Independent post-run status at 14:06:16 UTC
+confirms no BigApp and four healthy services. Exact raw FTP hashes bind the
+deployed bundle to the diagnostic identities recorded below.
+
+Normal builds keep `XASH_HUD_PROBE=0`; the diagnostic is not the default game
+experience. Do not equate this focused coverage with whole-Phase-7 acceptance.
 
 ## Source findings
 
@@ -280,7 +305,7 @@ and whether any white flash, residual tint or geometry regression appears.
 Pair those observations with actual renderer mode counters and exact artifact
 identity. Do not mark this exercise accepted before hardware evidence exists.
 
-Prepared diagnostic build (not yet deployed or accepted): engine ELF SHA-256
+Accepted diagnostic build: engine ELF SHA-256
 `d16d9d7ad8efe535b5e4d84310fe1a592cec6f3e00c1dafd0dde65cce32e6b33`,
 SELF SHA-256
 `3a639cd0343c2a0da1f4dea1e5c4a6b15eb0b3f1aee8ac71e8b87e090298ae71`.
