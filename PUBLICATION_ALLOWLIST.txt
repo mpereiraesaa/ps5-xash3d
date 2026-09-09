@@ -424,6 +424,8 @@ xash/tools/prepare_client_ammo.py
 tests/test_prepare_client_ammo.py
 tests/test_pad_aim.c
 tests/test_studio_event_window.c
+tests/test_studio_controller_lerp.c
+xash/platform_ps5/studio_controller_lerp.h
 tests/test_recovery_gate.c
 xash/platform_ps5/recovery_gate.h
 xash/platform_ps5/studio_event_window.h

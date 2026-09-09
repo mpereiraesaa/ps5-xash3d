@@ -8,6 +8,10 @@ evidence boundary; the current status here supersedes their pending statements.
 
 ## Current integration checkpoint — 2026-09-09
 
+Local controller-interpolation candidate follows the merged recovery checkpoint;
+host/native checks pass, but it has not been deployed or hardware accepted.
+See the coverage ledger below. The console retains the accepted normal build.
+
 Latest effects checkpoint: operator accepted reload/crowbar, muzzleflash,
 wall marks, blood and the enhanced-blood/sprite-lighting candidate. The final
 18:17 paired run passes 18,175 frames, nine reclaims, intact guards, zero
@@ -535,7 +539,48 @@ These are build evidence only, not deployed or hardware-accepted artifacts.
 
 ## Remaining implementation and acceptance
 
-### Next increment: viewmodel attachments/client events (not deployed)
+### Coverage ledger after recovery — controller interpolation candidate
+
+The live adapter previously used only `curstate.controller` and
+`curstate.blending`, unlike pinned `ref/gl/gl_studio.c`. The candidate now
+uses the reference animation-time interpolant (default 1, extrapolation cap
+2), latched previous controllers, shortest circular controller interpolation
+across the byte wrap, and latched blending values for both axes of 2/4-way
+blend sequences. The existing upstream bone slerp clamps its blend weight.
+Mouth mapping and the accepted STEP movement interpolation are unchanged.
+Nonfinite scalar input/output is rejected before immutable pose publication.
+
+Host tests cover time thresholds, disabled interpolation, extrapolation,
+linear bounds, both circular-wrap directions, the exact 128-byte boundary,
+blending and nonfinite rejection. ASan/UBSan, full host suite and native build
+pass. Source-contract checks verify the actual adapter consumes latched values.
+Bounded `REF_AGC_STUDIO_CONTROLLERS` telemetry reports sequence, controller and
+blend counts, current/previous bytes and interpolation factors on the engine
+thread. Sampling is not exhaustive coverage of all controllers or sequences.
+
+Candidate renderer PRX SHA-256:
+`a293b132fffec15182e65627062c65f7efdf79f868405fe9287025442ab59efe`.
+Normal engine SELF remains
+`6445127bd600a19b4af405ef9eeda12de6c95a7ce1a5ad479ac184baa774f16b`.
+Candidate has no weapon grant, recovery injection, lighting change or input
+profile change. It is not yet deployed; no new hardware result is claimed.
+
+| Remaining case | Current boundary / required proof |
+| --- | --- |
+| Controller and 2/4-way blend interpolation | Candidate above; NPC visual regression and telemetry first. Forced changing controls and 2/4-way cases still need explicit coverage. |
+| Previous-sequence crossfade | Not implemented; reference blends the latched prior sequence over 0.2 seconds. Keep separate from accepted STEP movement. |
+| Forced glowshell / other render effects | Ordinary chrome is accepted; shell expansion/pass state and forced effects are not. |
+| Custom viewmodel FOV/handedness | Normal pistol/crowbar path accepted; overrides remain unproven. |
+| Other effect parity | Entity muzzleflash dynamic light, beams, glow/sorting/follow details and Studio wound decals remain outside accepted impact effects. |
+
+Next operator observation: remain in `c1a0`, approach Barney and scientists,
+observe head/body turns and standing/walking changes; check that accepted
+lighting, chrome and absence of flicker remain intact. This natural scene
+cannot by itself close forced wrap, 4-way blend or all sequence coverage.
+
+### Earlier viewmodel-event implementation record (historical)
+
+The following entries preserve the earlier candidate and its subsequent QA.
 
 Branch `feat/phase7-viewmodel-events` adds engine-thread attachment transforms
 using the already evaluated viewmodel bones and delivers client Studio events

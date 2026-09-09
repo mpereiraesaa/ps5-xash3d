@@ -34,6 +34,7 @@ callbacks below are always the project-owned AGC implementation.
 #include "ref_params.h"
 #include "enginefeatures.h"
 #include "studio_event_window.h"
+#include "studio_controller_lerp.h"
 
 static ref_api_t ref_agc_engine;
 static struct {
@@ -1573,6 +1574,9 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	if( !isfinite(frame) ) return -4;
 	frame = bound(0.0f, frame, (float)(seq->numframes - 1));
 	float adj[MAXSTUDIOCONTROLLERS] = {0};
+	const float controller_lerp = ps5_studio_controller_fraction(client->time,
+		entity->curstate.animtime, entity->latched.prevanimtime, 1);
+	if( !isfinite(controller_lerp) ) return -4;
 	if( h->numbonecontrollers < 0 || h->numbonecontrollers > MAXSTUDIOCONTROLLERS ||
 		h->bonecontrollerindex < 0 || (size_t)h->bonecontrollerindex +
 		h->numbonecontrollers * sizeof(mstudiobonecontroller_t) > (size_t)h->length ) return -5;
@@ -1584,11 +1588,11 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 			float t = bound(0.0f, entity->mouth.mouthopen / 64.0f, 1.0f);
 			value = controls[i].start + t * (controls[i].end - controls[i].start);
 		} else if( k >= 0 && k < 4 ) {
-			value = controls[i].type & STUDIO_RLOOP ?
-				entity->curstate.controller[k] * (360.0f/256.0f) + controls[i].start :
-				controls[i].start + entity->curstate.controller[k] / 255.0f *
-				(controls[i].end - controls[i].start);
+			value = ps5_studio_controller(entity->curstate.controller[k],
+				entity->latched.prevcontroller[k], controller_lerp,
+				controls[i].start, controls[i].end, controls[i].type & STUDIO_RLOOP);
 		} else return -6;
+		if( !isfinite(value) ) return -6;
 		adj[i] = controls[i].type & (STUDIO_XR|STUDIO_YR|STUDIO_ZR) ? DEG2RAD(value) : value;
 	}
 	vec3_t positions[4][REF_AGC_LIVE_MAX_STUDIO_BONES];
@@ -1607,10 +1611,10 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 				if( seq->motiontype & (1 << axis) ) positions[b][seq->motionbone][axis] = 0;
 	}
 	if( seq->numblends >= 2 )
-		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[1], positions[1], entity->curstate.blending[0]/255.0f);
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[1], positions[1], ps5_studio_blend(entity->curstate.blending[0], entity->latched.prevblending[0], controller_lerp));
 	if( seq->numblends == 4 ) {
-		R_StudioSlerpBones(h->numbones, rotations[2], positions[2], rotations[3], positions[3], entity->curstate.blending[0]/255.0f);
-		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[2], positions[2], entity->curstate.blending[1]/255.0f);
+		R_StudioSlerpBones(h->numbones, rotations[2], positions[2], rotations[3], positions[3], ps5_studio_blend(entity->curstate.blending[0], entity->latched.prevblending[0], controller_lerp));
+		R_StudioSlerpBones(h->numbones, rotations[0], positions[0], rotations[2], positions[2], ps5_studio_blend(entity->curstate.blending[1], entity->latched.prevblending[1], controller_lerp));
 	}
 	RefAgcLiveStudioPose *pose = &f->studio_poses[f->studio_pose_count];
 	matrix3x4 model;
@@ -1624,6 +1628,18 @@ static int RefAgcCaptureStudioPose(cl_entity_t *entity, RefAgcLiveEntity *live)
 	}
 	pose->bones = h->numbones;
 	pose->frame = frame;
+	if( (h->numbonecontrollers || seq->numblends > 1) &&
+		(ref_agc_scene_calls < 3u || ref_agc_scene_calls % 600u == 0u) && ref_agc_engine.Con_Printf )
+		ref_agc_engine.Con_Printf(
+			"REF_AGC_STUDIO_CONTROLLERS schema=1 entity=%d sequence=%d controllers=%d blends=%d fraction=%.6f current=%u,%u,%u,%u previous=%u,%u,%u,%u blend=%.6f,%.6f owner=engine-thread\n",
+			entity->index, live->sequence, h->numbonecontrollers, seq->numblends,
+			(double)controller_lerp,
+			(unsigned)entity->curstate.controller[0], (unsigned)entity->curstate.controller[1],
+			(unsigned)entity->curstate.controller[2], (unsigned)entity->curstate.controller[3],
+			(unsigned)entity->latched.prevcontroller[0], (unsigned)entity->latched.prevcontroller[1],
+			(unsigned)entity->latched.prevcontroller[2], (unsigned)entity->latched.prevcontroller[3],
+			(double)ps5_studio_blend(entity->curstate.blending[0],entity->latched.prevblending[0],controller_lerp),
+			(double)ps5_studio_blend(entity->curstate.blending[1],entity->latched.prevblending[1],controller_lerp));
 	ref_agc_studio_light_entities[f->studio_pose_count]=*entity;
 	live->studio_pose = ++f->studio_pose_count;
 	return 0;

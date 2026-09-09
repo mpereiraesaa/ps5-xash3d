@@ -62,6 +62,7 @@ $(eval $(call test_rule,test_ps5_platform_abi,tests/test_ps5_platform_abi.c,))
 $(eval $(call test_rule,test_in_ps5,tests/test_in_ps5.c xash/platform_ps5/in_ps5.c,-Iinclude -Ixash/platform_ps5 -Inative/ps5log))
 $(eval $(call test_rule,test_pad_aim,tests/test_pad_aim.c,-Ixash/platform_ps5 -lm))
 $(eval $(call test_rule,test_studio_event_window,tests/test_studio_event_window.c,-Ixash/platform_ps5 -lm))
+$(eval $(call test_rule,test_studio_controller_lerp,tests/test_studio_controller_lerp.c,-Ixash/platform_ps5 -lm))
 $(eval $(call test_rule,test_recovery_gate,tests/test_recovery_gate.c,-Ixash/platform_ps5 -lm))
 $(eval $(call test_rule,test_ps5_audio,tests/test_ps5_audio.c xash/platform_ps5/audio_ps5.c,-Iinclude -Ixash/platform_ps5 -Inative/ps5log -lpthread))
 $(eval $(call test_rule,test_ps5_audio_pattern,tests/test_ps5_audio_pattern.c xash/platform_ps5/audio_pattern_ps5.c,-Iinclude -Ixash/platform_ps5))
@@ -139,7 +140,7 @@ TESTS := test_gears_mesh test_gears_scene test_gears_frame_tracker \
 	test_ps5_pipeline test_ps5_event_adapter test_ps5_gpu_span \
 	test_ps5_gpu_flip_timing test_ps5_submission test_ps5_direct_memory \
 	test_ps5_platform_abi \
-	test_in_ps5 test_pad_aim test_studio_event_window test_recovery_gate test_ps5_audio test_ps5_audio_pattern \
+	test_in_ps5 test_pad_aim test_studio_event_window test_studio_controller_lerp test_recovery_gate test_ps5_audio test_ps5_audio_pattern \
 	test_ps5log_host test_ps5_shader_header test_ps5_agc_writer \
 	test_ps5_agc_submit test_ps5_videoout test_bsp_bundle test_bsp_command_plan \
 	test_bsp_flat_draw test_bsp_flat_scene test_bsp_noclip test_bsp_runtime_plan \

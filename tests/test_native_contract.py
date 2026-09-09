@@ -69,6 +69,11 @@ def main() -> None:
     pose_capture = ref_agc_module.rsplit("static int RefAgcCaptureStudioPose(", 1)[1].split("static qboolean RefAgcAddEntity", 1)[0]
     if "PS5_StudioCaptureLighting(" in pose_capture:
         raise SystemExit("Studio pose capture precedes current view flags; defer lighting")
+    assert "ps5_studio_controller_fraction(client->time" in pose_capture
+    assert "entity->latched.prevcontroller[k], controller_lerp" in pose_capture
+    assert "entity->latched.prevblending[0], controller_lerp" in pose_capture
+    assert "entity->latched.prevblending[1], controller_lerp" in pose_capture
+    assert "REF_AGC_STUDIO_CONTROLLERS schema=1" in pose_capture
     if "funcs->CL_RunLightStyles = RefAgcRunLightStyles" not in ref_agc_module:
         raise SystemExit("Studio shared lightstyles callback missing")
     filesystem_prx_module = (
