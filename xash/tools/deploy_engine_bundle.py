@@ -8,7 +8,6 @@ import ftplib
 import hashlib
 import json
 import re
-import socket
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -17,6 +16,7 @@ TITLE_ID = "PPSA99996"
 REMOTE_ROOT = PurePosixPath("/data/homebrew") / TITLE_ID
 SAFE_MODULE = re.compile(r"^[A-Za-z0-9_-]+\.prx$")
 SAFE_ASSETS = {"map.ps5bsp", "model.ps5mdl"}
+_RAW_SELF_MARKER = "_ps5_raw_self_transfer_enabled"
 
 
 def digest(path: Path) -> str:
@@ -41,36 +41,43 @@ def delete_file(ftp: ftplib.FTP, path: str) -> None:
             raise
 
 
-def shsrv_size(host: str, path: str) -> int:
-    data = bytearray()
-    with socket.create_connection((host, 2323), 8) as sock:
-        sock.settimeout(8)
-        while b"$ " not in data and len(data) < 16384:
-            data.extend(sock.recv(4096))
-        start = len(data)
-        sock.sendall(f"stat {path}\n".encode("ascii"))
-        while len(data) < 32768:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            data.extend(chunk)
-            if b"$ " in data[start:]:
-                break
-    match = re.search(rb"(?:^|\n)size: (\d+)(?:\r?$|\n)", data[start:], re.MULTILINE)
-    if not match:
-        raise RuntimeError(f"shsrv stat was not parseable: {path}")
-    return int(match.group(1))
+def disable_self_decryption(ftp: ftplib.FTP) -> str:
+    """Select raw SELF transfers for this ftpsrv connection."""
+    if getattr(ftp, _RAW_SELF_MARKER, False):
+        return "SELF transfer mode already disabled"
+    for _ in range(2):
+        response = ftp.sendcmd("SELF")
+        lowered = response.lower()
+        if "disabled" in lowered:
+            setattr(ftp, _RAW_SELF_MARKER, True)
+            return response
+        if "enabled" not in lowered:
+            raise RuntimeError(
+                f"ftpsrv returned an unknown SELF mode: {response}"
+            )
+    raise RuntimeError("ftpsrv did not disable SELF transfer conversion")
 
 
-def verify_transformed_self(ftp: ftplib.FTP, remote: str, elf: Path) -> int:
-    expected = elf.read_bytes()
-    actual = bytearray()
-    ftp.retrbinary(f"RETR {remote}", actual.extend)
-    stable = max(0, len(expected) - 512)
-    if (not expected.startswith(b"\x7fELF") or len(actual) != len(expected)
-            or bytes(actual[:stable]) != expected[:stable]):
-        raise RuntimeError(f"FTP-transformed SELF verification failed: {remote}")
-    return stable
+def verify_remote_exact(ftp: ftplib.FTP, remote: str, local: Path) -> int:
+    """Verify the byte-exact staged file after raw SELF mode is selected."""
+    expected_size = local.stat().st_size
+    remote_size = ftp.size(remote)
+    if remote_size != expected_size:
+        raise RuntimeError(
+            f"stored size mismatch: {remote}: {remote_size} != {expected_size}"
+        )
+    received = 0
+    remote_digest = hashlib.sha256()
+
+    def consume(chunk: bytes) -> None:
+        nonlocal received
+        received += len(chunk)
+        remote_digest.update(chunk)
+
+    ftp.retrbinary(f"RETR {remote}", consume)
+    if received != expected_size or remote_digest.hexdigest() != digest(local):
+        raise RuntimeError(f"stored digest mismatch: {remote}")
+    return received
 
 
 def bundle(local_root: Path, modules: list[str],
@@ -121,6 +128,8 @@ def promote(host: str, local_root: Path, modules: list[str], assets: list[str],
         ftp.connect(host, 2121, 8)
         ftp.login()
         try:
+            self_mode = disable_self_decryption(ftp)
+            record("engine_bundle_ftp_mode", mode="raw-self", response=self_mode)
             for local, remote_path, is_self in items:
                 live = str(remote_path)
                 stage = str(remote_path.parent / f".{remote_path.name}.new-{tag}")
@@ -133,32 +142,12 @@ def promote(host: str, local_root: Path, modules: list[str], assets: list[str],
                 staged.append((stage, backup, had_live))
                 with local.open("rb") as stream:
                     ftp.storbinary(f"STOR {stage}", stream)
-                verification = "shsrv-size"
-                stable_bytes = 0
-                try:
-                    size = shsrv_size(host, stage)
-                    if size != local.stat().st_size:
-                        raise RuntimeError(f"stored size mismatch: {stage}: {size}")
-                except (OSError, TimeoutError):
-                    if is_self:
-                        project = local_root.parents[2]
-                        if local.name == "eboot.bin":
-                            elf = project / "build/engine-boot/eboot.elf"
-                        else:
-                            elf = project / "build/engine-boot/prx" / local.name.replace(".prx", ".elf")
-                        stable_bytes = verify_transformed_self(ftp, stage, elf)
-                        verification = "ftp-transformed-elf"
-                    else:
-                        actual = bytearray()
-                        ftp.retrbinary(f"RETR {stage}", actual.extend)
-                        if hashlib.sha256(actual).hexdigest() != digest(local):
-                            raise RuntimeError(f"asset digest mismatch: {stage}")
-                        stable_bytes = len(actual)
-                        verification = "ftp-sha256"
-                    size = local.stat().st_size
+                size = verify_remote_exact(ftp, stage, local)
                 record("engine_bundle_staged", live=live, staged=stage,
                        bytes=size, fself_sha256=digest(local),
-                       verification=verification, stable_verified_bytes=stable_bytes)
+                       verification="ftp-raw-sha256",
+                       stable_verified_bytes=size,
+                       self_container=is_self)
             for (_, remote_path, _), (stage, backup, had_live) in zip(items, staged):
                 live = str(remote_path)
                 if had_live:

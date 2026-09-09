@@ -10,7 +10,7 @@ STUDIO_SEQUENCE ?= fire
 	engine-prx-loader-native-release \
 	engine-filesystem-prx-native-release \
 	engine-server-prx-native-release \
-	engine-ref-agc-prx-native-release \
+	engine-ref-agc-prx-native-release engine-phase7-menu-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -364,6 +364,14 @@ engine-ref-agc-prx-native-release: bsp-bundle studio-bundle shaders
 	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
 		bash xash/build_engine.sh
+
+# Phase 7 native-menu gate: present MainUI through live AGC 2D first, then
+# enter c1a0 through the engine command buffer and retain the accepted stack.
+engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
+	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
+		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
+		XASH_PHASE7_MENU_GATE=1 XASH_PHASE7_MENU_SECONDS=5 \
+		XASH_GATE_SECONDS=25 bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

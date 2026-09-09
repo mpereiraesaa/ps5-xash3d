@@ -197,8 +197,14 @@
   the existing direct-memory arena, and bind the hardware-proven native AGC
   lightmap pipelines. Pass 1,075 matched frames with 3,695 lightmapped draws,
   exact ownership, zero errors and visible FW 12.02 output.
-- [ ] Add native sky/turbulent semantics, then replace entity fixtures and the
-  procedural 2D list with engine-driven draws, binding each class to its own
-  GPU-visible evidence.
+- [x] Add native sky/turbulent semantics and replace the procedural 2D list
+  with source-ordered engine console/HUD/MainUI draws, binding each class to
+  GPU-visible hashes and FW 12.02 evidence.
+- [x] Present MainUI through native AGC before queuing `map c1a0` through the
+  engine command buffer; prove positive pre-map quads/draws, strict
+  menu-before-map serial order, visible video and exact teardown.
+- [ ] Replace entity fixtures with live engine-driven entities and add the
+  first-person viewmodel, binding both classes to their own GPU-visible
+  evidence.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

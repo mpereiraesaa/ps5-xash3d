@@ -3,12 +3,32 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "xash/tools"))
 
 import deploy_engine_bundle as deploy  # noqa: E402
+
+
+class FakeFtp:
+    def __init__(self, data: bytes, responses: list[str] | None = None):
+        self.data = data
+        self.responses = responses or ["200 SELF decryption disabled"]
+        self.commands: list[str] = []
+
+    def sendcmd(self, command: str) -> str:
+        self.commands.append(command)
+        return self.responses.pop(0)
+
+    def size(self, _remote: str) -> int:
+        return len(self.data)
+
+    def retrbinary(self, command: str, consume) -> None:
+        self.commands.append(command)
+        consume(self.data[:3])
+        consume(self.data[3:])
 
 
 def main() -> int:
@@ -48,6 +68,26 @@ def main() -> int:
                 pass
             else:
                 raise AssertionError(f"accepted unsafe asset set: {assets}")
+        raw = FakeFtp(self_data, ["200 SELF decryption enabled",
+                                 "200 SELF decryption disabled"])
+        assert "disabled" in deploy.disable_self_decryption(raw).lower()
+        assert raw.commands == ["SELF", "SELF"]
+        assert deploy.disable_self_decryption(raw) == \
+            "SELF transfer mode already disabled"
+        assert raw.commands == ["SELF", "SELF"]
+        assert deploy.verify_remote_exact(raw, "/stage/eboot.bin",
+                                          root / "eboot.bin") == len(self_data)
+        assert raw.commands[-1] == "RETR /stage/eboot.bin"
+        corrupt = FakeFtp(self_data[:-1] + b"x")
+        assert hashlib.sha256(corrupt.data).digest() != \
+            hashlib.sha256(self_data).digest()
+        try:
+            deploy.verify_remote_exact(corrupt, "/stage/eboot.bin",
+                                       root / "eboot.bin")
+        except RuntimeError as exc:
+            assert "digest mismatch" in str(exc)
+        else:
+            raise AssertionError("accepted a corrupted staged SELF")
     print("engine bundle deployment tests passed")
     return 0
 

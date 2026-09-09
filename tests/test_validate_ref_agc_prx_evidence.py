@@ -51,7 +51,8 @@ def write_run(directory: Path, name: str, app: str, messages: list[str], *,
 def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
                     live: bool = True, consumer: bool = False,
                     resources: bool = False,
-                    boot_map: str = "c1a0") -> list[str]:
+                    boot_map: str = "c1a0",
+                    live_menu: bool = False) -> list[str]:
     complete = [
         "XASH_SERVER_PRX_COMPLETE module=server.prx stop_result=0 active_modules=4 ownership=exact",
         "XASH_MENU_PRX_COMPLETE module=menu.prx stop_result=0 active_modules=3 ownership=exact pass=1",
@@ -84,6 +85,14 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
                        "texture_frees=0 texture_handles=250 texture_peak_active=250 "
                        "texture_peak_bytes=3145728 world_texture_refs=121 "
                        "world_textures_resolved=121") if resources else ""
+    menu_begin = ([
+        f"XASH_PHASE7_MENU_GATE_BEGIN schema=1 menu_seconds=5 map={boot_map} "
+        "boot=mainui transition=engine-command-buffer",
+    ] if live_menu else [])
+    menu_complete = ([
+        f"XASH_PHASE7_MENU_GATE_COMPLETE schema=1 map={boot_map} "
+        "map_queued=1 host_result=0 ownership=engine-command-buffer pass=1",
+    ] if live_menu else [])
     return [
         "LOG_BOOT_MONOTONIC_NS=0x1234",
         f"XASH_BOOT schema=1 slice=engine-boot mode=client ref=agc fw=12.02 engine={ENGINE} "
@@ -97,6 +106,7 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
         "teardown_result=0 engine_mask=0 expected_mask=63 frames=0 "
         "frame_hash=0000000000000000 bright_pixels=0 begin_calls=0 scene_calls=0 "
         f"end_calls=0 newmap_calls=0{ready_live}{ready_consumer}{ready_resources} backend={backend} ownership={ownership} pass=1",
+        *menu_begin,
         *complete,
         "XASH_REF_AGC_PRX_STATE module=ref_agc.prx api=18 state=5 runtime_result=0 "
         f"teardown_result=0 engine_mask=63 expected_mask=63 frames={100 if consumer else 600} frame_hash={frame_hash} "
@@ -107,6 +117,7 @@ def engine_messages(frame_hash: str = "d8c9aadab3c82cdb", *,
         "ownership=exact pass=1",
         "XASH_FS_PRX_COMPLETE module=filesystem_stdio.prx stop_result=0 active_modules=0 "
         "ownership=exact",
+        *menu_complete,
         "XASH_EXIT result=0 ref_agc_prx=1",
     ]
 
@@ -136,7 +147,8 @@ def phase7_renderer_messages(serial: int = 100, *,
                              resources: bool = False,
                              world: bool = False,
                              special: bool = False,
-                             live_2d: bool = False) -> list[str]:
+                             live_2d: bool = False,
+                             live_menu: bool = False) -> list[str]:
     if world and not resources:
         raise ValueError("live world evidence requires GPU textures")
     if special and not world:
@@ -233,6 +245,18 @@ def phase7_renderer_messages(serial: int = 100, *,
             "command_hash=3234567890abcdef order=source-exact "
             "geometry=transient-slot ownership=fence+videoout errors=0",
         ] if live_2d else []),
+        *([
+            "REF_AGC_LIVE_MENU_FIRST schema=1 serial=1 quads=1 "
+            "draws=1 map_serial=0 source=mainui-2d "
+            "ownership=fence+videoout",
+            "REF_AGC_LIVE_MENU_TRANSITION schema=1 serial=2 map_serial=1 "
+            "premap_frames=1 premap_quads=3 premap_draws=3 "
+            "order=menu-then-map",
+            "REF_AGC_LIVE_MENU_COMPLETE schema=1 frames=1 quads=3 "
+            "draws=3 first_serial=1 map_first_serial=2 "
+            "order=menu-then-map presentation=native-agc ownership=exact "
+            "errors=0 pass=1",
+        ] if live_menu else []),
         f"REF_AGC_LIVE_COMPLETE frames=100 serial={serial} view_frames=99 "
         "camera_hash=abcdef1234567890 camera_changes=0 "
         "buffer0=a9e62c5188ca6bf5 buffer1=0044418de19349d8 "
@@ -248,6 +272,7 @@ def run(engine: Path, renderer: Path, *,
         require_live_lightmaps: bool = False,
         require_live_special_surfaces: bool = False,
         require_live_2d: bool = False,
+        require_live_menu: bool = False,
         boot_map: str = "c1a0") -> subprocess.CompletedProcess[str]:
     command = [
         "python3", "-B", str(VALIDATOR), str(engine), str(renderer),
@@ -262,6 +287,8 @@ def run(engine: Path, renderer: Path, *,
         command.append("--require-live-special-surfaces")
     if require_live_2d:
         command.append("--require-live-2d")
+    if require_live_menu:
+        command.append("--require-live-menu")
     return subprocess.run(command, text=True, capture_output=True, check=False)
 
 
@@ -369,6 +396,66 @@ def main() -> None:
         assert live_2d_summary["quads"] == 3
         assert live_2d_summary["draws"] == 3
         assert live_2d_summary["indices"] == 18
+
+        menu_raw = [
+            "filesystem_stdio successfully loaded",
+            "[00:00:05] XASH_PHASE7_MENU_GATE_TRANSITION "
+            "seconds=5 action=map map=c1a0",
+            "[00:00:05] Spawn Server: c1a0",
+            'Dll loaded for game "Half-Life"', "Game started",
+            "Loading renderer: agc -> ref_agc",
+            "PS5_XASH_GATE_TIMEOUT seconds=20 action=quit",
+        ]
+        menu_engine = write_run(
+            directory, "menu-engine", "xash3d-engine",
+            engine_messages(
+                consumer=True, resources=True, live_menu=True),
+            raw=menu_raw, started="2026-09-08T19:13:27.933+00:00")
+        menu_renderer = write_run(
+            directory, "menu-renderer", "ps5-xash3d",
+            phase7_renderer_messages(
+                resources=True, world=True, live_2d=True, live_menu=True),
+            started="2026-09-08T19:13:27.984+00:00")
+        menu_valid = run(
+            menu_engine, menu_renderer, require_live_lightmaps=True,
+            require_live_2d=True, require_live_menu=True)
+        assert menu_valid.returncode == 0, menu_valid.stderr
+        menu_summary = json.loads(menu_valid.stdout)
+        assert menu_summary["engine_menu"]["menu_seconds"] == 5
+        assert menu_summary["live_menu"] == {
+            "draws": 3, "first_serial": 1, "frames": 1,
+            "map_first_serial": 2, "map_serial": 1,
+            "presentation": "native-agc", "quads": 3,
+        }
+
+        menu_without_2d = run(
+            menu_engine, menu_renderer, require_live_menu=True)
+        assert menu_without_2d.returncode != 0 \
+            and "requires live 2D" in menu_without_2d.stderr
+
+        bad_menu_order_engine = write_run(
+            directory, "bad-menu-order-engine", "xash3d-engine",
+            engine_messages(
+                consumer=True, resources=True, live_menu=True),
+            raw=[menu_raw[0], menu_raw[2], menu_raw[1], *menu_raw[3:]],
+            started="2026-09-08T19:13:27.933+00:00")
+        rejected = run(
+            bad_menu_order_engine, menu_renderer,
+            require_live_2d=True, require_live_menu=True)
+        assert rejected.returncode != 0 \
+            and "did not precede map spawn" in rejected.stderr
+
+        bad_menu_totals = write_run(
+            directory, "bad-menu-totals-renderer", "ps5-xash3d",
+            [message.replace("frames=1 quads=3", "frames=2 quads=3")
+             for message in phase7_renderer_messages(
+                 resources=True, world=True, live_2d=True, live_menu=True)],
+            started="2026-09-08T19:13:27.984+00:00")
+        rejected = run(
+            menu_engine, bad_menu_totals,
+            require_live_2d=True, require_live_menu=True)
+        assert rejected.returncode != 0 \
+            and "menu completion contract mismatch" in rejected.stderr
 
         missing_live_2d_messages = [
             message for message in phase7_renderer_messages(

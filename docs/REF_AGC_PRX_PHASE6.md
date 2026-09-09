@@ -67,9 +67,10 @@ make engine-ref-agc-prx-native-release
 ```
 
 The generated title remains `PPSA99996`. Deployment uses the transactional
-bundle helper. Regular assets are staged, promoted and verified by full remote
-SHA-256; SELF/fSELF verification uses the connection-local transformed-ELF
-contract. No `PPSA99998` title is created or installed.
+bundle helper. It disables ftpsrv's connection-local SELF transformation and
+requires full remote size plus SHA-256 equality against the exact local bytes
+for every SELF, PRX and regular asset before promotion. No transformed-ELF or
+size-only fallback is accepted. No `PPSA99998` title is created or installed.
 
 ## Accepted FW 12.02 evidence
 

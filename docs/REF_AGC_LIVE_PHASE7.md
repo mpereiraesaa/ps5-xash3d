@@ -445,6 +445,63 @@ The accepted validator result includes:
 ```
 
 This closes live console/HUD/font/fill translation and visible native AGC 2D
-composition. It does not claim that the MainUI main menu has been presented or
-that live entities and the first-person viewmodel are translated; those remain
-separate Phase 7 gates.
+composition. The following gate proves MainUI presentation separately. Live
+entities and the first-person viewmodel remain independent Phase 7 work.
+
+## Native MainUI presentation and engine map transition
+
+`engine-phase7-menu-native-release` boots the complete five-PRX stack without
+the usual `+map` argument. MainUI therefore owns the initial live 2D producer
+stream. After five monotonic seconds, the engine main thread queues `map c1a0`
+through `Cbuf_AddText`; it does not synthesize a renderer-side transition or
+restart the title. The total 25-second gate remains bounded and then performs
+the ordinary exact five-module teardown.
+
+The synchronized accepted FW 12.02 streams began 52 ms apart:
+
+- Engine: `20260909T065237749Z_PPSA99996_xash3d-engine_0x1368098fcc1b8`
+- Renderer: `20260909T065237800Z_PPSA99996_ps5-xash3d_0x136809c13ba99`
+
+The engine emitted one `XASH_PHASE7_MENU_GATE_BEGIN`, then the raw transition
+line before the unique `Spawn Server: c1a0`, and finally completed with
+`map_queued=1 host_result=0 ownership=engine-command-buffer pass=1`. The native
+renderer first observed MainUI at serial 1 with 423 quads and 128 draws. It
+observed the map at serial 224, after 223 pre-map frames containing 94,918
+quads and 27,929 native draws. The completion marker reproduced those totals
+exactly with `order=menu-then-map presentation=native-agc errors=0 pass=1`.
+
+The paired validator was run with `--require-live-lightmaps`,
+`--require-live-2d` and `--require-live-menu`. It accepted 1,339 matched frames,
+3,695 lightmapped world draws, 548 draw-bearing 2D frames, both framebuffer
+hashes `49b1297de5cef0a0`, aggregate frame hash `a3219a480a7a1c41`, 3,989,406
+bright pixels, all eight reclaims and exact teardown. The menu opt-in rejects a
+missing 2D proof, non-positive pre-map work, mismatched totals, a map serial
+that does not follow the first menu serial, a raw transition after spawn, or
+non-native presentation.
+
+A fresh CLI Remote Play connection was allowed to decode until an independent
+Home screenshot was non-black. A 35-second 1080p recording then began before
+launch. Its 23-second frame visibly shows the Half-Life MainUI and its
+25-second frame shows the `c1a0` tram interior. An earlier all-black recording
+was rejected and is not evidence for this gate.
+
+| Artifact or evidence | SHA-256 |
+| --- | --- |
+| Engine ELF | `1d76cd4fdd767798e2a5e8eeec52b121c02a4688e2b471eef0d9733d9cdff76e` |
+| Engine fSELF | `ba08913cfa2f9d7bdbed28edfaacb50af214607ede5de5efc8915720a825d7fa` |
+| `ref_agc` ELF | `370badf979c5f1dfe39fdbb0d5027b923ad0e2ee673b5f8d675a4fc245db380f` |
+| `ref_agc.prx` | `c13ccc42a59ebb48827de211b33fe68bb721271aba9d097f780561765d746fa8` |
+| Engine transcript | `9e60ed5fe781f06bbb548e3692335294f0831709a777e41f2ce970d4e396405b` |
+| Renderer transcript | `a0a53511fde091c81e55b48f1d53d3caac531ff64307772de5e82e44870cd1e4` |
+| Engine manifest | `4f9b40acb50d619f447df60a21f2856015134e2ac6d7b55f3e75fd95a9bb8044` |
+| Renderer manifest | `4315cb763d01c9b1a40b16fc5d827b9a4b27097414aa80d4870a2f355b6d8d97` |
+| Exact transactional deployment journal | `86b363c291d7c509f15dec9a7200a667acbb54a426630a1ac50de50053029961` |
+| Launch journal | `8676622b8df3594532d359b7007fce5a06454b06f0fc7ad6790f15056145d43a` |
+| Decoded Home preflight | `1df07e0a5c03886b1ed021fd99ed01e6416eb763a03d845a415f2b220b05aaea` |
+| 35-second CLI Remote Play recording | `bfff803bbd69d91e067220ff178b3771720125b17f45a151b20a5370662c22c9` |
+| Visible MainUI frame at 23 seconds | `fe72c4a2dd2184909f59b4304fb7214c2d04391856d69708fc154a36b1cf6f97` |
+| Visible `c1a0` frame at 25 seconds | `a322954aaaa4059fd8c87ac9c2214f3ef2bd925b5265596270a107ead727b557` |
+
+This closes native MainUI presentation and its in-process transition to the
+live map. It does not close live entities, the first-person viewmodel, gameplay,
+performance or release acceptance.

@@ -440,6 +440,13 @@ static double PS5_MonotonicSeconds( void )
 	return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
 }
 
+static qboolean ps5_phase7_menu_map_queued;
+
+int PS5_Phase7MenuGateMapQueued( void )
+{
+	return ps5_phase7_menu_map_queued != false;
+}
+
 /*
 The host reads the clock at the top of every frame on the main thread, which
 makes it the one hook a dedicated build reaches every frame without touching
@@ -462,6 +469,18 @@ static void PS5_GateTick( double now )
 	}
 	if( !pthread_equal( owner, pthread_self( )))
 		return;
+
+#if PS5_XASH_PHASE7_MENU_GATE
+	if( !ps5_phase7_menu_map_queued &&
+		now - started >= (double)PS5_XASH_PHASE7_MENU_SECONDS )
+	{
+		ps5_phase7_menu_map_queued = true;
+		Con_Printf( "XASH_PHASE7_MENU_GATE_TRANSITION seconds=%d action=map map=%s\n",
+			PS5_XASH_PHASE7_MENU_SECONDS, PS5_XASH_BOOT_MAP );
+		Cbuf_AddText( "map " PS5_XASH_BOOT_MAP "\n" );
+		return;
+	}
+#endif
 
 #if PS5_XASH_PAD_GATE
 	(void)PS5_PadInputPoll( );

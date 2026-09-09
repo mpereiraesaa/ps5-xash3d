@@ -23,7 +23,7 @@ the standalone Gears demo; every phase of the port lands here.
 | 4 — GoldSrc render states | Complete | All eight implementation gates passed independently, then the complete water/glass/effects/Studio/HUD scene passed a 60,000-frame integrated FW 12.02 soak with exact ownership and zero errors |
 | 5 — Platform layer | Complete | The dedicated Xash3D engine boots, indexes the complete 4,823-entry asset tree and loads `c1a0`; input, audio, memory, pthread/time, GPU/flip timing and the project-owned assert/identity/address shims have exact FW 12.02 evidence |
 | 6 — Engine integration | Complete | Filesystem, server, MainUI, GoldSrc client and `ref_agc` all run as application-owned PRXs; `c1a0` starts while the native AGC backend presents 600 validated frames, then all five modules unwind exactly |
-| 7 — Playable and release | In progress | The live `c1a0` world, base textures, engine lightmaps, sky/turbulent semantics and source-ordered 2D console/HUD primitives are compositor-visible through native AGC; entities, viewmodel, native main-menu presentation, gameplay, performance and release gates remain |
+| 7 — Playable and release | In progress | The live `c1a0` world, base textures, engine lightmaps, sky/turbulent semantics and source-ordered 2D are compositor-visible through native AGC; MainUI now presents before an engine-command-buffer transition into `c1a0`; entities, viewmodel, gameplay, performance and release gates remain |
 
 The final Phase 3 soak ran 60,000 frames uninterrupted with 122 mip chains,
 2,915 opaque, 137 alpha-test and 158 sky draws per frame, 68,731,904 resident
@@ -167,6 +167,21 @@ XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
 The RefAPI contract, paired engine/renderer validation, exact five-module
 teardown and the deliberately bounded Phase 7 boundary are recorded in
 [`docs/REF_AGC_PRX_PHASE6.md`](docs/REF_AGC_PRX_PHASE6.md).
+
+Build the additive Phase 7 MainUI gate. It presents the real menu through the
+live AGC 2D path for five seconds, then queues `map c1a0` inside the same engine
+process and keeps the complete stack alive until the 25-second teardown:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life PS5LOG_DEV_CONF=/private/path/dev.conf \
+  BSP_INPUT=/private/path/valve/maps/c1a0e.bsp \
+  STUDIO_INPUT=/private/path/valve/models/sphere.mdl \
+  make engine-phase7-menu-native-release
+```
+
+The engine/renderer ordering contract, strict paired validation and accepted
+FW 12.02 video are recorded in
+[`docs/REF_AGC_LIVE_PHASE7.md`](docs/REF_AGC_LIVE_PHASE7.md).
 
 Build the ScePad gate on the same dedicated host. The foreground DualSense
 must exercise movement, look, jump, crouch, use and fire before the bounded

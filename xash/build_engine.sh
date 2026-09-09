@@ -53,6 +53,9 @@
 #                         (default 0)
 #   XASH_REF_AGC_PRX      package ref_agc as the final Phase 6 module and bind
 #                         it to the Phase 4 native AGC/VideoOut owner (default 0)
+#   XASH_PHASE7_MENU_GATE boot the complete Phase 7 stack into MainUI, retain
+#                         it for XASH_PHASE7_MENU_SECONDS, then queue the map
+#                         through the engine command buffer (default 0)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -81,6 +84,8 @@ server_prx=${XASH_SERVER_PRX:-0}
 menu_prx=${XASH_MENU_PRX:-0}
 client_prx=${XASH_CLIENT_PRX:-0}
 ref_agc_prx=${XASH_REF_AGC_PRX:-0}
+phase7_menu_gate=${XASH_PHASE7_MENU_GATE:-0}
+phase7_menu_seconds=${XASH_PHASE7_MENU_SECONDS:-5}
 ref_name=${XASH_REF:-soft}
 [[ $mode == dedicated || $mode == client ]] || { echo "XASH_MODE must be dedicated or client" >&2; exit 2; }
 [[ $ref_name =~ ^[a-z0-9_]+$ ]] || { echo "XASH_REF must be a renderer short name" >&2; exit 2; }
@@ -98,6 +103,8 @@ ref_name=${XASH_REF:-soft}
 [[ $menu_prx == 0 || $menu_prx == 1 ]] || { echo "XASH_MENU_PRX must be 0 or 1" >&2; exit 2; }
 [[ $client_prx == 0 || $client_prx == 1 ]] || { echo "XASH_CLIENT_PRX must be 0 or 1" >&2; exit 2; }
 [[ $ref_agc_prx == 0 || $ref_agc_prx == 1 ]] || { echo "XASH_REF_AGC_PRX must be 0 or 1" >&2; exit 2; }
+[[ $phase7_menu_gate == 0 || $phase7_menu_gate == 1 ]] || { echo "XASH_PHASE7_MENU_GATE must be 0 or 1" >&2; exit 2; }
+[[ $phase7_menu_seconds =~ ^[1-9][0-9]*$ ]] || { echo "XASH_PHASE7_MENU_SECONDS must be a positive integer" >&2; exit 2; }
 if [[ $server_prx == 1 && $filesystem_prx != 1 ]]; then
     echo "XASH_SERVER_PRX=1 requires the proven XASH_FILESYSTEM_PRX=1 checkpoint" >&2
     exit 2
@@ -112,6 +119,10 @@ if [[ $client_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_p
 fi
 if [[ $ref_agc_prx == 1 && ( $mode != client || $filesystem_prx != 1 || $server_prx != 1 || $menu_prx != 1 || $client_prx != 1 || $ref_name != agc ) ]]; then
     echo "XASH_REF_AGC_PRX=1 requires XASH_MODE=client, XASH_REF=agc and the proven filesystem/server/menu/client PRX checkpoint" >&2
+    exit 2
+fi
+if [[ $phase7_menu_gate == 1 && $ref_agc_prx != 1 ]]; then
+    echo "XASH_PHASE7_MENU_GATE=1 requires the complete client/ref_agc PRX stack" >&2
     exit 2
 fi
 [[ $audio_user == system || $audio_user == foreground ]] || {
@@ -129,6 +140,10 @@ ld_reloc=${LD_RELOCATABLE:-$(command -v ld.lld-18 || command -v ld.bfd || comman
 
 [[ $boot_map =~ ^[A-Za-z0-9_]+$ ]] || { echo "XASH_BOOT_MAP must be a map name" >&2; exit 2; }
 [[ $gate_seconds =~ ^[0-9]+$ ]] || { echo "XASH_GATE_SECONDS must be an integer" >&2; exit 2; }
+if [[ $phase7_menu_gate == 1 && ( $gate_seconds == 0 || $gate_seconds -le $phase7_menu_seconds ) ]]; then
+    echo "XASH_PHASE7_MENU_GATE requires XASH_GATE_SECONDS greater than XASH_PHASE7_MENU_SECONDS" >&2
+    exit 2
+fi
 [[ -n $objcopy && -x $objcopy ]] || { echo "llvm-objcopy is required" >&2; exit 2; }
 [[ -n $readelf && -x $readelf ]] || { echo "llvm-readelf is required" >&2; exit 2; }
 [[ -n $ld_reloc && -x $ld_reloc ]] || { echo "a host ld for relocatable links is required" >&2; exit 2; }
@@ -237,6 +252,8 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_MENU_PRX $menu_prx
 #define PS5_XASH_CLIENT_PRX $client_prx
 #define PS5_XASH_REF_AGC_PRX $ref_agc_prx
+#define PS5_XASH_PHASE7_MENU_GATE $phase7_menu_gate
+#define PS5_XASH_PHASE7_MENU_SECONDS $phase7_menu_seconds
 HEADER
 sed 's/@BZ_VERSION@/1.1.0-fwgs/' "$xash/3rdparty/bzip2/bzip2/bz_version.h.in" \
     > "$gen/bzip2/bz_version.h"
@@ -870,6 +887,7 @@ if [[ $ref_agc_prx == 1 ]]; then
     ref_agc_defines=(
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
         -DPS5_REF_AGC_LIVE_PHASE7=1
+        -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1
         -DPS5_GOLDSRC_PHASE4=1
@@ -1446,4 +1464,4 @@ PY
 (cd "$root" && sha256sum "${build#"$root/"}/eboot.elf" "${dist#"$root/"}/eboot.bin") > "$build/SHA256SUMS"
 "$tool" self --inspect --file "$dist/eboot.bin"
 cat "$build/SHA256SUMS"
-echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx menu_prx=$menu_prx client_prx=$client_prx"
+echo "mode=$mode ref=$ref_name engine=$engine_commit hlsdk=$hlsdk_commit map=$boot_map gate_seconds=$gate_seconds phase7_menu_gate=$phase7_menu_gate phase7_menu_seconds=$phase7_menu_seconds pad_gate=$pad_gate audio_gate=$audio_gate audio=$audio audio_user=$audio_user audio_gate_frames=$audio_gate_frames memory_gate=$memory_gate thread_time_gate=$thread_time_gate libc_shim_gate=$libc_shim_gate prx_gate=$prx_gate filesystem_prx=$filesystem_prx server_prx=$server_prx menu_prx=$menu_prx client_prx=$client_prx"
