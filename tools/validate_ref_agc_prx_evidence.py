@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from validate_engine_boot_evidence import (
@@ -122,7 +123,15 @@ def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
         fail("live brush completion missing or invalid")
     prior = {}
     moved = set()
+    world_syncs = [parse_fields(m) for m in messages
+                   if m.startswith("REF_AGC_LIVE_WORLD_SYNC ")]
     for sample in samples:
+        epoch = 0
+        sample_surfaces = surfaces
+        for sync in world_syncs:
+            if int(sync["serial"]) <= int(sample["serial"]):
+                epoch = int(sync["revision"])
+                sample_surfaces = int(sync["draws"])
         selected = [e for e in entities if e.get("serial") == sample.get("serial")]
         count = int(sample.get("instances", "0"))
         if count <= 0 or len(selected) != count or len({e["index"] for e in selected}) != count \
@@ -135,7 +144,7 @@ def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
             fail("live brush sample accounting mismatch")
         for entity in selected:
             first, length = int(entity["first_surface"]), int(entity["surface_count"])
-            if first < 0 or length <= 0 or first + length > surfaces \
+            if first < 0 or length <= 0 or first + length > sample_surfaces \
                     or not entity.get("model", "").startswith("*") \
                     or int(entity["mode"]) not in range(6):
                 fail("live brush entity range/model mismatch")
@@ -143,9 +152,9 @@ def validate_live_brush(messages: list[str], views: int, surfaces: int) -> dict:
                          for v in entity[k].split(","))
             if len(pose) != 6:
                 fail("live brush pose mismatch")
-            key = (entity["index"], entity["model"])
+            key = (epoch, entity["index"], entity["model"])
             if key in prior and prior[key] != pose:
-                moved.add(key)
+                moved.add(key[1:])
             prior[key] = pose
     for key in ("instances", "draws", "indices"):
         if sum(int(s[key]) for s in samples) > int(complete[key]):
@@ -733,8 +742,69 @@ def started_at(path: Path) -> datetime:
     return datetime.fromisoformat(str(manifest["started_utc"]))
 
 
+def validate_map_sequence(raw: list[str], messages: list[str],
+                          expected: list[str]) -> dict:
+    """Pair ordered engine captures with retired GPU world publications.
+
+    This proves the observed load sequence, not arbitrary save compatibility
+    or recovery from Host_Error. The normal paired validator still runs.
+    """
+    if len(expected) < 2 or any(not re.fullmatch(r"[A-Za-z0-9_-]+", m)
+                                for m in expected):
+        fail("invalid expected map sequence")
+    events = []
+    captures = []
+    for line in raw:
+        spawn = re.search(r"\bSpawn Server: ([A-Za-z0-9_-]+)(?=\s|$)", line)
+        if spawn:
+            events.append(("spawn", spawn[1]))
+        if "REF_AGC_LIVE_WORLD_CAPTURE " in line:
+            capture = parse_fields(line[line.index("REF_AGC_LIVE_WORLD_CAPTURE "):])
+            name = capture.get("name", "")
+            if not name.startswith("maps/") or not name.endswith(".bsp"):
+                fail("invalid captured map name")
+            events.append(("capture", name[5:-4]))
+            captures.append(capture)
+    if events != [(kind, name) for name in expected for kind in ("spawn", "capture")]:
+        fail("engine map spawn/capture sequence mismatch")
+    syncs = [parse_fields(m) for m in messages
+             if m.startswith("REF_AGC_LIVE_WORLD_SYNC ")]
+    complete = one(messages, "REF_AGC_GPU_WORLD_COMPLETE")
+    frames = int(one(messages, "REF_AGC_LIVE_COMPLETE")["frames"])
+    if len(syncs) != len(expected) or int(complete["publishes"]) != len(expected) \
+            or int(complete.get("clears", "0")) != 0 \
+            or any(m.startswith("REF_AGC_LIVE_WORLD_CLEAR ") for m in messages):
+        fail("map sequence publication count/clear mismatch")
+    serial = revision = 0
+    for capture, sync in zip(captures, syncs):
+        next_serial, next_revision = int(sync["serial"]), int(sync["revision"])
+        if not serial < next_serial <= frames or next_revision <= revision \
+                or capture.get("source") != "engine-model-ready" \
+                or int(capture.get("attempts", "0")) <= 0 \
+                or int(capture["surface_count"]) <= 0 \
+                or int(capture["first_surface"]) < 0 \
+                or int(capture["first_surface"]) + int(capture["surface_count"]) > int(capture["model_surfaces"]) \
+                or int(capture["model_surfaces"]) != int(sync["draws"]) \
+                or sync["texture_tables"] != sync["draws"] \
+                or any(int(sync[k]) <= 0 for k in ("vertices", "indices", "resident_bytes")) \
+                or int(sync["resident_bytes"]) > int(sync["arena_bytes"]) \
+                or not exact(sync, {"memory": "direct", "ownership": "retired-before-reuse",
+                                    "index_mode": "per-draw-u16", "source_indices": "u32"}) \
+                or any(not re.fullmatch(r"[0-9a-f]{16}", sync.get(k, ""))
+                       or int(sync[k], 16) == 0 for k in ("source_hash", "upload_hash")):
+            fail("map sequence GPU publication mismatch")
+        serial, revision = next_serial, next_revision
+    for key in ("revision", "vertices", "indices", "draws", "texture_tables",
+                "resident_bytes", "source_hash", "upload_hash"):
+        if complete.get(key) != syncs[-1].get(key):
+            fail("map sequence final world mismatch")
+    return {"maps": expected, "publications": len(syncs),
+            "serials": [int(s["serial"]) for s in syncs],
+            "proof": "ordered-spawn-capture-and-retired-gpu-publication"}
+
+
 def validate_engine_menu(manifest_path: Path, *, boot_map: str,
-                         gate_seconds: int) -> dict[str, int | str]:
+                         gate_seconds: int, expected_maps: list[str] | None = None) -> dict:
     """Validate the engine half of the native MainUI-to-map transition."""
     manifest_path = manifest_path.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -770,17 +840,17 @@ def validate_engine_menu(manifest_path: Path, *, boot_map: str,
         for index, line in enumerate(raw)
         if "XASH_PHASE7_MENU_GATE_TRANSITION" in line
     ]
-    spawn_matches = [
-        index for index, line in enumerate(raw)
-        if f"Spawn Server: {boot_map}" in line
-    ]
-    if len(transition_matches) != 1 or len(spawn_matches) != 1:
+    spawns = [(index, match[1]) for index, line in enumerate(raw)
+              if (match := re.search(r"\bSpawn Server: ([A-Za-z0-9_-]+)(?=\s|$)", line))]
+    if expected_maps is not None and (not expected_maps or expected_maps[0] != boot_map):
+        fail("map sequence must begin with boot map")
+    if len(transition_matches) != 1 or [name for _, name in spawns] != (expected_maps or [boot_map]):
         fail("Phase 7 engine menu transition/spawn proof is not unique")
     transition_index, transition_message = transition_matches[0]
     transition = parse_fields(transition_message)
     if not exact(transition, {
         "seconds": str(menu_seconds), "action": "map", "map": boot_map,
-    }) or transition_index >= spawn_matches[0]:
+    }) or transition_index >= spawns[0][0]:
         fail("Phase 7 engine menu transition did not precede map spawn")
     return {
         "menu_seconds": menu_seconds,
@@ -806,8 +876,11 @@ def main() -> int:
     parser.add_argument("--require-live-brush", action="store_true")
     parser.add_argument("--require-live-studio", action="store_true")
     parser.add_argument("--map", default="c1a0")
+    parser.add_argument("--map-sequence", nargs="+", help="Exact ordered maps, including boot and return; requires live menu")
     args = parser.parse_args()
     try:
+        if args.map_sequence and not args.require_live_menu:
+            fail("map sequence requires live menu validation")
         engine = validate_engine(
             args.engine_manifest,
             engine_commit=args.engine_commit,
@@ -829,7 +902,15 @@ def main() -> int:
         engine_menu = validate_engine_menu(
             args.engine_manifest, boot_map=args.map,
             gate_seconds=engine["gate_seconds"],
+            expected_maps=args.map_sequence,
         ) if args.require_live_menu else None
+        map_sequence = None
+        if args.map_sequence:
+            manifest = json.loads(args.engine_manifest.read_text())
+            lines = (args.engine_manifest.parent / manifest["log_path"]).read_text().splitlines()
+            _, raw = split_transcript(lines[1:-1])
+            _, messages, _ = load_renderer(args.renderer_manifest)
+            map_sequence = validate_map_sequence(raw, messages, args.map_sequence)
         engine_phase = 7 if engine["ref_agc_consumed_frames"] > 0 else 6
         if engine_phase != renderer["phase"]:
             fail("engine/renderer phase mismatch")
@@ -904,6 +985,7 @@ def main() -> int:
             "live_brush": renderer.get("live_brush"),
             "live_studio": renderer.get("live_studio"),
             "engine_menu": engine_menu,
+            "map_sequence": map_sequence,
             "ownership": "exact",
             "pass": True,
         }

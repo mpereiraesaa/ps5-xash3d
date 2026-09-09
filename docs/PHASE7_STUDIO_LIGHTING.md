@@ -174,10 +174,41 @@ reclaimed nine resources, guards intact, errors zero, exact teardown and clean
 BYE; engine also completed cleanly. This validates the observed round trip,
 not arbitrary saves across different builds or the Host_Error recovery path.
 
-The existing paired validator rejects this multi-map run because its menu gate
+The then-current paired validator rejected this multi-map run because its menu gate
 requires a unique boot-map spawn (and matches `c1a0d` by substring). Therefore
 do not report automated paired validation as passed; an explicit transition-aware
-contract/test is pending, without weakening the single-map gate.
+contract/test was pending, without weakening the single-map gate. The follow-up
+below now supplies that explicit mode; original transcripts are unchanged.
+
+### Transition-aware validator follow-up (2026-09-09, local candidate)
+
+The paired validator now accepts `--map-sequence c1a0 c1a0d c1a0` together
+with `--require-live-menu`. Without that opt-in it requires exactly one map
+spawn and compares complete map tokens, not prefixes. The sequence mode
+requires alternating engine spawn/capture events for every expected map,
+one corresponding retired-before-reuse GPU world publication per capture,
+strictly increasing frame serials and revisions, matching geometry counts,
+valid hashes and final-world agreement. Unexpected clears are rejected in
+this successful-transition contract; error recovery is a separate gate.
+Brush samples use the world revision's own surface bounds and do not infer
+movement by comparing entity indices reused across different maps.
+
+Revalidation of the unchanged `20260909T145113528Z` engine and
+`20260909T145113618Z` renderer runs above passes the full paired
+lightmap/2D/menu/brush/Studio checks: 10,810 frames, publications at serials
+213, 2570 and 2982, nine exact reclaims, intact guards and zero errors.
+This is retrospective validation of that build, not a new console run of
+the latest effects build or a claim of arbitrary save compatibility.
+
+Next hardware gate: deliberately invoke the engine's existing `host_error`
+command once after a stable active map, confirm inactive-world clear and
+continued 2D presentation, then load `c1a0` again and obtain exact teardown.
+Use a dedicated bounded diagnostic and an exact expected-error contract:
+never suppress arbitrary Host_Error/Sys_Error lines in the normal validator.
+No corrupt saves, process kill, console restart or Remote Play is required.
+Operator acceptance must confirm that loading/console presentation does not
+freeze and the recovered map is visible and controllable. This recovery
+gate remains pending; no deployment or launch occurred in this follow-up.
 
 Operator subsequently reported black areas on Barney's front jacket near the
 computer and on some scientist faces, dependent on viewing angle/proximity and
