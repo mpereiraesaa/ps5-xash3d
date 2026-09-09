@@ -13,34 +13,32 @@ MARKER = '\telse if( FStrEq(pcmd, "give" ) )'
 INSERT = '''\telse if( FStrEq( pcmd, "givecurrentammo" ) )
 \t{
 \t\t// PS5: give reserve ammo only for the weapon currently equipped.
-\t\t// This intentionally does not grant weapons or unrelated ammo types.
-\t\tif( g_enable_cheats->value != 0 )
+\t\t// This fixed, local helper is intentionally independent of sv_cheats;
+\t\t// it never accepts an arbitrary classname or grants unrelated items.
+\t\tCBasePlayer *pPlayer = GetClassPtr( (CBasePlayer *)pev );
+\t\tconst char *ammo = NULL;
+\t\tif( pPlayer->m_pActiveItem )
 \t\t{
-\t\t\tCBasePlayer *pPlayer = GetClassPtr( (CBasePlayer *)pev );
-\t\t\tconst char *ammo = NULL;
-\t\t\tif( pPlayer->m_pActiveItem )
-\t\t\t{
-\t\t\t\tconst char *weapon = pPlayer->m_pActiveItem->pszName();
-\t\t\t\tif( FStrEq( weapon, "weapon_9mmhandgun" ) ) ammo = "ammo_9mmclip";
-\t\t\t\telse if( FStrEq( weapon, "weapon_9mmAR" ) ) ammo = "ammo_9mmAR";
-\t\t\t\telse if( FStrEq( weapon, "weapon_shotgun" ) ) ammo = "ammo_buckshot";
-\t\t\t\telse if( FStrEq( weapon, "weapon_357" ) ) ammo = "ammo_357";
-\t\t\t\telse if( FStrEq( weapon, "weapon_crossbow" ) ) ammo = "ammo_crossbow";
-\t\t\t\telse if( FStrEq( weapon, "weapon_gauss" ) ) ammo = "ammo_gaussclip";
-\t\t\t\telse if( FStrEq( weapon, "weapon_egon" ) ) ammo = "ammo_egonclip";
-\t\t\t\telse if( FStrEq( weapon, "weapon_rpg" ) ) ammo = "ammo_rpgclip";
-\t\t\t\t// Throwable/projectile weapons have no ammo_* entity in HL1;
-\t\t\t\t// giving their weapon pickup invokes AddDuplicate and increments
-\t\t\t\t// the corresponding reserve without changing the active weapon.
-\t\t\t\telse if( FStrEq( weapon, "weapon_handgrenade" ) ) ammo = "weapon_handgrenade";
-\t\t\t\telse if( FStrEq( weapon, "weapon_tripmine" ) ) ammo = "weapon_tripmine";
-\t\t\t\telse if( FStrEq( weapon, "weapon_satchel" ) ) ammo = "weapon_satchel";
-\t\t\t\telse if( FStrEq( weapon, "weapon_snark" ) ) ammo = "weapon_snark";
-\t\t\t\telse if( FStrEq( weapon, "weapon_hornetgun" ) ) ammo = "weapon_hornetgun";
-\t\t\t}
-\t\t\tif( ammo )
-\t\t\t\tpPlayer->GiveNamedItem( ammo );
+\t\t\tconst char *weapon = pPlayer->m_pActiveItem->pszName();
+\t\t\tif( FStrEq( weapon, "weapon_9mmhandgun" ) ) ammo = "ammo_9mmclip";
+\t\t\telse if( FStrEq( weapon, "weapon_9mmAR" ) ) ammo = "ammo_9mmAR";
+\t\t\telse if( FStrEq( weapon, "weapon_shotgun" ) ) ammo = "ammo_buckshot";
+\t\t\telse if( FStrEq( weapon, "weapon_357" ) ) ammo = "ammo_357";
+\t\t\telse if( FStrEq( weapon, "weapon_crossbow" ) ) ammo = "ammo_crossbow";
+\t\t\telse if( FStrEq( weapon, "weapon_gauss" ) ) ammo = "ammo_gaussclip";
+\t\t\telse if( FStrEq( weapon, "weapon_egon" ) ) ammo = "ammo_egonclip";
+\t\t\telse if( FStrEq( weapon, "weapon_rpg" ) ) ammo = "ammo_rpgclip";
+\t\t\t// Throwable/projectile weapons have no ammo_* entity in HL1;
+\t\t\t// giving their weapon pickup invokes AddDuplicate and increments
+\t\t\t// the corresponding reserve without changing the active weapon.
+\t\t\telse if( FStrEq( weapon, "weapon_handgrenade" ) ) ammo = "weapon_handgrenade";
+\t\t\telse if( FStrEq( weapon, "weapon_tripmine" ) ) ammo = "weapon_tripmine";
+\t\t\telse if( FStrEq( weapon, "weapon_satchel" ) ) ammo = "weapon_satchel";
+\t\t\telse if( FStrEq( weapon, "weapon_snark" ) ) ammo = "weapon_snark";
+\t\t\telse if( FStrEq( weapon, "weapon_hornetgun" ) ) ammo = "weapon_hornetgun";
 \t\t}
+\t\tif( ammo )
+\t\t\tpPlayer->GiveNamedItem( ammo );
 \t}
 '''
 

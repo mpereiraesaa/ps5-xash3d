@@ -14,6 +14,7 @@ class CurrentAmmoTests(unittest.TestCase):
         result = prepare(SOURCE)
         self.assertEqual(result, prepare(SOURCE))
         self.assertEqual(result.count('FStrEq( pcmd, "givecurrentammo" )'), 1)
+        self.assertIn("independent of sv_cheats", result)
         for weapon, ammo in (
             ("weapon_9mmhandgun", "ammo_9mmclip"),
             ("weapon_9mmAR", "ammo_9mmAR"),
