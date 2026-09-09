@@ -69,6 +69,8 @@ boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
+texture_memory_probe=${XASH_TEXTURE_MEMORY_PROBE:-0}
+[[ $texture_memory_probe =~ ^[01]$ ]] || { echo "XASH_TEXTURE_MEMORY_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
@@ -901,6 +903,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         -Dmain=ps5_ref_agc_native_main -DPS5_REF_AGC_MODULE=1
         -DPS5_REF_AGC_LIVE_PHASE7=1
         -DPS5_REF_AGC_SAMPLING_PROBE=$sampling_probe
+        -DPS5_REF_AGC_TEXTURE_MEMORY_PROBE=$texture_memory_probe
         -DPS5_XASH_PHASE7_MENU_GATE=$phase7_menu_gate
         -DPS5_BSP_VIEWER=1 -DPS5_BSP_NOCLIP=1 -DPS5_BSP_TEXTURED=1
         -DPS5_RESOURCE_FOUNDATION=1 -DPS5_TEXTURE_PATH=1

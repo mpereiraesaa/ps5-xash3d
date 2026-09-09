@@ -677,6 +677,28 @@ static int add_aligned(size_t *total, size_t bytes, size_t alignment)
 
 static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
 {
+#if defined(PS5_REF_AGC_LIVE_PHASE7) && PS5_REF_AGC_TEXTURE_MEMORY_PROBE
+    /* Read-only probe: do not size allocations from an unvalidated import.
+     * Paired observations bracket the existing known-good heap allocation. */
+    const size_t probe_capacity = sceKernelGetDirectMemorySize();
+    int64_t probe_start = -1;
+    size_t probe_bytes = 0;
+    int probe_rc = -1;
+    if (probe_capacity && probe_capacity <= INT64_MAX)
+        probe_rc = sceKernelAvailableDirectMemorySize(
+            0, (int64_t)probe_capacity, RESOURCE_HEAP_ALIGNMENT,
+            &probe_start, &probe_bytes);
+    const int probe_bounds = probe_rc == 0 && probe_start >= 0 &&
+        (uint64_t)probe_start <= probe_capacity && probe_bytes &&
+        probe_bytes <= probe_capacity - (uint64_t)probe_start &&
+        (uint64_t)probe_start % RESOURCE_HEAP_ALIGNMENT == 0 &&
+        probe_bytes % RESOURCE_HEAP_ALIGNMENT == 0;
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_MEMORY_QUERY schema=1 stage=before-heap capacity=%llu "
+        "rc=%d block_start=%lld block_bytes=%llu bounds=%d policy_used=0",
+        (unsigned long long)probe_capacity, probe_rc, (long long)probe_start,
+        (unsigned long long)probe_bytes, probe_bounds);
+#endif
 #ifndef PS5_TEXTURE_PATH
     (void)source_file_bytes;
 #endif
@@ -723,6 +745,23 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
         return result;
     resources.resource_heap_allocated = resources.resource_heap_mapped = 1;
     resources.resource_heap_bytes = heap_bytes;
+#if defined(PS5_REF_AGC_LIVE_PHASE7) && PS5_REF_AGC_TEXTURE_MEMORY_PROBE
+    probe_start = -1;
+    probe_bytes = 0;
+    probe_rc = -1;
+    if (probe_capacity && probe_capacity <= INT64_MAX)
+        probe_rc = sceKernelAvailableDirectMemorySize(
+            0, (int64_t)probe_capacity, RESOURCE_HEAP_ALIGNMENT,
+            &probe_start, &probe_bytes);
+    (void)ps5log_printf(PS5LOG_MARK,
+        "REF_AGC_MEMORY_QUERY schema=1 stage=after-heap capacity=%llu "
+        "rc=%d block_start=%lld block_bytes=%llu allocation_start=%lld "
+        "allocation_bytes=%llu policy_used=0",
+        (unsigned long long)probe_capacity, probe_rc, (long long)probe_start,
+        (unsigned long long)probe_bytes,
+        (long long)resources.resource_heap_offset,
+        (unsigned long long)heap_bytes);
+#endif
     memset(resources.resource_heap, 0, heap_bytes);
     if (ps5_resource_pool_init(&resources.resource_pool,
                                resources.resource_heap, heap_bytes) != 0 ||
