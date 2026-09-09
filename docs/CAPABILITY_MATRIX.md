@@ -4,9 +4,11 @@ This document separates missing public imports from missing renderer contracts.
 It preserves the pre-Phase-1 capability analysis that led to the native Gears
 and GoldSrc renderer. All renderer gates through Phase 4 have since passed on
 FW 12.02. The final Phase 6 `ref_agc.prx` conversion also passed: RefAPI v18
-drives the native backend for 600 frames while `c1a0` runs through the dynamic
-engine stack. Translating arbitrary live engine entities into AGC draw lists
-is the Phase 7 boundary, not a hidden requirement of this module-loader gate.
+drives the native backend while `c1a0` runs through the dynamic engine stack.
+Phase 7 now has compositor-visible live world geometry and base textures after
+an exact hardware A/B fixed the required post-camera scheduler handoff.
+Translating entities, viewmodel and 2D/UI into native AGC draw lists remains the
+next boundary rather than a hidden requirement of the module-loader gate.
 
 ## Hardware-proven core
 

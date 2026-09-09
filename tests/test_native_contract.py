@@ -273,6 +273,26 @@ def main() -> None:
         if item not in source:
             raise SystemExit(f"Phase 7 live renderer runtime contract missing: {item}")
     for item in (
+        "PS5_LIVE_CAMERA_SETTLE_NS 10000000L",
+        "PS5_LIVE_CAMERA_SETTLE_TELEMETRY",
+        "ps5_live_camera_settle()",
+        'fail_pre_submit("live_camera_settle", -1)',
+    ):
+        if item not in source:
+            raise SystemExit(f"Phase 7 live camera settle contract missing: {item}")
+    main_start = source.index("int main(void)")
+    camera_ready = source.index('"REF_AGC_LIVE_CAMERA_READY ', main_start)
+    camera_settle = source.index("ps5_live_camera_settle()", camera_ready)
+    command_plan = source.index("BspCommandPlan command_plan;", camera_settle)
+    if not camera_ready < camera_settle < command_plan:
+        raise SystemExit(
+            "Phase 7 live camera settle must follow camera readiness and "
+            "precede command/pipeline planning"
+        )
+    for stale_probe in ("REF_AGC_VISUAL_PROBE", "resource_heap_settle_ns"):
+        if stale_probe in source:
+            raise SystemExit(f"stale Phase 7 visual probe remains: {stale_probe}")
+    for item in (
         "GL_LoadTextureFromBuffer = RefAgcLoadTextureFromBuffer",
         "GL_CreateTexture = RefAgcCreateTexture",
         "GL_FindTexture = RefAgcFindTexture",
