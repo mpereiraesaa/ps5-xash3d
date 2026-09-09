@@ -48,6 +48,39 @@ int ps5_direct_memory_open(struct ps5_direct_memory *memory,
     return PS5_DIRECT_MEMORY_OK;
 }
 
+int ps5_direct_memory_allocate_map(struct ps5_direct_memory *memory,
+                                   const struct ps5_direct_memory_ops *ops,
+                                   size_t bytes, size_t alignment,
+                                   int memory_type, int protection)
+{
+    if (!memory || !ops || !ops->allocate_direct || !ops->map_direct ||
+        !ops->release_direct || !bytes || !power_of_two(alignment) ||
+        bytes % alignment)
+        return PS5_DIRECT_MEMORY_PRECONDITION;
+    memset(memory, 0, sizeof(*memory));
+    memory->offset = -1;
+    memory->bytes = bytes;
+    memory->alignment = alignment;
+    memory->memory_type = memory_type;
+    memory->protection = protection;
+    if (ops->allocate_direct(bytes, alignment, memory_type, &memory->offset) != 0)
+        return PS5_DIRECT_MEMORY_ALLOCATE_FAILED;
+    memory->allocated = 1;
+    if (ops->map_direct(&memory->address, bytes, protection, 0,
+                       memory->offset, alignment) != 0 || !memory->address) {
+        if (ops->release_direct(memory->offset, bytes) != 0) {
+            memory->retain = 1;
+            return PS5_DIRECT_MEMORY_RELEASE_FAILED;
+        }
+        memory->allocated = 0;
+        memory->address = NULL;
+        memory->offset = -1;
+        return PS5_DIRECT_MEMORY_MAP_FAILED;
+    }
+    memory->mapped = 1;
+    return PS5_DIRECT_MEMORY_OK;
+}
+
 int ps5_direct_memory_close(struct ps5_direct_memory *memory,
                             const struct ps5_direct_memory_ops *ops,
                             int gpu_cleanup_allowed)

@@ -343,6 +343,7 @@ common=(-O2 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
         -I"$root/native/ps5log" -I"$root/build/generated" "${bsp_flags[@]}")
 
 sources=(
+    src/ps5_direct_memory.c
     native/main.c native/ps5_agc_native.c
     src/bsp_bundle.c src/bsp_command_plan.c src/bsp_flat_draw.c
     src/bsp_dynamic_lightmap.c src/bsp_alpha_test.c src/bsp_sky.c

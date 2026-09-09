@@ -2,6 +2,7 @@
 #include "../include/ps5_agc_driver.h"
 #include "../include/ps5_platform.h"
 #include "../src/ref_agc_memory_budget.h"
+#include "../src/ps5_direct_memory.h"
 #include "../src/gears_frame_runner.h"
 #include "../src/gears_mesh.h"
 #include "../src/gears_renderer.h"
@@ -565,6 +566,18 @@ static int sync_live_texture(const RefAgcTextureView *view, void *user)
     struct live_texture_sync_context *context = user;
     context->cache_result = ref_agc_gpu_texture_cache_apply(
         context->cache, view, context->prior_use_retired);
+    if (context->cache_result == REF_AGC_GPU_TEXTURE_EXHAUSTED) {
+        RefAgcGpuTextureStats stats;
+        if (ref_agc_gpu_texture_cache_stats(context->cache, &stats) == 0)
+            (void)ps5log_printf(PS5LOG_ERR,
+                "REF_AGC_TEXTURE_EXHAUSTED schema=1 handle=%u width=%u height=%u "
+                "capacity=%llu resident=%llu peak=%llu name=%s action=fail-closed-retain",
+                view->handle, view->width, view->height,
+                (unsigned long long)context->cache->bytes,
+                (unsigned long long)stats.resident_bytes,
+                (unsigned long long)stats.peak_resident_bytes,
+                view->name ? view->name : "unknown");
+    }
     if (context->cache_result == REF_AGC_GPU_TEXTURE_OK && view->active && view->generate_mips) {
         RefAgcGpuTextureEntry texture;
         if (ref_agc_gpu_texture_cache_get(context->cache, view->handle, &texture) != 0)
@@ -621,15 +634,24 @@ static void log_result(const char *name, int result)
 }
 
 static int allocate_direct(void **address, int64_t *offset, size_t bytes,
-                           size_t alignment)
+                           size_t alignment, int *allocated, int *mapped)
 {
-    int result = sceKernelAllocateMainDirectMemory(bytes, alignment, 0x0c,
-                                                    offset);
+    const struct ps5_direct_memory_ops ops = {
+        NULL, sceKernelAllocateMainDirectMemory, sceKernelMapDirectMemory,
+        sceKernelMunmap, sceKernelReleaseDirectMemory
+    };
+    struct ps5_direct_memory memory = {0};
+    const int result = ps5_direct_memory_allocate_map(
+        &memory, &ops, bytes, alignment, 0x0c, 0x33);
+    *address = memory.address;
+    *offset = memory.offset;
+    *allocated = memory.allocated;
+    *mapped = memory.mapped;
     if (result != 0)
-        return result;
-    result = sceKernelMapDirectMemory(address, bytes, 0x33, 0, *offset,
-                                      alignment);
-    return result != 0 || !*address ? (result != 0 ? result : -1) : 0;
+        (void)ps5log_printf(PS5LOG_ERR,
+            "DIRECT_MEMORY_ALLOCATION_FAILED result=%d bytes=%llu allocated=%d mapped=%d retain=%d",
+            result, (unsigned long long)bytes, memory.allocated, memory.mapped, memory.retain);
+    return result;
 }
 
 static int map_command(void)
@@ -786,9 +808,12 @@ static int init_resource_heap(size_t bsp_bytes, size_t source_file_bytes)
     live_texture_arena_bytes = (size_t)budget.texture_bytes;
     heap_bytes = (size_t)budget.heap_bytes;
 #endif
+    resources.resource_heap_bytes = heap_bytes;
     int result = allocate_direct(&resources.resource_heap,
                                  &resources.resource_heap_offset,
-                                 heap_bytes, RESOURCE_HEAP_ALIGNMENT);
+                                 heap_bytes, RESOURCE_HEAP_ALIGNMENT,
+                                 &resources.resource_heap_allocated,
+                                 &resources.resource_heap_mapped);
     if (result != 0)
         return result;
     resources.resource_heap_allocated = resources.resource_heap_mapped = 1;
@@ -1034,9 +1059,11 @@ static int load_bsp_bundle(void)
 #ifdef PS5_RESOURCE_FOUNDATION
     result = init_resource_heap(allocation_bytes, file_bytes);
 #else
+    resources.bsp_bytes = allocation_bytes;
     result = allocate_direct(&resources.bsp, &resources.bsp_offset,
                              allocation_bytes,
-                             BSP_RUNTIME_ALLOCATION_ALIGNMENT);
+                             BSP_RUNTIME_ALLOCATION_ALIGNMENT,
+                             &resources.bsp_allocated, &resources.bsp_mapped);
 #endif
     if (result != 0) {
         (void)close(fd);
@@ -1047,7 +1074,7 @@ static int load_bsp_bundle(void)
     }
 #ifndef PS5_RESOURCE_FOUNDATION
     resources.bsp_allocated = resources.bsp_mapped = 1;
-    resources.bsp_bytes = upper.allocation_bytes;
+    resources.bsp_bytes = allocation_bytes;
 #endif
     memset(resources.bsp, 0, resources.bsp_bytes);
     result = read_exact(fd, resources.bsp, file_bytes);
@@ -4446,7 +4473,8 @@ int main(void)
     result = allocate_direct(&resources.framebuffer,
                              &resources.framebuffer_offset,
                              PS5_SURFACE_ALLOCATION_BYTES,
-                             PS5_SURFACE_ALIGNMENT);
+                             PS5_SURFACE_ALIGNMENT,
+                             &resources.framebuffer_allocated, &resources.framebuffer_mapped);
     if (result != 0)
         return fail_pre_submit("framebuffer_map", result);
     resources.framebuffer_allocated = resources.framebuffer_mapped = 1;
@@ -4478,12 +4506,14 @@ int main(void)
 
 #ifndef PS5_RESOURCE_FOUNDATION
     result = allocate_direct(&resources.shader, &resources.shader_offset,
-                             SHADER_BYTES, SHADER_ALIGNMENT);
+                             SHADER_BYTES, SHADER_ALIGNMENT,
+                             &resources.shader_allocated, &resources.shader_mapped);
     if (result != 0)
         return fail_pre_submit("shader_map", result);
     resources.shader_allocated = resources.shader_mapped = 1;
     result = allocate_direct(&resources.depth, &resources.depth_offset,
-                             DEPTH_ALLOCATION_BYTES, DEPTH_ALIGNMENT);
+                             DEPTH_ALLOCATION_BYTES, DEPTH_ALIGNMENT,
+                             &resources.depth_allocated, &resources.depth_mapped);
     if (result != 0)
         return fail_pre_submit("depth_map", result);
     resources.depth_allocated = resources.depth_mapped = 1;

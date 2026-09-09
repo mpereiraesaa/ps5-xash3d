@@ -942,6 +942,7 @@ if [[ $ref_agc_prx == 1 ]]; then
         "$root/src/ref_agc_gpu_studio_cache.c"
         "$root/src/ref_agc_gpu_texture_cache.c"
         "$root/src/ref_agc_memory_budget.c"
+        "$root/src/ps5_direct_memory.c"
         "$root/src/ref_agc_gpu_world_cache.c"
         "$root/src/ref_agc_gpu_world_draw.c"
         "$root/src/ref_agc_skybox.c"

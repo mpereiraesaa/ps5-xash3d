@@ -140,3 +140,29 @@ Canonical nine-file raw-hash deployment passed. The paired validator accepts
 errors. Both logs end cleanly; independent post-run status confirms no BigApp
 and all four services healthy. Host tests pass. This closes the explicit-size
 regression only, not the entire memory-policy gate or five-task goal.
+
+## Failure handling and automatic candidate
+
+Native allocation now uses `ps5_direct_memory_allocate_map`, recording physical
+and mapped ownership separately. Mapping failure releases the allocation;
+release failure retains its exact offset/size for pre-submit cleanup rather
+than pretending nothing is owned. The heap size is recorded before allocation
+so partial-init cleanup uses the correct byte count. The successful mapping
+API, flags and lifetime remain unchanged. Host mocks exercise allocate failure,
+map failure, null mapping, rollback-release failure and success.
+
+Texture exhaustion reports handle, dimensions, name, capacity, resident and
+peak bytes, then enters the existing fail-closed retained-resource path.
+It does not evict in-flight textures, silently reduce quality or claim a
+successful frame. Host tests force create and replacement exhaustion in a
+256-byte cache and prove the existing texture, descriptors, counters, flush
+count and surrounding bytes stay unchanged. These failure cases are host
+injections, not deliberate hardware failures. Both suites pass ASan/UBSan.
+
+Automatic candidate uses the default 10% of eligible single-block availability,
+with 512 MiB reserved outside the heap, probe enabled and 180 active-map seconds.
+Renderer ELF `330c1681b586d4b66c5efeba29bba764f7e6473e898a4c963028874757e808ee`;
+renderer PRX `3ac71c7117e63619a7e7c203a86d0a8ca4480b12ec8fcdc3ae7d33f19fa22669`;
+SELF `48395ac510aa1fb1acf2216962005c81a89a7aa50e774e75551429e843809854`.
+Full host tests and publication audit pass; canonical nine-file raw-hash
+deployment passed. Hardware run acceptance is recorded below when complete.

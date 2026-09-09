@@ -49,6 +49,12 @@ int ps5_direct_memory_open(struct ps5_direct_memory *memory,
                            const struct ps5_direct_memory_ops *ops,
                            size_t bytes, size_t alignment,
                            int memory_type, int protection);
+/* Allocate/map without reserving a fixed VA. Records partial ownership and
+ * releases physical memory on map failure; a failed release stays owned. */
+int ps5_direct_memory_allocate_map(struct ps5_direct_memory *memory,
+                                   const struct ps5_direct_memory_ops *ops,
+                                   size_t bytes, size_t alignment,
+                                   int memory_type, int protection);
 int ps5_direct_memory_close(struct ps5_direct_memory *memory,
                             const struct ps5_direct_memory_ops *ops,
                             int gpu_cleanup_allowed);
