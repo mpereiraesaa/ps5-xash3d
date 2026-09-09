@@ -1,5 +1,27 @@
 # SceAudioOut PCM output — Phase 5
 
+## Phase 7 live-game candidate (2026-09-09, hardware pending)
+
+The operator deferred four-blend Studio hardware coverage to prioritize real
+game audio. Build with `XASH_AUDIO=1`, `XASH_AUDIO_GATE=0`, the complete
+client/menu/ref_agc stack, no Studio/recovery/weapon-grant probes, and a
+300-second map-relative gate. This exercises the engine mixer through SNDDMA,
+not the previously accepted deterministic tone pattern.
+
+The client launcher previously added `-nosound` unconditionally. It now does
+so only when the generated numeric `PS5_XASH_AUDIO_ENABLED` is zero; the
+existing user-selection string macro remains separate. A host contract test
+guards this wiring. Graphics-only builds retain their old silent behavior.
+
+First hardware QA: keep Remote Play closed, use moderate TV volume, listen
+for menu sounds, NPC speech, machinery and footsteps, and turn/move around a
+sound source to check spatial behavior. Report silence, crackles, repetition,
+speed/pitch anomalies or interruptions. Avoid map changes in this first run.
+Audibility is operator evidence; separately inspect audio init/progress,
+non-silent PCM, output errors/underruns/discards and exact drain/close/join,
+plus paired renderer teardown. Live-game acceptance is still pending and is
+not implied by the Phase 5 tone evidence below.
+
 This gate adds native PCM output to the stable dedicated Xash3D host. It proves
 the audio half of the PS5 platform layer independently of the Phase 6 client:
 the gate pushes a deterministic pattern through the ring, the resampler, the

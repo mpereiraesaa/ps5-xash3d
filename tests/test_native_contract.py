@@ -53,6 +53,8 @@ def main() -> None:
     ).read_text(encoding="utf-8")
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     engine_boot = (ROOT / "xash/platform_ps5/boot_ps5.c").read_text(encoding="utf-8")
+    assert '#if !PS5_XASH_AUDIO_ENABLED\n\tengine_argv[engine_argc++] = "-nosound";\n#endif' in engine_boot
+    assert '#define PS5_XASH_AUDIO_ENABLED $audio' in (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     system_backend = (
         ROOT / "xash/platform_ps5/sys_ps5.c"
     ).read_text(encoding="utf-8")

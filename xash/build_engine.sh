@@ -297,6 +297,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_AUDIO_GATE $audio_gate
 #define PS5_XASH_AUDIO_USER_FOREGROUND $([[ $audio_user == foreground ]] && echo 1 || echo 0)
 #define PS5_XASH_AUDIO "$audio_user"
+#define PS5_XASH_AUDIO_ENABLED $audio
 #define PS5_XASH_AUDIO_GATE_FRAMES $audio_gate_frames
 #define PS5_XASH_MEMORY_GATE $memory_gate
 #define PS5_XASH_THREAD_TIME_GATE $thread_time_gate
