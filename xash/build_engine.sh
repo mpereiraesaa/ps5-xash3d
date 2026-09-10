@@ -596,8 +596,10 @@ if [[ $server_prx == 1 ]]; then
 fi
 server_includes=(-I"$hlsdk/dlls" -I"$hlsdk/common" -I"$hlsdk/engine"
     -I"$hlsdk/pm_shared" -I"$hlsdk/game_shared" -I"$hlsdk/public")
+python3 -B "$root/xash/tools/prepare_server_client.py" "$hlsdk/dlls/client.cpp" "$gen/ps5_server_client.cpp"
 server_cxx=$(find "$hlsdk/dlls" -name '*.cpp' \
-    ! -name 'mpstubb.cpp' ! -name 'stats.cpp' ! -name 'Wxdebug.cpp')
+    ! -name 'client.cpp' ! -name 'mpstubb.cpp' ! -name 'stats.cpp' ! -name 'Wxdebug.cpp';
+    echo "$gen/ps5_server_client.cpp")
 server_c=$(find "$hlsdk/pm_shared" -name '*.c'; echo "$hlsdk/public/safe_snprintf.c"
     echo "$hlsdk/external/openbsd/strlcpy.c"; echo "$hlsdk/external/openbsd/strlcat.c"
     echo "$gen/vcs_info_server.c")

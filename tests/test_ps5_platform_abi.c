@@ -17,6 +17,9 @@ int main(void)
     assert(offsetof(struct ps5_pad_data, connected_count) == 104u);
     assert(offsetof(struct ps5_pad_data, device_unique_data_length) == 107u);
     assert(offsetof(struct ps5_pad_data, device_unique_data) == 108u);
+    assert(sizeof(struct ps5_pad_vibration) == 2u);
+    assert(offsetof(struct ps5_pad_vibration, large_motor) == 0u);
+    assert(offsetof(struct ps5_pad_vibration, small_motor) == 1u);
 
     /*
      * libSceAudioOut PCM contract. The declarations must keep the six-argument

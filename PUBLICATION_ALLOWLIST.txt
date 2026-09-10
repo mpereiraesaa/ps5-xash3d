@@ -422,6 +422,8 @@ xash/platform_ps5/studio_light_ps5.c
 xash/config/dualsense.cfg
 xash/tools/prepare_client_ammo.py
 tests/test_prepare_client_ammo.py
+xash/tools/prepare_server_client.py
+tests/test_prepare_server_client.py
 tests/test_pad_aim.c
 tests/test_studio_event_window.c
 tests/test_studio_controller_lerp.c

@@ -21,6 +21,16 @@ adapter owned by the Xash3D port; no vendor header is included.
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
+
+/* The PS5 SDK exposes clock_gettime through its libc headers, while strict
+ * host C11 headers may hide the POSIX declaration.  Keep the clean-room
+ * declaration local instead of changing feature macros seen by Xash headers
+ * (which would hide their strlcpy/strcasecmp compatibility declarations). */
+#ifndef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+extern int clock_gettime( int clock_id, struct timespec *tp );
+#endif
 
 #ifndef PS5_XASH_MODE_CLIENT
 #define PS5_XASH_MODE_CLIENT 0
@@ -94,6 +104,9 @@ static struct {
 	int crouch_active;
 	int use_active;
 	int fire_active;
+	int vibration_mode_attempted;
+	int vibration_active;
+	uint64_t vibration_deadline_us;
 	int initialized;
 	int opened;
 } pad;
@@ -161,6 +174,93 @@ static void update_action( const char *name, int down, int *previous,
 	log_action( name, down, timestamp );
 }
 
+static uint64_t ps5_monotonic_us( void )
+{
+	struct timespec ts;
+	if( clock_gettime( CLOCK_MONOTONIC, &ts ) != 0 )
+		return 0;
+	return (uint64_t)ts.tv_sec * UINT64_C( 1000000 ) +
+		(uint64_t)ts.tv_nsec / UINT64_C( 1000 );
+}
+
+static int apply_vibration( uint8_t large_motor, uint8_t small_motor )
+{
+	struct ps5_pad_vibration vibration;
+	int result;
+	if( !pad.initialized || !pad.opened )
+		return -1;
+	if( !pad.vibration_mode_attempted )
+	{
+		pad.vibration_mode_attempted = 1;
+		pad.stats.vibration_mode_result =
+			scePadSetVibrationMode( pad.stats.pad_handle, 2 );
+		(void)ps5log_printf( pad.stats.vibration_mode_result < 0 ? PS5LOG_ERR : PS5LOG_MARK,
+			"XASH_PAD_HAPTIC_MODE schema=1 handle=%d mode=2 rc=%d",
+			pad.stats.pad_handle, pad.stats.vibration_mode_result );
+	}
+	vibration.large_motor = large_motor;
+	vibration.small_motor = small_motor;
+	result = scePadSetVibration( pad.stats.pad_handle, &vibration );
+	pad.stats.vibration_last_result = result;
+	if( result < 0 )
+	{
+		pad.stats.vibration_errors++;
+		(void)ps5log_printf( PS5LOG_ERR,
+			"XASH_PAD_HAPTIC_ERROR schema=1 large=%u small=%u rc=%d errors=%llu",
+			(unsigned)large_motor, (unsigned)small_motor, result,
+			(unsigned long long)pad.stats.vibration_errors );
+	}
+	return result;
+}
+
+int PS5_PadInputVibrate( uint8_t large_motor, uint8_t small_motor,
+	uint32_t duration_ms )
+{
+	uint64_t now;
+	int result;
+	if( duration_ms > 5000u ) duration_ms = 5000u;
+	result = apply_vibration( large_motor, small_motor );
+	if( result < 0 ) return result;
+	pad.stats.vibration_requests++;
+	pad.vibration_active = large_motor != 0 || small_motor != 0;
+	if( !pad.vibration_active || duration_ms == 0 )
+	{
+		pad.vibration_active = 0;
+		pad.vibration_deadline_us = 0;
+		if( !pad.vibration_active ) pad.stats.vibration_stops++;
+	}
+	else
+	{
+		now = ps5_monotonic_us( );
+		pad.vibration_deadline_us = now != 0 ?
+			now + (uint64_t)duration_ms * UINT64_C( 1000 ) : 0;
+	}
+	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_PAD_HAPTIC schema=1 large=%u small=%u duration_ms=%u active=%d",
+		(unsigned)large_motor, (unsigned)small_motor, (unsigned)duration_ms,
+		pad.vibration_active );
+	return 0;
+}
+
+int PS5_PadInputVibrationTick( uint64_t now_us )
+{
+	int result;
+	if( !pad.vibration_active || pad.vibration_deadline_us == 0 ) return 0;
+	if( now_us == 0 ) now_us = ps5_monotonic_us( );
+	if( now_us < pad.vibration_deadline_us ) return 0;
+	result = apply_vibration( 0, 0 );
+	if( result == 0 )
+	{
+		pad.vibration_active = 0;
+		pad.vibration_deadline_us = 0;
+		pad.stats.vibration_stops++;
+		(void)ps5log_printf( PS5LOG_MARK,
+			"XASH_PAD_HAPTIC_STOP schema=1 reason=expiry timestamp_us=%llu",
+			(unsigned long long)now_us );
+	}
+	return result;
+}
+
 static void process_buttons( uint32_t current, uint64_t timestamp )
 {
 	const uint32_t changed = current ^ pad.previous_buttons;
@@ -184,6 +284,10 @@ static void process_buttons( uint32_t current, uint64_t timestamp )
 		&pad.stats.use_releases, timestamp );
 	update_action( "fire", fire, &pad.fire_active, &pad.stats.fire_presses,
 		&pad.stats.fire_releases, timestamp );
+	/* R2 is the modern primary-fire binding.  A short, asymmetric pulse makes
+	 * the shot readable without masking the user's longer impact haptics. */
+	if(( current & PS5_PAD_BUTTON_R2 ) && !( pad.previous_buttons & PS5_PAD_BUTTON_R2 ))
+		(void)PS5_PadInputVibrate( 180, 235, 55 );
 	pad.previous_buttons = current;
 }
 
@@ -302,6 +406,8 @@ int PS5_PadInputInit( void )
 	pad.stats.pad_handle = -1;
 	pad.stats.close_result = INT_MIN;
 	pad.stats.terminate_result = INT_MIN;
+	pad.stats.vibration_mode_result = INT_MIN;
+	pad.stats.vibration_last_result = INT_MIN;
 #if PS5_XASH_MODE_CLIENT
 	if( !pad.sink.axis && !pad.sink.button )
 	{
@@ -356,6 +462,7 @@ int PS5_PadInputPoll( void )
 	int count, index;
 	if( !pad.initialized || !pad.opened )
 		return -1;
+	(void)PS5_PadInputVibrationTick( 0 );
 	pad.stats.polls++;
 	count = scePadRead( pad.stats.pad_handle, samples, PS5_PAD_MAX_SAMPLES );
 	if( count < 0 )
@@ -429,7 +536,11 @@ int PS5_PadInputShutdown( void )
 	int result = 0;
 	const int gate_passed = PS5_PadInputGatePassed( );
 	if( pad.initialized )
+	{
+		if( pad.vibration_active )
+			(void)PS5_PadInputVibrate( 0, 0, 0 );
 		process_neutral( 0 );
+	}
 	if( pad.opened )
 	{
 		pad.stats.close_result = scePadClose( pad.stats.pad_handle );
@@ -472,6 +583,13 @@ int PS5_PadInputShutdown( void )
 		(unsigned long long)pad.stats.fire_releases,
 		(unsigned long long)pad.stats.read_errors );
 	(void)ps5log_printf( PS5LOG_MARK,
+		"XASH_PAD_HAPTIC_SUMMARY schema=1 requests=%llu stops=%llu errors=%llu "
+		"mode_rc=%d last_rc=%d",
+		(unsigned long long)pad.stats.vibration_requests,
+		(unsigned long long)pad.stats.vibration_stops,
+		(unsigned long long)pad.stats.vibration_errors,
+		pad.stats.vibration_mode_result, pad.stats.vibration_last_result );
+	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_PAD_TEARDOWN schema=1 handle=%d close_rc=%d owned_user_service=%d "
 		"terminate_rc=%d result=%d",
 		pad.stats.pad_handle, pad.stats.close_result,
@@ -510,6 +628,8 @@ int PS5_PadInputRuntimePoll( void )
 		(void)ps5log_printf( result == 0 ? PS5LOG_MARK : PS5LOG_ERR,
 			"XASH_PAD_RUNTIME_BEGIN schema=1 result=%d autoquit=0", result );
 	}
+	if( runtime_state == 1 )
+		(void)PS5_PadInputVibrationTick( 0 );
 	return runtime_state == 1 ? PS5_PadInputPoll( ) : -1;
 }
 

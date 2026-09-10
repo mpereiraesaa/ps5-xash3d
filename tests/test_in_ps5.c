@@ -9,6 +9,7 @@
 
 #define BUTTON_L1 UINT32_C(0x00000400)
 #define BUTTON_R1 UINT32_C(0x00000800)
+#define BUTTON_R2 UINT32_C(0x00000200)
 #define BUTTON_CIRCLE UINT32_C(0x00002000)
 #define BUTTON_CROSS UINT32_C(0x00004000)
 
@@ -34,6 +35,11 @@ static int pad_open_calls;
 static int read_calls;
 static int close_calls;
 static int terminate_calls;
+static int vibration_mode_result;
+static int vibration_result;
+static int vibration_mode_calls;
+static int vibration_calls;
+static struct ps5_pad_vibration last_vibration;
 static int read_capacity;
 static struct observed_event events[256];
 static size_t event_count;
@@ -56,6 +62,11 @@ static void reset_fixture( void )
 	read_calls = 0;
 	close_calls = 0;
 	terminate_calls = 0;
+	vibration_mode_result = 0;
+	vibration_result = 0;
+	vibration_mode_calls = 0;
+	vibration_calls = 0;
+	memset( &last_vibration, 0, sizeof( last_vibration ));
 	read_capacity = 0;
 	event_count = 0;
 }
@@ -133,6 +144,23 @@ int scePadClose( int32_t handle )
 	assert( handle == pad_open_result );
 	close_calls++;
 	return close_result;
+}
+
+int scePadSetVibrationMode( int32_t handle, int32_t mode )
+{
+	assert( handle == pad_open_result );
+	assert( mode == 2 );
+	vibration_mode_calls++;
+	return vibration_mode_result;
+}
+
+int scePadSetVibration( int32_t handle, const struct ps5_pad_vibration *vibration )
+{
+	assert( handle == pad_open_result );
+	assert( vibration != NULL );
+	vibration_calls++;
+	last_vibration = *vibration;
+	return vibration_result;
 }
 
 static void observe_axis( void *opaque, enum ps5_xash_pad_axis axis, int16_t value )
@@ -273,6 +301,28 @@ static void test_runtime_input_without_gate_autoquit( void )
 	assert( close_calls == 1 );
 }
 
+static void test_r2_haptic_pulse_and_expiry( void )
+{
+	const struct ps5_xash_pad_sink sink = { observe_axis, observe_button, NULL };
+	reset_fixture( );
+	PS5_PadInputSetSink( &sink );
+	assert( PS5_PadInputInit( ) == 0 );
+	fixture[0] = neutral_sample( 100, 1 );
+	fixture[1] = neutral_sample( 200, 1 );
+	fixture[1].buttons = BUTTON_R2;
+	fixture[2] = neutral_sample( 300, 1 );
+	fixture_count = 3;
+	assert( PS5_PadInputPoll( ) == 3 );
+	assert( vibration_mode_calls == 1 && vibration_calls == 1 );
+	assert( last_vibration.large_motor == 180 && last_vibration.small_motor == 235 );
+	assert( PS5_PadInputStats( )->vibration_requests == 1 );
+	assert( PS5_PadInputVibrationTick( UINT64_MAX ) == 0 );
+	assert( vibration_calls == 2 );
+	assert( last_vibration.large_motor == 0 && last_vibration.small_motor == 0 );
+	assert( PS5_PadInputStats( )->vibration_stops == 1 );
+	assert( PS5_PadInputShutdown( ) == 0 );
+}
+
 int main( void )
 {
 	test_complete_chronological_batch( );
@@ -280,5 +330,6 @@ int main( void )
 	test_non_owner_and_read_failure( );
 	test_open_failure_releases_owned_user_service( );
 	test_runtime_input_without_gate_autoquit( );
+	test_r2_haptic_pulse_and_expiry( );
 	return 0;
 }

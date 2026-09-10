@@ -64,6 +64,10 @@ left-stick behavior are preserved. Right-stick sensitivity is now explicitly
 configured as described below. Touchpad is not assigned or cleared by this
 profile, keeping the optional QA hook available. No Remote Play is required.
 
+On older HL1 data trees whose `config.cfg` ends with `exec userconfig.cfg`
+instead, install the same bytes as `valve/userconfig.cfg`; this is the
+compatibility path used by the current PPSA99996 data tree.
+
 Profile v4 includes the v3 mapping of R2 to primary attack for all weapons (including crowbar),
 and R1 to secondary attack. Profile v4 is deployed and startup-confirmed;
 the operator accepted v5 aim feel for now and confirmed R2 crowbar attack.
@@ -86,8 +90,18 @@ This cvar also affects keyboard/mouse weapon cycling, but their bindings are
 unchanged. The operator confirmed immediate cycling with either direction
 and repeated presses returning to the pistol, without R1. With two weapons,
 both directions and `lastinv` look equivalent; `lastinv` still means the
-previously equipped weapon, not inventory cycling. D-pad up remains spray;
-no cheats have been added to the release profile.
+previously equipped weapon, not inventory cycling. D-pad up is the contextual
+`givecurrentammo` helper: the server inspects the equipped weapon and gives
+only its matching reserve-ammo pickup
+(`ammo_9mmclip`, `ammo_9mmAR`, `ammo_buckshot`, `ammo_357`, `ammo_crossbow`,
+`ammo_gaussclip`, `ammo_egonclip` or `ammo_rpgclip`). For hand grenade,
+tripmine, satchel, snark and hornet gun, which have no `ammo_*` pickup entity,
+it gives the same `weapon_*` pickup so HL1's duplicate-item path increments
+their reserve. Crowbar is the sole no-op because it has no ammunition. It never
+grants unrelated weapons or all ammo, and does not enable global cheats. The
+generic `give` command retains its normal `sv_cheats` policy. The generated
+server translation unit is source-drift checked and leaves the pinned HLSDK
+untouched.
 
 Profile v2 deployment: FTP readback matches local SHA-256
 `f704d6d8ec6cf166ecd8c978842108f21a54e9f137e75123cf582ad454438eba`.
@@ -112,6 +126,30 @@ change any DualSense binding. `ps5_blood_amount` defaults to 1.5 (more droplets
 and moderately larger sprites); set it to 1 for original presentation. It does
 not change damage or give weapons. The normal no-grant build was restored
 without relaunch; graphics QA audio remains disabled.
+
+## DualSense rumble (hardware accepted, 2026-09-09)
+
+The platform backend now owns the DualSense output lifecycle alongside the
+input handle. It uses the clean-room two-byte `ps5_pad_vibration` record
+(`large_motor` low-frequency, `small_motor` high-frequency), selects native
+vibration mode `2` on first use, clamps pulse duration to 5 seconds, and sends
+a neutral packet on expiry or teardown so a failed session cannot leave the
+controller vibrating. A rising R2 edge (the release primary-fire binding)
+requests a 55 ms asymmetric shot pulse (`180/235`); callers can also use
+`PS5_PadInputVibrate` for future damage/impact patterns. Structured markers
+`XASH_PAD_HAPTIC_MODE`, `XASH_PAD_HAPTIC`, `XASH_PAD_HAPTIC_STOP`, and
+`XASH_PAD_HAPTIC_SUMMARY` make every request and return code auditable.
+
+Host coverage is in `tests/test_in_ps5.c` and the record layout is pinned by
+`tests/test_ps5_platform_abi.c`. Run
+`20260909T211522409Z_PPSA99996_xash3d-engine_0x16594d482e533` on FW 12.02
+resolved both imports with `scePadSetVibrationMode(..., 2) rc=0`; the operator
+felt the short R2 shot pulse, and the transcript contains repeated automatic
+expiry markers. The symbols are therefore promoted in `ps5_import_evidence.json`.
+The supervisor close was external (so this run has no final PAD_SUMMARY); the
+neutral-on-expiry path and exact neutral-on-shutdown behavior remain covered by
+the host test and code review. This is ordinary motor rumble; true
+adaptive-trigger effects require a separate ABI investigation.
 
 Historical profile v1 was installed on PPSA99996 on 2026-09-09 with owner approval. Local and FTP
 readback SHA-256 both:
@@ -205,7 +243,7 @@ exhaustively excluded.
 | L2 / L3 | Speed modifier (`+speed`) | Neither rebound |
 | D-pad left/right | Previous/next inventory weapon | Not rebound |
 | D-pad down | Last weapon | Not rebound |
-| D-pad up | Spray | Not rebound |
+| D-pad up | Contextual current-weapon ammo helper (`givecurrentammo`) | Explicitly bound |
 | Options | Cancel selection/menu (`cancelselect`) | Explicitly bound |
 | Create | Pause | Not rebound |
 | Touchpad | Unassigned | Unassigned in normal/viewmodel builds |

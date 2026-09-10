@@ -388,10 +388,13 @@ OpenGL emulation layer is present.
 
 The first hardware attempt exposed a deterministic capacity failure before GPU
 submission: serial 2 contained 867 commands and the old 128 KiB slot returned
-`result=-2`. The live-only transient ring is now two 1 MiB slots. That size is
-not fitted to the observed frame: a host test fills all 4,096 producer entries
-with 4,095 alternating drawable commands and therefore the maximum 4,095
-batches, proving that geometry, constants and descriptor tables fit the slot.
+`result=-2`. The live-only transient ring was then two 1 MiB slots, which fit
+the isolated host contract but not the complete intro frame: hardware serial
+12 reached 3,767 drawable quads while world tables, studio vertices and effects
+were resident in the same slot and returned `result=-2`. It is now two 2 MiB
+slots. A host test still fills all 4,096 producer entries with 4,095
+alternating drawable commands (the maximum batch count), and the hardware
+budget now covers the combined live frame rather than only the 2D subpass.
 Older gates retain their original allocation size.
 
 The final five-module bundle was transactionally verified and promoted before
