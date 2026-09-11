@@ -1,4 +1,8 @@
-# Phase 7 texture-memory policy — host and hardware acceptance
+# Phase 7 texture-memory policy — historical gate record
+
+> Phase 7 is closed and the public runtime is **PLAYABLE**. This document
+> records the memory-policy gate and its historical baselines; the current
+> release boundary is [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md).
 
 Baseline: merged PR #25 (`3167fc6`). The accepted graphics/resource run still
 uses an 80-MiB GPU texture arena. That is a scene-validation allocation, not
@@ -93,11 +97,13 @@ The paired lightmap/2D/menu/brush/Studio validator passes 2,005 frames and exact
 ownership. Thirty active-map seconds end naturally with clean BYEs, exact
 engine root and pad teardown, and renderer resource release. Independent
 post-run status finds no BigApp and four healthy services. No Remote Play or
-operator movement was used. All host tests and publication audit pass.
+operator movement was used. All host tests and publication audit pass. At that
+checkpoint the policy gate was still being completed; the accepted policy and
+current playable boundary are recorded below and in `PLAYABLE_RELEASE.md`.
 
-Next: connect configurable capacity to this measured domain, account for the
-shared heap and reserve, then validate explicit/automatic policy, exhaustion
-and partial-allocation rollback. The texture-memory gate remains open.
+The next checkpoint connected configurable capacity to this measured domain,
+accounted for the shared heap and reserve, and validated the policy. The
+paragraph above is retained as a historical transition note.
 
 ## Configurable native allocation and 256-MiB acceptance
 

@@ -133,8 +133,8 @@ int ps5log_quickstart(const char *title, const char *app, int capture_flags);
 /* Non-zero while the network channel is up. */
 int ps5log_enabled(void);
 
-/* Optional compatibility sink. The AGC laboratory forbids filesystem mirrors;
- * this hook remains only for other clients with an explicit durability need. */
+/* Optional compatibility sink for a local per-run trace. The PS5 engine uses
+ * it beside the writable game/save overlay; callers own the descriptor. */
 void ps5log_set_mirror_fd(int fd);
 
 /* Zero-code-change mode: duplicate the log socket onto fd 1 and/or fd 2 so

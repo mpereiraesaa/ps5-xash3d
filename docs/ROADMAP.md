@@ -73,8 +73,8 @@
 - [x] Perform the fail-closed proprietary-material publication audit.
 - [x] Replace copied numbered stages with an isolated Git-worktree development
   workflow that reuses the tested renderer contracts.
-- [ ] Reproduce the archive from a fresh clone after this reconciliation PR
-  commit and compare its checksum.
+- [x] Reconcile the public release documentation and publication audit from a
+  clean `main` worktree; generated binaries and private assets remain excluded.
 - [x] Publish the repository and acknowledge upstream projects precisely.
 - [x] Assign PS5 Xash3D the dedicated local development identity `PPSA99996`;
   retain `PPSA99997` exclusively for the frozen Gears demo.
@@ -203,8 +203,10 @@
 - [x] Present MainUI through native AGC before queuing `map c1a0` through the
   engine command buffer; prove positive pre-map quads/draws, strict
   menu-before-map serial order, visible video and exact teardown.
-- [ ] Replace entity fixtures with live engine-driven entities and add the
+- [x] Replace entity fixtures with live engine-driven entities and add the
   first-person viewmodel, binding both classes to their own GPU-visible
-  evidence.
+  evidence; close Phase 7 as the playable Half-Life 1 Steam release.
+- [x] Publish the playable-release boundary, local per-run logs beside saves,
+  and a concise contributor/bug-report workflow.
 - [x] Require pull requests on `main`; require the host CI check after this PR
   establishes its final check context.

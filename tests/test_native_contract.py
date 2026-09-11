@@ -53,6 +53,15 @@ def main() -> None:
     ).read_text(encoding="utf-8")
     engine_builder = (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     engine_boot = (ROOT / "xash/platform_ps5/boot_ps5.c").read_text(encoding="utf-8")
+    for item in (
+        '"LOG_FS_SINKS=local+network"',
+        'valve/logs',
+        'xash3d-trace.log',
+        'ps5log_set_mirror_fd( local_trace_fd )',
+        'location=save-overlay/valve/logs',
+    ):
+        if item not in engine_boot:
+            raise SystemExit(f"local release logging contract missing: {item}")
     assert '#if !PS5_XASH_AUDIO_ENABLED\n\tengine_argv[engine_argc++] = "-nosound";\n#endif' in engine_boot
     assert '#define PS5_XASH_AUDIO_ENABLED $audio' in (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
     system_backend = (
@@ -122,7 +131,7 @@ def main() -> None:
     required = (
         '"LOG_SCHEMA=3"',
         '"LOG_TRANSPORT=ps5log/1 tcp structured"',
-        '"LOG_FS_SINKS=disabled"',
+        '"LOG_FS_SINKS=not-applicable"',
         'ps5log_hex64(PS5LOG_INFO, "LOG_BOOT_MONOTONIC_NS", boot_token)',
         '"GEARS_LOOP_BEGIN mode=continuous buffers=2 "',
         'gears_frame_loop_init(&loop, &input)',

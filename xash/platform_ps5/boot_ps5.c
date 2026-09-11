@@ -73,11 +73,20 @@ param.json carries a positive downloadDataSize (this title reserves 256).
 /temp0 is conditional and was absent on the tested ShadowMount environment;
 it is probed, never assumed. Host paths such as /data or /user are outside
 the sandbox and are deliberately not attempted.
+
+The writable overlay mirrors the game's save/config layout. Runtime logs live
+under valve/logs so a player can copy them without a development host.
 */
 static const char *const basedir_candidates[] = {
 	"/download0/xash3d",
 	"/temp0/xash3d",
 };
+
+static int ensure_directory( const char *path )
+{
+	int rc = mkdir( path, 0777 );
+	return rc == 0 || errno == EEXIST ? 0 : -1;
+}
 
 static uint64_t now_ns( void )
 {
@@ -293,6 +302,7 @@ int main( int argc, char **argv )
 	const char *basedir;
 	const char *rwdir;
 	char logpath[300] = "";
+	char tracepath[300] = "";
 	const uint64_t boot_token = now_ns( );
 	int config_result, log_result, result;
 #if PS5_XASH_PAD_GATE
@@ -309,6 +319,7 @@ int main( int argc, char **argv )
 	int prx_pass = 1;
 	int memory_pass = 1;
 	int memory_shutdown_result;
+	int local_trace_fd = -1;
 	struct stat st;
 	char *engine_argv[16];
 	int engine_argc = 0;
@@ -395,7 +406,17 @@ int main( int argc, char **argv )
 	{
 		probe_listing( rwdir );
 		basedir = rwdir;
-		snprintf( logpath, sizeof( logpath ), "%s/engine.log", rwdir );
+		char gamedir[300];
+		char logdir[300];
+		snprintf( gamedir, sizeof( gamedir ), "%s/%s", rwdir, PS5_XASH_GAMEDIR );
+		snprintf( logdir, sizeof( logdir ), "%s/logs", gamedir );
+		(void)ensure_directory( gamedir );
+		(void)ensure_directory( logdir );
+		snprintf( logpath, sizeof( logpath ), "%s/xash3d.log", logdir );
+		snprintf( tracepath, sizeof( tracepath ), "%s/xash3d-trace.log", logdir );
+		local_trace_fd = open( tracepath, O_WRONLY | O_CREAT | O_TRUNC, 0666 );
+		if( local_trace_fd >= 0 )
+			ps5log_set_mirror_fd( local_trace_fd );
 	}
 	else
 	{
@@ -420,6 +441,13 @@ int main( int argc, char **argv )
 		PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX,
 		PS5_XASH_REF_AGC_PRX,
 		stat( PS5_XASH_RODIR "/" PS5_XASH_GAMEDIR, &st ) == 0 );
+	(void)ps5log_printf( local_trace_fd >= 0 ? PS5LOG_INFO : PS5LOG_WARN,
+		"XASH_LOCAL_LOG schema=1 enabled=%d engine=%s trace=%s "
+		"location=save-overlay/valve/logs", local_trace_fd >= 0,
+		logpath[0] ? logpath : "unavailable",
+		tracepath[0] ? tracepath : "unavailable" );
+	(void)ps5log_line( local_trace_fd >= 0 ? PS5LOG_INFO : PS5LOG_WARN,
+		local_trace_fd >= 0 ? "LOG_FS_SINKS=local+network" : "LOG_FS_SINKS=network" );
 #if PS5_XASH_PHASE7_MENU_GATE
 	(void)ps5log_printf( PS5LOG_MARK,
 		"XASH_PHASE7_MENU_GATE_BEGIN schema=1 menu_seconds=%d map=%s "
@@ -552,5 +580,8 @@ int main( int argc, char **argv )
 		"xash-engine-boot-complete" : !memory_pass ? "xash-memory-gate-failed" :
 		!thread_time_pass ? "xash-thread-time-gate-failed" :
 		!libc_shim_pass ? "xash-libc-shim-gate-failed" : "xash-prx-shutdown-failed" );
+	ps5log_set_mirror_fd( -1 );
+	if( local_trace_fd >= 0 )
+		close( local_trace_fd );
 	_exit( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ? 0 : 2 );
 }

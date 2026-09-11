@@ -1,9 +1,14 @@
 # Telemetry contract
 
 Every hardware run uses the vendored `native/ps5log` client and structured TCP
-protocol `ps5log/1`. The native title reads only `/app0/dev.conf`; the real
-configuration is ignored and packaged locally from `dev.conf`. No console log
-file, USB mount, `/download0` fallback or filesystem mirror is permitted.
+protocol `ps5log/1`. The public engine also writes a per-run, copyable local
+transcript under the writable title overlay:
+`/download0/xash3d/valve/logs/xash3d.log` (engine console) and
+`/download0/xash3d/valve/logs/xash3d-trace.log` (structured records). A
+`/temp0` overlay is used only when the runtime probe proves it writable. The
+network sink remains optional; a missing development server must never stop the
+game. The standalone renderer has no save overlay and reports
+`LOG_FS_SINKS=not-applicable`.
 
 ## Required run identity
 
@@ -17,7 +22,7 @@ Required opening records:
 ```text
 LOG_SCHEMA=3
 LOG_TRANSPORT=ps5log/1 tcp structured
-LOG_FS_SINKS=disabled
+LOG_FS_SINKS=local+network
 LOG_BOOT_MONOTONIC_NS=<same token as HELLO>
 ```
 

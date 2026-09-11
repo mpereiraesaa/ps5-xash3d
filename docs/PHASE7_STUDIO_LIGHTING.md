@@ -1,4 +1,10 @@
-# Phase 7 Studio lighting and viewmodel — integration checkpoint
+# Phase 7 Studio lighting and viewmodel — historical gate record
+
+> Phase 7 is now closed and the repository status is **PLAYABLE**. This file
+> preserves the individual hardware gate records and their original scope;
+> consult [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md) for the current public
+> boundary. Statements below that say a candidate was “open” or “not accepted”
+> describe that historical run, not the released runtime.
 
 Baseline: hardware-accepted HUD PR #27, merged as `4726bd3`, with the normal
 non-probe build installed. Live game audio and the optional `valve_hd` mount
@@ -10,17 +16,17 @@ evidence boundary; the current status here supersedes their pending statements.
 
 ## Current integration checkpoint — 2026-09-09
 
-Local controller-interpolation candidate follows the merged recovery checkpoint;
+The controller-interpolation path follows the merged recovery checkpoint;
 host/native checks and the 10,989-frame paired hardware regression pass, with
-operator acceptance. The candidate remains installed; PR integration is pending.
-See the coverage ledger below for the untested forced cases.
+operator acceptance. The released runtime includes this path. The coverage
+ledger below retains the exact historical forced cases.
 
 Latest effects checkpoint: operator accepted reload/crowbar, muzzleflash,
 wall marks, blood and the enhanced-blood/sprite-lighting candidate. The final
 18:17 paired run passes 18,175 frames, nine reclaims, intact guards, zero
 renderer errors and exact teardown. Full acceptance and normal restoration
 identities are recorded in the final section below; earlier pending entries
-are historical. Phase 7 and broader Studio/effects parity remain open.
+are historical. Phase 7 is closed; future work is compatibility maintenance.
 
 - NPC lighting and NPOT texture-layout correction: operator accepted, with
   clean paired normal-build resource validation (15:42 runs below).
@@ -34,15 +40,16 @@ are historical. Phase 7 and broader Studio/effects parity remain open.
   pistol fire, crowbar attack and immediate weapon cycling in live QA. This
   includes the tested reload/events/muzzleflash path and clean resource QA.
   Custom FOV/handedness, full controller/sequence-transition fidelity and
-  broader forced-effects coverage remain open.
+  broader forced-effects coverage remain historical compatibility notes, not
+  release blockers.
 - DualSense profile v5 is the current operator-accepted aim baseline: radial
   deadzone 10%, exponent 1.6, yaw/pitch 140/105 degrees per second; R2 primary,
   R1 secondary and immediate D-pad cycling. See [controller guide](SCEPAD_PHASE5.md)
   for deployment hashes, run IDs, controls and remaining button QA.
 - Diagnostic weapon grants and Studio A/B remain opt-in, default off. Graphics
   evidence uses audio disabled; live-game audio and the optional `valve_hd`
-  mount have separate first-run acceptance. Six startup underruns and
-  four-blend console coverage remain open polish/coverage items.
+  mount have separate first-run acceptance. Startup underruns and four-blend
+  console coverage are retained as historical coverage notes for contributors.
 
 ## Latest cross-feature hardware checkpoint — 2026-09-09
 
