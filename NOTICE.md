@@ -2,11 +2,9 @@
 
 ## Repository origin
 
-This repository continues `mpereiraesaa/ps5-agc-gears` from commit
-`cbff2649520984696270fedf94a217954b9efddd` with its complete history. The
-Gears repository remains published as the standalone demo; the Xash3D port,
-including the Phase 1-3 BSP viewer, resource foundation and texture path,
-continues here under the same GPL-3.0-or-later license and authorship.
+This repository contains the public PS5 Xash3D port and its project-owned
+platform adapters, renderer bindings, tests and build tooling. It is released
+under GPL-3.0-or-later; upstream components retain their own licenses.
 
 ## Native application foundation
 
@@ -20,7 +18,7 @@ RELRO load-segment congruence fix. Original boilerplate code is Copyright (C)
 ignored dependency directory and verified at the pinned revision; it is not
 vendored into this repository.
 
-The Xash3D Phase 6 builder uses the same public fork's `exp/prx-module`
+The Xash3D builder uses the same public fork's `exp/prx-module`
 revision `1e9b564a4dd1d567e63ee0d292ed9a026ce06008` for its PRX conversion
 tool. The `PRXDESC1` descriptor ABI and kernel module-loading flow in
 `xash/platform_ps5/prx_loader_ps5.*` derive from that GPL-3.0-or-later work;
@@ -35,7 +33,7 @@ artwork was introduced by Alibek Omarov in upstream commit
 `92b72a7d330ddaa9b8d5c6e8f4a1b6ad1f166d48`; it is redistributed under the
 same GPL-3.0-or-later terms as that project. The PS5 derivative only resizes,
 centers and flattens the source on a dark neutral background. It contains no
-Sony or PlayStation marks and replaces the Gears icon inherited at the fork.
+Sony or PlayStation marks.
 
 - Upstream source SHA-256:
   `4a66332b800fa0653645d95c627697f72ca4e26cf19fbeb2d9184ec39d089837`
@@ -44,15 +42,15 @@ Sony or PlayStation marks and replaces the Gears icon inherited at the fork.
 
 ## Hardware capture
 
-`assets/screenshots/ps5-agc-gears-hardware.png` is a direct Remote Play capture
+`assets/screenshots/half-life-mainui.png` is a direct Remote Play capture
 of this project rendering on Manuel Pereira's PlayStation 5. It was produced by
 the project owner from his own hardware and is distributed under this
 repository's GPL-3.0-or-later license.
 
 - Published capture SHA-256:
-  `484e6830835386eee439df6ecec46fa18fa3d8b08780ad56b8aa0b5245f06905`
+  `7feb13b43d4e175fa67e1f76d6f0ccfeeb801c944d061d4ac5ba3ddaff5e5450`
 
-## Mesa es2gears geometry
+## Mesa geometry attribution
 
 `src/gears_mesh.c` adapts the gear construction from Mesa demos
 `src/egl/opengles2/es2gears.c` at revision
@@ -62,7 +60,7 @@ Høgsberg and Alexandros Frantzis, and is licensed under the MIT License. This
 project expands its seven triangle strips per tooth into non-indexed triangle
 lists suitable for the AGC backend; it does not include EGL or OpenGL code.
 
-## Gears shader
+## AGC shader source
 
 `shaders/gears_lit.pipe` is independently authored for this project. It is
 distributed as source only; generated PAL ELF files and extracted ISA binaries

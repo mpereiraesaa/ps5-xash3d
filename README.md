@@ -1,48 +1,44 @@
-# PS5 Xash3D
+# Half-Life for PS5
 
-**Status: PLAYABLE.** PS5 Xash3D is a native PlayStation 5 port of the
-GoldSrc-compatible [Xash3D FWGS](https://github.com/FWGS/xash3d-fwgs) engine.
-The validated release runs the **Half-Life 1 Steam game data**: it boots the
-real client, presents MainUI and `c1a0`, renders world geometry, brush
-entities, Studio models, HUD and effects, and accepts DualSense input, audio
-and haptics.
+Native PS5 port of [Xash3D FWGS](https://github.com/FWGS/xash3d-fwgs) running
+the **Half-Life 1 Steam** game data. The current public package is playable
+from the PS5 menu with MainUI, New Game, Load Game, saves, DualSense input,
+audio, haptics and GPU-accelerated rendering.
 
-This is a GPU-accelerated port: the renderer uses the PS5 AGC/GFX10.13 path,
-native GPU-visible resources, shaders, synchronization and VideoOut
-presentation. It is not a software renderer or a CPU emulation layer. The
-engine still prepares gameplay and model data on the CPU, as any normal game
-engine does.
+![Half-Life MainUI on PS5](assets/screenshots/half-life-mainui.png)
 
-## Release scope
+## Highlights
 
-The public release runs on PS5 firmware 12.02 with title ID `PPSA99996`. The
-remaining work is normal public soak testing: report regressions, content edge
-cases and hardware differences with the logs described below. It is not an
-unfinished renderer gate.
+- Native PlayStation 5 application with title ID `PPSA99996`.
+- AGC/GFX10.13 renderer using the PS5 GPU for world geometry, lightmaps, brush
+  entities, Studio models, HUD, particles, decals and effects.
+- Full Half-Life 1 Steam `c1a0` gameplay path, including menu transitions and
+  save/load persistence.
+- DualSense movement, look, modern aim profile, weapon cycling, contextual
+  current-ammo helper, reload and short firing haptics.
+- SceAudioOut playback with a bounded PCM ring and orderly teardown.
+- Local engine and structured traces written beside save/config data for
+  reproducible community bug reports.
+- The same engine can host other GoldSrc titles when their compatible data and
+  corresponding compiled `client.prx` are packaged for that title.
 
-| Area | Status |
-| --- | --- |
-| Native AGC renderer and GPU resource lifetime | Complete |
-| Xash3D filesystem, PRX modules and engine integration | Complete |
-| MainUI → map transition and `c1a0` gameplay path | Complete |
-| BSP/lightmaps, brush entities, Studio models, HUD and effects | Complete |
-| DualSense movement/look/actions, modern aim profile and haptics | Complete |
-| SceAudioOut playback and engine audio path | Complete |
-| Community soak and compatibility reports | Ongoing after release |
+The port is GPU accelerated: rendering, GPU-visible resources, synchronization
+and VideoOut presentation use the PS5 AGC path. CPU work remains for normal
+engine simulation, scene preparation and command construction.
 
-`PPSA99998` is not used.
+## Requirements
 
-## Getting started
+This repository contains source and build tooling, not Sony SDK files or game
+content. You need:
 
-The repository does not include proprietary Sony SDK files or game content.
-Provide a legally obtained **Half-Life 1 Steam** game tree privately,
-including `valve/`, when building or packaging a title. That is the supported
-playable content path today. Xash3D itself supports many other GoldSrc games
-inside the same PS5 port: each game needs its own compatible game data/assets
-and its corresponding `client.prx` compiled and included in the package. The
-engine port is shared; the per-game client module is the extra build step.
+- A compatible PS5 homebrew environment and loader.
+- The Prospero toolchain used by the project.
+- A legally obtained Half-Life 1 Steam installation, supplied privately at
+  build time with its complete `valve/` tree.
 
-Host contracts and the publication audit:
+## Build and run
+
+Initialize dependencies and run the host checks:
 
 ```sh
 git submodule update --init --recursive
@@ -50,9 +46,7 @@ make test
 make audit
 ```
 
-The public playable profile starts at MainUI with no development timeout or
-automatic map command. Build it with private game data and the matching proof
-assets:
+Build the public interactive profile with private game data:
 
 ```sh
 XASH_GAME_DATA=/private/path/half-life \
@@ -61,73 +55,73 @@ XASH_GAME_DATA=/private/path/half-life \
   make engine-playable-native-release
 ```
 
-Launch the resulting `PPSA99996` package from the PS5 menu, then use **New
-Game** or **Load Game**. The bounded diagnostic targets intentionally retain
-their old auto-map behavior for reproducible development evidence.
+Install the resulting `PPSA99996` package with your loader and launch it from
+the PS5 menu. The public profile opens MainUI; choose **New Game** or **Load
+Game**. It does not issue a development auto-map or timeout. Bounded diagnostic
+targets remain available for contributors who need deterministic subsystem
+runs.
 
-The reproducible native build and deployment details are in
-[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) and
-[`docs/RELEASING.md`](docs/RELEASING.md). The production application is
-packaged for `PPSA99996`; deployment remains loader-specific.
+See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) and
+[`docs/RELEASING.md`](docs/RELEASING.md) for packaging and deployment details.
 
-## Controller
+## Controls
 
-The maintained DualSense profile, button map and optional diagnostic commands
-are documented in [`docs/DUALSENSE_CONTROLS.md`](docs/DUALSENSE_CONTROLS.md). R2 is the
-primary attack button for every weapon; the D-pad changes weapons and the
-right stick controls look. The profile is installed in the writable game data,
-not in the read-only package.
+The complete current mapping is in
+[`docs/DUALSENSE_CONTROLS.md`](docs/DUALSENSE_CONTROLS.md). The essential layout
+is:
+
+| DualSense | Action |
+| --- | --- |
+| Left stick | Move |
+| Right stick | Look |
+| R2 / R1 | Primary / secondary attack |
+| Cross / Circle | Jump / use |
+| Square / Triangle | Reload / flashlight when equipped |
+| L1 / R3 | Crouch |
+| D-pad | Weapon cycling; up gives current ammo |
+| Options / Create | Menu / pause |
 
 ## Logs and bug reports
 
-Every run creates copyable logs beside the save/config overlay:
+Each launch creates fresh files in the writable overlay:
 
 ```text
 /download0/xash3d/valve/logs/xash3d.log
 /download0/xash3d/valve/logs/xash3d-trace.log
 ```
 
-`xash3d.log` contains the engine console and `xash3d-trace.log` contains the
-structured `ps5log/1` records (boot identity, frame/resource markers, errors
-and teardown). A writable `/temp0` overlay is used only when `/download0` is
-unavailable. The optional development TCP sink improves live diagnostics but
-is never required to play; local logging continues when the PC is offline.
+If `/download0` is unavailable, the runtime records a `/temp0` fallback. The
+engine log contains console output; the trace contains structured `ps5log/1`
+records for boot, resources, frames, input, audio, errors and teardown. The
+optional network sink is additive and never required for play.
 
-When reporting a problem, include the commit or package version, PS5 firmware,
-map, a short reproduction, and both log files from the same run. Compress them
-if necessary and remove personal network paths or unrelated save data. Do not
-paste credentials or proprietary game files into an issue.
+When reporting a problem, include the package commit, PS5 firmware, map,
+reproduction steps and both logs from the same run. Remove credentials, private
+network paths, save data and game assets before uploading.
 
-## Project map
+## Project layout
 
-- [`docs/PLAYABLE_RELEASE.md`](docs/PLAYABLE_RELEASE.md) — final release
-  boundary, validation summary and support policy.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — renderer and module layout.
-- [`docs/TELEMETRY.md`](docs/TELEMETRY.md) — structured records and ownership
-  invariants.
-- [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — firmware-scoped
-  evidence and reproducibility notes.
-- [`docs/DUALSENSE_CONTROLS.md`](docs/DUALSENSE_CONTROLS.md) — DualSense mapping and QA.
-- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — local workflow and tests.
-
-Focused engineering notes remain under `docs/` for contributors who need to
-reproduce a subsystem check; they are reference material, not a second list of
-release requirements.
+```text
+docs/             Build, release, architecture, controls and telemetry notes
+xash/             Xash3D engine build and PS5 platform adapters
+src/              AGC renderer, GoldSrc resources and runtime bridges
+native/           Native shell, logging and AGC bindings
+shaders/          Project-authored AGC shader sources
+tests/            Host contracts and artifact validators
+```
 
 ## Contributing
 
-Keep changes small and reproducible. Run `make test` and `make audit`, describe
-the PS5 hardware/firmware result when applicable, and attach a local trace for
-runtime changes. Pull requests should explain ownership, teardown and any
-content assumptions. Do not add SDK binaries, dumps, game assets, generated
-ELFs/SELF files or private `dev.conf` files.
+Keep changes focused and reproducible. Run `make test` and `make audit`, explain
+ownership and teardown for platform changes, and never commit SDK files, dumps,
+game assets or generated SELF/PRX binaries.
 
 ## Credits and license
 
-The native shell derives from
-[BlackBearReloaded's PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).
 Xash3D FWGS and hlsdk-portable remain pinned submodules under their own
-licenses. Third-party provenance is listed in [`NOTICE.md`](NOTICE.md).
+licenses. The native shell follows
+[BlackBearReloaded's PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).
+See [`NOTICE.md`](NOTICE.md) for third-party attribution.
 
-This project is licensed GPL-3.0-or-later. `PPSA99996` is a local development
-identity and is not an official Sony assignment.
+This project is licensed GPL-3.0-or-later. It is an unofficial port and is not
+affiliated with Valve, Sony or the original Half-Life rights holders.
