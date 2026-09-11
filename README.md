@@ -46,14 +46,19 @@ make test
 make audit
 ```
 
-Build the public interactive profile with private game data:
+Build the public interactive profile from a private Half-Life installation:
 
 ```sh
-XASH_GAME_DATA=/private/path/half-life \
-  BSP_INPUT=/private/path/valve/maps/c1a0.bsp \
-  STUDIO_INPUT=/private/path/valve/models/barney.mdl \
-  make engine-playable-native-release
+export XASH_GAME_DATA=/absolute/path/to/half-life
+make engine-playable-native-release
 ```
+
+`XASH_GAME_DATA` is the private game-data root. `BSP_INPUT` and `STUDIO_INPUT`
+are optional build-time overrides. By default, the host tools read
+`valve/maps/c1a0.bsp` and `valve/models/barney.mdl` below that root, then bake
+them into the renderer's `map.ps5bsp` and `model.ps5mdl` bundles. They are not
+additional runtime configuration files and are never committed to this
+repository.
 
 Install the resulting `PPSA99996` package with your loader and launch it from
 the PS5 menu. The public profile opens MainUI; choose **New Game** or **Load

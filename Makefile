@@ -402,8 +402,10 @@ engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
 		XASH_GATE_SECONDS=$(PHASE7_GATE_SECONDS) XASH_GATE_FROM_MAP=$(PHASE7_GATE_FROM_MAP) bash xash/build_engine.sh
 
 # Public playable profile: start at MainUI and let the player choose New Game
-# or Load Game. Development/gate targets above intentionally retain auto-map
-# behavior so their bounded evidence remains reproducible.
+# or Load Game. The two renderer fixture inputs default to files inside
+# XASH_GAME_DATA; contributors can override them for a different fixture.
+engine-playable-native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp
+engine-playable-native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl
 engine-playable-native-release: bsp-bundle studio-bundle shaders
 	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
