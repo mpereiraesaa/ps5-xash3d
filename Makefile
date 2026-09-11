@@ -14,7 +14,7 @@ PHASE7_GATE_FROM_MAP ?= 0
 	engine-server-prx-native-release \
 	engine-ref-agc-prx-native-release engine-phase7-menu-native-release \
 	engine-playable-native-release \
-	native native-release \
+	native native-release renderer-native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
 	bsp-texture-path-native-release bsp-texture-mip-native-release \
@@ -318,7 +318,8 @@ shaders:
 native:
 	bash tools/build_native.sh
 
-native-release:
+# Standalone AGC renderer artifact (kept for renderer-only contributors).
+renderer-native-release:
 	bash tools/build_native.sh
 
 # Phase 5 gate 1: Xash3D dedicated engine boot title (no shaders required).
@@ -404,13 +405,16 @@ engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
 # Public playable profile: start at MainUI and let the player choose New Game
 # or Load Game. The two renderer fixture inputs default to files inside
 # XASH_GAME_DATA; contributors can override them for a different fixture.
-engine-playable-native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp
-engine-playable-native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl
-engine-playable-native-release: bsp-bundle studio-bundle shaders
+native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp
+native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl
+native-release: bsp-bundle studio-bundle shaders
 	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
 		XASH_INTERACTIVE=1 XASH_GATE_SECONDS=0 XASH_GATE_FROM_MAP=0 \
 		bash xash/build_engine.sh
+
+# Backwards-compatible alias for scripts that used the pre-release name.
+engine-playable-native-release: native-release
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

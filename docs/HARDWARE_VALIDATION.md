@@ -26,7 +26,7 @@ bundle bakers; they are not extra runtime settings:
 
 ```sh
 export XASH_GAME_DATA=/absolute/path/to/half-life
-make engine-playable-native-release
+make native-release
 ```
 
 By default the bakers read `valve/maps/c1a0.bsp` and `valve/models/barney.mdl`
