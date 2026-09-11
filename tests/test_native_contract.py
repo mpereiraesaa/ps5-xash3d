@@ -302,6 +302,12 @@ def main() -> None:
             "XASH_INTERACTIVE=1" not in makefile or \
             "XASH_GATE_SECONDS=0" not in makefile:
         raise SystemExit("interactive playable release target missing")
+    for item in (
+        "engine-playable-native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp",
+        "engine-playable-native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl",
+    ):
+        if item not in makefile:
+            raise SystemExit(f"playable build input default missing: {item}")
     if "#if !PS5_XASH_INTERACTIVE &&" not in engine_boot:
         raise SystemExit("interactive profile must suppress development auto-map")
     for item in (

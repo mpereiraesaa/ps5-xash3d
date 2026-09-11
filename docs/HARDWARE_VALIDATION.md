@@ -26,13 +26,14 @@ bundle bakers; they are not extra runtime settings:
 
 ```sh
 export XASH_GAME_DATA=/absolute/path/to/half-life
-export BSP_INPUT="$XASH_GAME_DATA/valve/maps/c1a0.bsp"
-export STUDIO_INPUT="$XASH_GAME_DATA/valve/models/barney.mdl"
 make engine-playable-native-release
 ```
 
-The baker writes `build/bsp/map.ps5bsp` and `build/studio/model.ps5mdl`; the
-game data itself remains private and is staged only into the local package.
+By default the bakers read `valve/maps/c1a0.bsp` and `valve/models/barney.mdl`
+under that root and write `build/bsp/map.ps5bsp` and
+`build/studio/model.ps5mdl`. Set `BSP_INPUT` or `STUDIO_INPUT` only when using
+different source fixtures; the game data itself remains private and is staged
+only into the local package.
 
 Each launch writes a fresh engine log and structured trace beside save/config
 data:

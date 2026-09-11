@@ -50,15 +50,14 @@ Build the public interactive profile from a private Half-Life installation:
 
 ```sh
 export XASH_GAME_DATA=/absolute/path/to/half-life
-export BSP_INPUT="$XASH_GAME_DATA/valve/maps/c1a0.bsp"
-export STUDIO_INPUT="$XASH_GAME_DATA/valve/models/barney.mdl"
 make engine-playable-native-release
 ```
 
 `XASH_GAME_DATA` is the private game-data root. `BSP_INPUT` and `STUDIO_INPUT`
-are build-time source files: the host tools bake `c1a0.bsp` into the renderer's
-`map.ps5bsp` bundle and `barney.mdl` into its `model.ps5mdl` bundle. They are
-not additional runtime configuration files and are never committed to this
+are optional build-time overrides. By default, the host tools read
+`valve/maps/c1a0.bsp` and `valve/models/barney.mdl` below that root, then bake
+them into the renderer's `map.ps5bsp` and `model.ps5mdl` bundles. They are not
+additional runtime configuration files and are never committed to this
 repository.
 
 Install the resulting `PPSA99996` package with your loader and launch it from
