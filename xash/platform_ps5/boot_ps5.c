@@ -477,7 +477,7 @@ int main( int argc, char **argv )
 	engine_argv[engine_argc++] = "-nosound";
 #endif
 #endif
-#if (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX) && !PS5_XASH_PHASE7_MENU_GATE
+#if !PS5_XASH_INTERACTIVE && (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX) && !PS5_XASH_PHASE7_MENU_GATE
 	engine_argv[engine_argc++] = "+map";
 	engine_argv[engine_argc++] = PS5_XASH_BOOT_MAP;
 #endif

@@ -1,212 +1,35 @@
-# Publication roadmap
+# Roadmap
 
-> Items up to the 60,000-frame Gears soak were completed in `ps5-agc-gears`;
-> this repository continues the list from the Phase 2 resource foundation on.
-> The phase-level plan of the Xash3D port lives in the README table.
+The public Half-Life 1 Steam release is **PLAYABLE**. Future work is
+compatibility maintenance and additional GoldSrc content, not a second renderer
+rewrite.
 
-- [x] Record the initial hardware-accelerated triangle proof.
-- [x] Create an isolated publication staging directory and positive allowlist.
-- [x] Add a fail-closed publication auditor.
-- [x] Inherit the original `ps5-agc-gears` repository history,
-  GPL-3.0-or-later license and initial `PPSA99997` hardware evidence.
-- [x] Confirm intended GitHub owner: `mpereiraesaa`.
-- [x] Publish the repository publicly and confirm the development identity.
-- [x] Derive the standalone app from a pinned public boilerplate revision.
-- [x] Extract the AGC backend behind a small documented interface.
-- [x] Extract and host-test the first backend core: two-surface planning,
-  SetFlip/release-fence composition and exact GPU/VideoOut completion state.
-- [x] Extract sanitized AGC ABI declarations and deterministic MRT0,
-  pipeline-register and no-HTILE depth-state builders with host regressions.
-- [x] Extract injected event polling, GPU-visible span validation and a
-  fail-closed presentation/submission transaction without native test links.
-- [x] Extract the direct-memory lifecycle, minimal platform ABI and AGC/driver
-  link stubs; compile/link the stubs with the pinned native toolchain.
-- [x] Vendor and host-test the project-owned `ps5log/1` client, compile its
-  native `sceNet` backend and document the no-filesystem telemetry contract.
-- [x] Extract the self-relative shader-header builder and repository-local
-  shader embedding assembly; compile both with the native toolchain.
-- [x] Extract the checked AGC command-writer boundary with exact direct/draw
-  packet sizes, GPU-span validation and transactional render-wait adaptation.
-- [x] Add a checked DCB submit descriptor/cache-flush boundary and compile its
-  complete firmware-symbol binding with the pinned Prospero target.
-- [x] Add the independently authored non-indexed gear mesh generator and host validation.
-- [x] Add the three-draw MVP/quaternion/material scene builder and PS5-toolchain
-  compatibility check.
-- [x] Add and host-test two-buffer ownership tracking with exact 48-bit flip
-  tokens and independent GPU/VideoOut completion.
-- [x] Replace the three-draw prototype with a tested compositor that enforces
-  the measured 27+3 DWORD cursor contract and 90-DWORD total.
-- [x] Join scene timing and two-buffer ownership in a platform-neutral animation
-  controller and pass a 10,000-frame host soak.
-- [x] Add low-overhead frame telemetry with averages/maxima, deadline/error
-  counters and a fixed 60-frame persistence cadence.
-- [x] Classify imports and reverse-engineering needs by capability in
-  `docs/CAPABILITY_MATRIX.md`.
-- [x] Move the independently authored lit-Gears LLPC pipeline source without
-  committing generated PAL ELF or ISA blobs.
-- [x] Add and test the public `gfx1013` shader compiler/extractor with a
-  reproducible manifest and no committed generated binaries.
-- [x] Translate PAL metadata into sanitized AGC register templates during the
-  standalone build and match the hardware-used contract exactly.
-- [x] Add host unit tests and a fixture generated entirely from public sources.
-- [x] Build without references to the parent laboratory.
-- [x] Add CI for shell validation, host tests, generated-tree cleanliness and
-  publication audit.
-- [x] Replace release-time finite chunks with one persistent production
-  `init / run-frame` state machine; expose drain only for host assertions and
-  move soak duration to the external supervisor.
-- [x] Validate a 300-frame moving double-buffer demo on FW 12.02 with exact
-  GPU-fence and VideoOut-token ownership, intact guards and clean teardown.
-- [x] Pipeline two frames in flight without weakening per-slot ownership; the
-  FW 12.02 10K soak proved depth two and 59.94 fps sustained throughput.
-- [x] Replace color DMA with a tested fullscreen-triangle render-target clear;
-  pass green visual proof, final black 300-frame run and black 10K soak.
-- [x] Add a standalone host `Makefile` for all reusable renderer tests and the
-  publication audit.
-- [x] Extract the four-draw frame command core into `gears_renderer`, consume
-  it from the FW adapter and revalidate the exact refactor on hardware.
-- [x] Pass 1,000-frame and 10,000-frame hardware soaks with exact requested,
-  completed and verified counts, zero errors and clean teardown.
-- [x] Pass a strict 60,000-frame standalone soak with two frames in flight,
-  exact fences/tokens, intact guards, zero renderer errors and gap-free BYE.
-- [x] Produce a deterministic release-candidate archive and `SHA256SUMS`.
-- [x] Perform the fail-closed proprietary-material publication audit.
-- [x] Replace copied numbered stages with an isolated Git-worktree development
-  workflow that reuses the tested renderer contracts.
-- [x] Reconcile the public release documentation and publication audit from a
-  clean `main` worktree; generated binaries and private assets remain excluded.
-- [x] Publish the repository and acknowledge upstream projects precisely.
-- [x] Assign PS5 Xash3D the dedicated local development identity `PPSA99996`;
-  retain `PPSA99997` exclusively for the frozen Gears demo.
-- [x] Publish the LLPC GFX1013 fork with pinned LLPC/LLVM revisions and a
-  target-selection regression test.
-- [x] Add the Phase 2 direct-memory resource pool with generation handles and
-  exact-token deferred reclamation.
-- [x] Add the two-slot per-frame transient ring, named GFX10.3 V#/T#/S#
-  builders and explicit CPU-to-GPU cache transition.
-- [x] Move camera constants, texture tables and a visible overlay into
-  transient resources selected through generated pipeline permutations.
-- [x] Add host contracts and a fail-closed structured-evidence validator for
-  the resource-foundation path.
-- [x] Pass and archive the Phase 2 60,000-frame hardware gate on FW 12.02.
-- [x] Pass the Phase 3 bounded dynamic-lightmap 10,000-frame gate with
-  alternating GPU-visible readbacks, stable surrounding bytes, intact guards,
-  exact slot retirement and six reclaimed allocations.
-- [x] Add deterministic mip chains and mip-aware trilinear/anisotropic
-  descriptors; pass their host contracts and paired-lightmap 10,000-frame FW
-  12.02 hardware gate with distinct sampler readbacks.
-- [x] Add the `{` alpha-test permutation as a separate opaque/alpha draw pass;
-  pass its compiled kill-bit contract and paired-state 10,000-frame FW 12.02
-  hardware gate with distinct control/alpha readbacks.
-- [x] Add sky as a separate unlit pass and pass its paired-state 10,000-frame
-  hardware gate with 158 draws and distinct skip/pass readbacks.
-- [x] Add checked resident/upload accounting with a gap-free per-frame digest
-  and pass its 10,000-frame hardware gate.
-- [x] Pass and archive the complete Phase 3 60,000-frame hardware gate with
-  exact accounting, GPU-visible readbacks, intact guards and zero errors.
-- [x] Define and host-test the complete Phase 4 semantic render-state space,
-  its 99-entry permutation cache, exact dynamic blend/depth/cull translation
-  and checked mid-frame viewport/scissor updates.
-- [x] Generate, compile and manifest-check all eight explicit surface/masked
-  fog/lightmap shader variants plus the orthographic 2D shader for `gfx1013`.
-- [x] Generate the native shader catalog, host-test the bounded slot builder
-  and produce a signed `PPSA99996` package that creates and links all nine
-  variants without changing the frozen Phase 3 permutation table.
-- [x] Bind the real opaque and masked-lightmap Phase 4 variants in BSP draw
-  composition and pass the 10,000-frame FW 12.02 viewport/scissor hardware
-  gate with full-frame restoration, exact ownership and zero errors.
-- [x] Exercise alpha blend, additive, alpha test, depth-write on/off, cull
-  front/back/none, fog on/off and lightmap on/off through actual draws and 18
-  post-retirement framebuffer readbacks in a 10,000-frame FW 12.02 gate.
-- [x] Add and prove the orthographic blended 2D HUD/console/menu/font path
-  with a procedural atlas and per-frame transient geometry in a clean
-  10,000-frame FW 12.02 gate.
-- [x] Add real BSP lightstyle planes and face-local dynamic lights through the
-  bounded Phase 3 atlas uploader; pass their four-mode, eight-readback
-  10,000-frame FW 12.02 hardware gate.
-- [x] Add camera-facing sprites plus alpha/additive particle batches from the
-  existing per-slot transient ring; pass four modes, eight post-retirement
-  readbacks and a clean 10,000-frame FW 12.02 hardware gate.
-- [x] Add animated studio models with CPU skinning, per-model textures, chrome
-  and additive modes; pass five modes, ten post-retirement readbacks and a
-  clean 10,000-frame FW 12.02 hardware gate.
-- [x] Add independently transformed real BSP brush entities with opaque, alpha
-  and additive render modes; pass five modes, ten post-retirement readbacks and
-  a clean 10,000-frame FW 12.02 hardware gate.
-- [x] Add real world-tree PVS plus draw-AABB frustum culling; pass four modes,
-  eight post-retirement readbacks and a clean 10,000-frame FW 12.02 gate.
-- [x] Pass the complete integrated Phase 4 visual and continuous ownership
-  soak with zero errors.
-- [x] Boot the dedicated Xash3D engine with the static filesystem/server
-  modules, resolve the complete 4,823-entry asset tree and load `c1a0` cleanly.
-- [x] Add the native ScePad backend and pass movement, look, jump, crouch, use
-  and fire on FW 12.02 with chronological batch reads and exact teardown.
-- [x] Add SceAudioOut with an owned ring buffer, continuous 44.1-to-48 kHz
-  resampling, underrun accounting, audible proof and exact shutdown.
-- [x] Route C/C++ engine allocations through a guarded 128 MiB direct-memory
-  arena; prove generation-tagged GPU-resource retirement and exact root teardown
-  on FW 12.02.
-- [x] Measure pthread lifecycle, monotonic-clock behavior and sleep granularity
-  on the engine host; pass joined/detached ownership, 32,768 locked increments,
-  8,192 monotonic reads and all eight 1–10 ms sleep buckets on FW 12.02.
-- [x] Add GPU end-of-pipe timestamps and exact VideoOut-event latency to the
-  Phase 4 backend; pass 60,000 correlated records with strict raw-clock
-  progress, zero gaps/regressions and exact ownership on FW 12.02.
-- [x] Close project-owned `__assert`, fixed identity and deterministic
-  `dladdr` fallback shims with host tests, a no-import ELF audit and clean FW
-  12.02 engine evidence.
-- [x] Replace the static-only `COM_*` backend with a hybrid application-owned
-  PRX loader; pass load, validated descriptor resolution, executable/data
-  calls and exact unload on FW 12.02 without regressing the static engine.
-- [x] Convert `filesystem_stdio` to the application-owned PRX ABI and prove
-  complete retail-tree lookup/read/case behavior through the dynamic module.
-- [x] Convert the HLSDK server to an application-owned PRX, run its C++
-  initializer/finalizer arrays explicitly, spawn `c1a0` through the dynamic
-  callback ABI and unload it exactly before the filesystem module.
-- [x] Convert MainUI to `menu.prx`; prove the 16-callback base API, 12-callback
-  extended API, visible redraws into a non-black software framebuffer and exact
-  server/menu/filesystem teardown on FW 12.02.
-- [x] Convert the client module while preserving the independently bootable
-  filesystem/server/menu rollback point; prove interface 7, both callback
-  masks, live video/HUD execution on `c1a0` and exact four-module teardown.
-- [x] Bind `ref_agc` as the final engine module and replace the diagnostic
-  renderer path with the Phase 4 backend; prove RefAPI v18 callbacks, 600
-  native frames, nonzero GPU readbacks and exact five-module teardown on FW
-  12.02.
-- [x] Capture bounded, pointer-free live engine frame snapshots in `ref_agc`:
-  world metadata, view pass, 2,048 visible-entity slots and 4,096 2D command
-  slots; prove real `c1a0` traffic and zero drops on FW 12.02.
-- [x] Consume the live view in the AGC backend, translate GoldSrc Z-up camera
-  coordinates to the baker's AGC convention, and acknowledge each producer
-  serial only after exact fence plus VideoOut retirement; pass 5,265 matched
-  frames with zero drops/errors and exact teardown on FW 12.02.
-- [x] Replace the null RefAPI texture callbacks with a bounded revisioned RGBA8
-  store; on FW 12.02 issue 333 stable handles and resolve all 164 non-null
-  `c1a0` world texture references with exact teardown. This proves CPU
-  ingestion, not direct-memory upload or AGC sampling.
-- [x] Mirror active engine texture revisions into a 64 MiB direct-memory arena,
-  build and hash 330 GFX10.3 RGBA8/bilinear descriptor pairs, enforce
-  fence+VideoOut-before-reuse and reclaim the parent allocation exactly on FW
-  12.02. Shader sampling remains part of live draw translation.
-- [x] Replace the baked world draw list with the parsed engine world and live
-  texture descriptors; submit 3,695 `c1a0` surfaces from 17,245 vertices and
-  29,565 indices for 1,076 matched frames on FW 12.02, with nonzero readbacks,
-  eight exact reclaims and no OpenGL emulation layer.
-- [x] Add live engine-lightmap atlas sampling: combine active GoldSrc style
-  planes, publish owned padded RGBA8 texels and normalized UVs, upload them in
-  the existing direct-memory arena, and bind the hardware-proven native AGC
-  lightmap pipelines. Pass 1,075 matched frames with 3,695 lightmapped draws,
-  exact ownership, zero errors and visible FW 12.02 output.
-- [x] Add native sky/turbulent semantics and replace the procedural 2D list
-  with source-ordered engine console/HUD/MainUI draws, binding each class to
-  GPU-visible hashes and FW 12.02 evidence.
-- [x] Present MainUI through native AGC before queuing `map c1a0` through the
-  engine command buffer; prove positive pre-map quads/draws, strict
-  menu-before-map serial order, visible video and exact teardown.
-- [x] Replace entity fixtures with live engine-driven entities and add the
-  first-person viewmodel, binding both classes to their own GPU-visible
-  evidence; close Phase 7 as the playable Half-Life 1 Steam release.
-- [x] Publish the playable-release boundary, local per-run logs beside saves,
-  and a concise contributor/bug-report workflow.
-- [x] Require pull requests on `main`; require the host CI check after this PR
-  establishes its final check context.
+## Current priorities
+
+- Collect long-play soak reports and fix reproducible crashes or visual/audio
+  regressions.
+- Keep local logs useful and privacy-safe for community bug reports.
+- Validate optional `valve_hd`/`*_hd` content without changing the default asset
+  path.
+- Improve platform diagnostics when a PS5 firmware update changes an import or
+  return code.
+
+## Additional GoldSrc titles
+
+The engine supports the GoldSrc family, but each title still needs compatible
+game data and a matching `client.prx` compiled and packaged for that title.
+Those per-title clients are separate build inputs; they do not change the
+Half-Life release identity `PPSA99996`.
+
+## Contributor workflow
+
+Keep changes small, add a host regression for each contract change, and run:
+
+```sh
+make test
+make audit
+```
+
+For console changes, include firmware, artifact hash, map and the paired local
+logs in the pull request. Do not commit SDK files, dumps, game assets or built
+SELF/PRX files.

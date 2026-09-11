@@ -15,11 +15,10 @@ engine does.
 
 ## Release scope
 
-Phase 7 is closed as the playable/release phase. Hardware validation was run
-on PS5 firmware 12.02 with title ID `PPSA99996`. The remaining work is normal
-public soak testing: report regressions, content edge cases and hardware
-differences with the logs described below. It is not an unfinished renderer
-gate.
+The public release runs on PS5 firmware 12.02 with title ID `PPSA99996`. The
+remaining work is normal public soak testing: report regressions, content edge
+cases and hardware differences with the logs described below. It is not an
+unfinished renderer gate.
 
 | Area | Status |
 | --- | --- |
@@ -31,7 +30,6 @@ gate.
 | SceAudioOut playback and engine audio path | Complete |
 | Community soak and compatibility reports | Ongoing after release |
 
-The frozen Gears demo remains a separate project with title ID `PPSA99997`.
 `PPSA99998` is not used.
 
 ## Getting started
@@ -52,6 +50,21 @@ make test
 make audit
 ```
 
+The public playable profile starts at MainUI with no development timeout or
+automatic map command. Build it with private game data and the matching proof
+assets:
+
+```sh
+XASH_GAME_DATA=/private/path/half-life \
+  BSP_INPUT=/private/path/valve/maps/c1a0.bsp \
+  STUDIO_INPUT=/private/path/valve/models/barney.mdl \
+  make engine-playable-native-release
+```
+
+Launch the resulting `PPSA99996` package from the PS5 menu, then use **New
+Game** or **Load Game**. The bounded diagnostic targets intentionally retain
+their old auto-map behavior for reproducible development evidence.
+
 The reproducible native build and deployment details are in
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) and
 [`docs/RELEASING.md`](docs/RELEASING.md). The production application is
@@ -60,7 +73,7 @@ packaged for `PPSA99996`; deployment remains loader-specific.
 ## Controller
 
 The maintained DualSense profile, button map and optional diagnostic commands
-are documented in [`docs/SCEPAD_PHASE5.md`](docs/SCEPAD_PHASE5.md). R2 is the
+are documented in [`docs/DUALSENSE_CONTROLS.md`](docs/DUALSENSE_CONTROLS.md). R2 is the
 primary attack button for every weapon; the D-pad changes weapons and the
 right stick controls look. The profile is installed in the writable game data,
 not in the read-only package.
@@ -94,12 +107,12 @@ paste credentials or proprietary game files into an issue.
   invariants.
 - [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) — firmware-scoped
   evidence and reproducibility notes.
-- [`docs/SCEPAD_PHASE5.md`](docs/SCEPAD_PHASE5.md) — DualSense mapping and QA.
+- [`docs/DUALSENSE_CONTROLS.md`](docs/DUALSENSE_CONTROLS.md) — DualSense mapping and QA.
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — local workflow and tests.
 
-Historical phase records remain under `docs/` for contributors who need to
-reproduce a gate; they are evidence records, not a second list of release
-requirements.
+Focused engineering notes remain under `docs/` for contributors who need to
+reproduce a subsystem check; they are reference material, not a second list of
+release requirements.
 
 ## Contributing
 
@@ -113,9 +126,8 @@ ELFs/SELF files or private `dev.conf` files.
 
 The native shell derives from
 [BlackBearReloaded's PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).
-The renderer foundation and Gears reference scene derive from
-`ps5-agc-gears`; exact attribution is in [`NOTICE.md`](NOTICE.md). Xash3D FWGS
-and hlsdk-portable remain pinned submodules under their own licenses.
+Xash3D FWGS and hlsdk-portable remain pinned submodules under their own
+licenses. Third-party provenance is listed in [`NOTICE.md`](NOTICE.md).
 
 This project is licensed GPL-3.0-or-later. `PPSA99996` is a local development
 identity and is not an official Sony assignment.

@@ -1,4 +1,4 @@
-# ScePad input — Phase 5
+# DualSense controls
 
 ## Opt-in Studio coverage QA (not release mapping)
 
@@ -20,15 +20,13 @@ archived and normal builds do not intercept the touchpad for this test.
 Click again after 5 to return to 0. Stay in `c1a0`; approach NPCs and observe
 several angles. Deliberately forced head/pose movement in modes 1–4 is not
 normal gameplay animation. The 2026-09-09 hardware run passed visual QA and
-paired resource validation. Four-blend hardware coverage remains pending:
-none of the visible models supported it. See `PHASE7_STUDIO_LIGHTING.md` for
-run identities and the precise accepted subset.
+paired resource validation. Four-blend coverage remains an opt-in diagnostic:
+none of the visible models supported it, so normal gameplay does not force an
+unsupported blend sequence.
 
 This gate adds the native DualSense input backend to the stable dedicated
-Xash3D host. It proves the PS5 platform layer independently of the Phase 6
-client/menu/renderer integration: the gate records canonical Xash events now,
-and the same backend binds those events to `Joy_AxisMotionEvent` and
-`Key_Event` when client mode is enabled.
+Xash3D host. It records canonical Xash events and the same backend binds those
+events to `Joy_AxisMotionEvent` and `Key_Event` when client mode is enabled.
 
 ## Provenance and ABI
 
@@ -68,15 +66,38 @@ On older HL1 data trees whose `config.cfg` ends with `exec userconfig.cfg`
 instead, install the same bytes as `valve/userconfig.cfg`; this is the
 compatibility path used by the current PPSA99996 data tree.
 
-Profile v4 includes the v3 mapping of R2 to primary attack for all weapons (including crowbar),
-and R1 to secondary attack. Profile v4 is deployed and startup-confirmed;
-the operator accepted v5 aim feel for now and confirmed R2 crowbar attack.
-Other untested button actions remain pending.
+Profile v4 includes the v3 mapping of R2 to primary attack for all weapons
+(including crowbar), and R1 to secondary attack. Profile v4 is deployed and
+startup-confirmed; the operator accepted v5 aim feel and confirmed R2 crowbar
+attack. The release mapping below is the authoritative button reference.
+
+| DualSense | Release action |
+| --- | --- |
+| Left stick | Move |
+| Right stick | Look |
+| Cross | Jump |
+| Circle | Use / interact |
+| Square | Reload |
+| Triangle | Flashlight when equipped |
+| R2 | Primary attack |
+| R1 | Secondary attack |
+| L1 / R3 | Crouch |
+| L2 / L3 | Speed modifier |
+| D-pad left / right | Previous / next weapon |
+| D-pad down | Last weapon |
+| D-pad up | Contextual current-weapon ammo helper |
+| Options | Cancel / menu |
+| Create | Pause |
+| Touchpad | Unassigned in normal release |
+
+R2 is the primary attack for firearms, crowbar and other equipped weapons;
+R1 is reserved for the secondary action. D-pad up grants only the reserve ammo
+or matching throwable for the equipped item; the crowbar is a no-op.
+
 Reload with Square was subsequently operator-confirmed on 2026-09-09:
 animation plays and the magazine refills; crowbar attack with R2 was reconfirmed.
-The viewmodel-event run is recorded in `PHASE7_STUDIO_LIGHTING.md`.
-The table below records
-upstream defaults, not these two overrides.
+The same behavior is covered by the normal release soak checklist.
+The historical table below records upstream defaults, not the release overrides.
 The last column is the **historical pre-install audit**, not the post-install
 state. L2/L3 use the engine's
 `+speed` modifier, not a newly implemented sprint. Weapon selection uses the
@@ -219,6 +240,9 @@ ASan/UBSan radial tests passed. Existing unsupported legacy config commands
 still warn at startup; this is not a zero-warning claim or a completed QA gate.
 
 ### Historical pre-profile config audit
+
+The following table is retained only to explain an old saved `config.cfg`; it
+is not the release mapping. For current controls, use the table above.
 
 During viewmodel QA, read-only FTP inspection of the running title's
 `/mnt/sandbox/PPSA99996_000/download0/xash3d/valve/config.cfg` found `unbindall`

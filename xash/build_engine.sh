@@ -14,6 +14,8 @@
 #   XASH_BOOT_MAP          map executed after boot (default c1a0)
 #   XASH_GATE_SECONDS      queue "quit" after N seconds (default 90; 0 = never)
 #   XASH_GATE_FROM_MAP     1 rebases the timeout once at active client signon
+#   XASH_INTERACTIVE       1 leaves the public client at MainUI for New Game /
+#                          Load Game; no map is queued and no timeout is armed
 #   XASH_JOBS              parallel compile jobs (default nproc)
 #   XASH_MODE              dedicated (Phase 5 evidence) or client (early Phase 6
 #                          diagnostic: engine, mainui, hlsdk client, ref_null
@@ -68,6 +70,7 @@ hlsdk=$root/third_party/hlsdk-portable
 boot_map=${XASH_BOOT_MAP:-c1a0}
 gate_seconds=${XASH_GATE_SECONDS:-90}
 gate_from_map=${XASH_GATE_FROM_MAP:-0}
+interactive=${XASH_INTERACTIVE:-0}
 recovery_gate=${XASH_RECOVERY_GATE:-0}
 [[ $recovery_gate =~ ^[01]$ ]] || { echo "XASH_RECOVERY_GATE must be 0 or 1" >&2; exit 2; }
 sampling_probe=${XASH_SAMPLING_PROBE:-0}
@@ -98,6 +101,7 @@ done
 [[ $hud_probe =~ ^[01]$ ]] || { echo "XASH_HUD_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $sampling_probe =~ ^[01]$ ]] || { echo "XASH_SAMPLING_PROBE must be 0 or 1" >&2; exit 2; }
 [[ $gate_from_map =~ ^[01]$ ]] || { echo "XASH_GATE_FROM_MAP must be 0 or 1" >&2; exit 2; }
+[[ $interactive =~ ^[01]$ ]] || { echo "XASH_INTERACTIVE must be 0 or 1" >&2; exit 2; }
 mode=${XASH_MODE:-dedicated}
 fs_trace=${XASH_FS_TRACE:-0}
 fs_trace_path=${XASH_FS_TRACE_PATH:-gfx/palette.lmp}
@@ -282,6 +286,7 @@ cat > "$gen/ps5_xash_build.h" <<HEADER
 #define PS5_XASH_BOOT_MAP "$boot_map"
 #define PS5_XASH_GATE_SECONDS $gate_seconds
 #define PS5_XASH_GATE_FROM_MAP $gate_from_map
+#define PS5_XASH_INTERACTIVE $interactive
 #define PS5_XASH_RECOVERY_GATE $recovery_gate
 #define PS5_XASH_SAMPLING_PROBE $sampling_probe
 #define PS5_XASH_STUDIO_AB $studio_ab

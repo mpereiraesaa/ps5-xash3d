@@ -13,6 +13,7 @@ PHASE7_GATE_FROM_MAP ?= 0
 	engine-filesystem-prx-native-release \
 	engine-server-prx-native-release \
 	engine-ref-agc-prx-native-release engine-phase7-menu-native-release \
+	engine-playable-native-release \
 	native native-release \
 	bsp-native-release bsp-noclip-native-release \
 	bsp-textured-native-release bsp-resource-native-release \
@@ -399,6 +400,15 @@ engine-phase7-menu-native-release: bsp-bundle studio-bundle shaders
 		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
 		XASH_PHASE7_MENU_GATE=1 XASH_PHASE7_MENU_SECONDS=5 \
 		XASH_GATE_SECONDS=$(PHASE7_GATE_SECONDS) XASH_GATE_FROM_MAP=$(PHASE7_GATE_FROM_MAP) bash xash/build_engine.sh
+
+# Public playable profile: start at MainUI and let the player choose New Game
+# or Load Game. Development/gate targets above intentionally retain auto-map
+# behavior so their bounded evidence remains reproducible.
+engine-playable-native-release: bsp-bundle studio-bundle shaders
+	XASH_MODE=client XASH_REF=agc XASH_FILESYSTEM_PRX=1 XASH_SERVER_PRX=1 \
+		XASH_MENU_PRX=1 XASH_CLIENT_PRX=1 XASH_REF_AGC_PRX=1 \
+		XASH_INTERACTIVE=1 XASH_GATE_SECONDS=0 XASH_GATE_FROM_MAP=0 \
+		bash xash/build_engine.sh
 
 bsp-native-release: bsp-bundle
 	BSP_BUNDLE="$(CURDIR)/build/bsp/map.ps5bsp" bash tools/build_native.sh

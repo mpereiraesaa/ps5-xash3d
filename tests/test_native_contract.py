@@ -249,7 +249,8 @@ def main() -> None:
     ):
         if item not in engine_library:
             raise SystemExit(f"menu PRX runtime contract missing: {item}")
-    if "#if (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX)" not in engine_boot or \
+    if "#if !PS5_XASH_INTERACTIVE &&" not in engine_boot or \
+            "(!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX)" not in engine_boot or \
             '"filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d "' not in engine_boot:
         raise SystemExit("menu PRX bounded menu-only boot contract missing")
     if "engine-menu-prx-native-release" not in makefile or \
@@ -259,6 +260,7 @@ def main() -> None:
         "XASH_PHASE7_MENU_GATE", "XASH_PHASE7_MENU_SECONDS",
         "#define PS5_XASH_PHASE7_MENU_GATE $phase7_menu_gate",
         "#define PS5_XASH_PHASE7_MENU_SECONDS $phase7_menu_seconds",
+        "XASH_INTERACTIVE", "#define PS5_XASH_INTERACTIVE $interactive",
         "complete client/ref_agc PRX stack",
     ):
         if item not in engine_builder:
@@ -281,6 +283,12 @@ def main() -> None:
     if "engine-phase7-menu-native-release" not in makefile or \
             "XASH_PHASE7_MENU_GATE=1" not in makefile:
         raise SystemExit("Phase 7 native-menu release target missing")
+    if "engine-playable-native-release" not in makefile or \
+            "XASH_INTERACTIVE=1" not in makefile or \
+            "XASH_GATE_SECONDS=0" not in makefile:
+        raise SystemExit("interactive playable release target missing")
+    if "#if !PS5_XASH_INTERACTIVE &&" not in engine_boot:
+        raise SystemExit("interactive profile must suppress development auto-map")
     for item in (
         "REF_AGC_LIVE_MENU_FIRST schema=1",
         "REF_AGC_LIVE_MENU_TRANSITION schema=1",

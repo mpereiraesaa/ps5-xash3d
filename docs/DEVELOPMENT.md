@@ -52,7 +52,7 @@ required when synchronization, ownership, memory layout or command emission
 changes. Generated `.deps/`, `build/`, `dist/` and `release/` content remains
 ignored and disposable.
 
-Phase 6 multi-file bundles are promoted with one exact transaction rather than
+Multi-file bundles are promoted with one exact transaction rather than
 independent FTP overwrites:
 
 ```sh
@@ -72,7 +72,7 @@ never rolls back an already committed live bundle; it is journaled and leaves
 the explicit backup for manual recovery. Omit `--apply` to print the immutable
 local/remote/hash plan without changing the console.
 
-For the Phase 7 menu-to-c1a0 regression, build with `BSP_INPUT` pointing to
+For a menu-to-c1a0 regression, build with `BSP_INPUT` pointing to
 `valve/maps/c1a0.bsp`. Deploy the complete native stack:
 
 ```sh
