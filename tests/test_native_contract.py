@@ -64,6 +64,21 @@ def main() -> None:
             raise SystemExit(f"local release logging contract missing: {item}")
     assert '#if !PS5_XASH_AUDIO_ENABLED\n\tengine_argv[engine_argc++] = "-nosound";\n#endif' in engine_boot
     assert '#define PS5_XASH_AUDIO_ENABLED $audio' in (ROOT / "xash/build_engine.sh").read_text(encoding="utf-8")
+    for item in (
+        '#if !PS5_XASH_INTERACTIVE',
+        'engine_argv[engine_argc++] = "-console"',
+        'engine_argv[engine_argc++] = "+con_notifytime"',
+        'engine_argv[engine_argc++] = "0"',
+        'engine_argv[engine_argc++] = "-log"',
+        'const int teardown_pass = memory_pass && thread_time_pass',
+        'exit_status = result == 0 && ( PS5_XASH_INTERACTIVE || teardown_pass ) ? 0 : 2',
+        '"XASH_EXIT result=%d exit_status=%d',
+    ):
+        if item not in engine_boot:
+            raise SystemExit(f"interactive quit/console contract missing: {item}")
+    gate_args = engine_boot.split('#if !PS5_XASH_INTERACTIVE', 1)[1].split('#endif', 1)[0]
+    if 'engine_argv[engine_argc++] = "-console"' not in gate_args:
+        raise SystemExit("gate profile must retain the developer console")
     system_backend = (
         ROOT / "xash/platform_ps5/sys_ps5.c"
     ).read_text(encoding="utf-8")

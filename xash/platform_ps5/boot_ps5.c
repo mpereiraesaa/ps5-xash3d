@@ -14,9 +14,10 @@ GNU General Public License for more details.
 
 Brings up ps5log/1 with stdio capture so every engine console line reaches the
 laboratory, chooses a writable base directory, points the engine at the
-read-only game data under /app0 and hands control to Host_Main. The engine's
-own quit path returns here; the process then leaves through _exit(0), which is
-the exit the shell accepts without an error dialog.
+read-only game data under /app0 and hands control to Host_Main. The public
+interactive profile leaves the engine console hidden while retaining -log for
+the file trace. A normal engine quit returns here and exits successfully; the
+strict gate profiles still report teardown failures through their exit code.
 */
 
 #include <errno.h>
@@ -320,8 +321,9 @@ int main( int argc, char **argv )
 	int memory_pass = 1;
 	int memory_shutdown_result;
 	int local_trace_fd = -1;
+	int exit_status;
 	struct stat st;
-	char *engine_argv[16];
+	char *engine_argv[24];
 	int engine_argc = 0;
 	(void)argc;
 	(void)argv;
@@ -456,11 +458,14 @@ int main( int argc, char **argv )
 #endif
 
 	engine_argv[engine_argc++] = "eboot.bin";
-	/* developer 1 keeps the Con_DPrintf proofs (filesystem load, spawn)
-	   without the per-asset spam that congests the telemetry stream. */
+	/* Gate builds keep the developer console for their proofs. The public
+	   profile retains -log and the stdio mirror but must not paint engine
+	   notifications over gameplay. */
+#if !PS5_XASH_INTERACTIVE
 	engine_argv[engine_argc++] = "-dev";
 	engine_argv[engine_argc++] = "1";
 	engine_argv[engine_argc++] = "-console";
+#endif
 	engine_argv[engine_argc++] = "-log";
 	if( rwdir )
 	{
@@ -475,6 +480,12 @@ int main( int argc, char **argv )
 	engine_argv[engine_argc++] = PS5_XASH_REF;
 #if !PS5_XASH_AUDIO_ENABLED
 	engine_argv[engine_argc++] = "-nosound";
+#endif
+#if PS5_XASH_INTERACTIVE
+	/* Keep any config-provided console allowance quiet even if a user config
+	   enables it later; -log and ps5log still preserve the full trace. */
+	engine_argv[engine_argc++] = "+con_notifytime";
+	engine_argv[engine_argc++] = "0";
 #endif
 #endif
 #if !PS5_XASH_INTERACTIVE && (!PS5_XASH_MENU_PRX || PS5_XASH_CLIENT_PRX) && !PS5_XASH_PHASE7_MENU_GATE
@@ -560,12 +571,14 @@ int main( int argc, char **argv )
 			(unsigned long long)arena.lifetime_reclaims,
 			(unsigned long long)arena.lifetime_bytes, memory_pass );
 		(void)ps5log_printf( PS5LOG_MARK,
-			"XASH_EXIT result=%d listing_refused=%d large_alloc_bytes=%zu "
+			"XASH_EXIT result=%d exit_status=%d listing_refused=%d large_alloc_bytes=%zu "
 			"large_alloc_peak=%zu large_alloc_count=%u large_alloc_failures=%llu "
 			"libc_calls=%llu libc_bytes=%llu pad_gate=%d memory_gate=%d memory_pass=%d "
 			"thread_time_gate=%d thread_time_pass=%d libc_shim_gate=%d libc_shim_pass=%d "
 			"prx_gate=%d prx_pass=%d filesystem_prx=%d server_prx=%d menu_prx=%d client_prx=%d ref_agc_prx=%d",
-			result, PS5_ListingRefusedCount( ), arena.live_bytes,
+			result, result == 0 && ( PS5_XASH_INTERACTIVE ||
+				memory_pass && thread_time_pass && libc_shim_pass && prx_pass ) ? 0 : 2,
+			PS5_ListingRefusedCount( ), arena.live_bytes,
 			arena.peak_bytes, arena.live_cpu + arena.live_gpu,
 			(unsigned long long)arena.failures,
 			(unsigned long long)root.foreign_calls,
@@ -576,12 +589,19 @@ int main( int argc, char **argv )
 			PS5_XASH_SERVER_PRX, PS5_XASH_MENU_PRX, PS5_XASH_CLIENT_PRX,
 			PS5_XASH_REF_AGC_PRX );
 	}
-	ps5log_close( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ?
+	const int teardown_pass = memory_pass && thread_time_pass &&
+		libc_shim_pass && prx_pass;
+	/* Host_Main returning zero is the product-level definition of a normal
+	   quit. Interactive play must not surface a diagnostic-only teardown
+	   warning as the PS5 "app or game has failed" dialog; the full gate fields
+	   above remain in the trace for follow-up. */
+	exit_status = result == 0 && ( PS5_XASH_INTERACTIVE || teardown_pass ) ? 0 : 2;
+	ps5log_close( teardown_pass ?
 		"xash-engine-boot-complete" : !memory_pass ? "xash-memory-gate-failed" :
 		!thread_time_pass ? "xash-thread-time-gate-failed" :
 		!libc_shim_pass ? "xash-libc-shim-gate-failed" : "xash-prx-shutdown-failed" );
 	ps5log_set_mirror_fd( -1 );
 	if( local_trace_fd >= 0 )
 		close( local_trace_fd );
-	_exit( memory_pass && thread_time_pass && libc_shim_pass && prx_pass ? 0 : 2 );
+	_exit( exit_status );
 }
