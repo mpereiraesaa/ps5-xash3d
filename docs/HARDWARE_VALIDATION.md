@@ -21,14 +21,18 @@ outside the repository.
 ## Reproducing a run
 
 Build with private game data, then launch the resulting package from the PS5
-menu:
+menu. The BSP and Studio paths below are source inputs for the host-side
+bundle bakers; they are not extra runtime settings:
 
 ```sh
-XASH_GAME_DATA=/private/path/half-life \
-  BSP_INPUT=/private/path/valve/maps/c1a0.bsp \
-  STUDIO_INPUT=/private/path/valve/models/barney.mdl \
-  make engine-playable-native-release
+export XASH_GAME_DATA=/absolute/path/to/half-life
+export BSP_INPUT="$XASH_GAME_DATA/valve/maps/c1a0.bsp"
+export STUDIO_INPUT="$XASH_GAME_DATA/valve/models/barney.mdl"
+make engine-playable-native-release
 ```
+
+The baker writes `build/bsp/map.ps5bsp` and `build/studio/model.ps5mdl`; the
+game data itself remains private and is staged only into the local package.
 
 Each launch writes a fresh engine log and structured trace beside save/config
 data:
