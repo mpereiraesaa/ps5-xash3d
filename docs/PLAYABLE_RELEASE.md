@@ -2,11 +2,16 @@
 
 ## Status
 
-Phase 7 is closed. The public state is **PLAYABLE** for Half-Life 1 Steam game
-data on PS5 firmware 12.02, title ID `PPSA99996`. The release boundary covers
+The public state is **PLAYABLE** for Half-Life 1 Steam game data on PS5 firmware
+12.02, title ID `PPSA99996`. The release boundary covers
 the native AGC renderer, dynamic Xash3D modules, MainUI-to-map transition,
 `c1a0` gameplay, world/brush/Studio rendering, HUD/effects, DualSense input,
 SceAudioOut and haptics.
+
+The public build profile is interactive: it opens MainUI, queues no map and
+arms no development timeout. The player selects **New Game** or **Load Game**
+from the PS5 package. Historical gate targets retain their bounded auto-map
+behavior only to keep development evidence reproducible.
 
 The renderer is fully GPU accelerated through the PS5 AGC/GFX10.13 path,
 including GPU-visible resources, shader execution, synchronization and
@@ -15,11 +20,11 @@ scene preparation and Studio pose generation.
 
 ## Evidence boundary
 
-The accepted hardware evidence is recorded in
-[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md) and the phase-specific
-documents. Those records preserve the exact firmware, artifact hashes,
-telemetry markers and teardown checks used during development. They are
-historical evidence, not additional release gates.
+The release checks are recorded in
+[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md) and the focused platform
+documents. Those records preserve the firmware, artifact hashes, telemetry
+markers and teardown checks used during development. They are reference
+material, not additional release gates.
 
 ## Runtime logs
 
@@ -50,4 +55,5 @@ and its content have been validated on hardware.
 For an issue, include the package commit, PS5 firmware, map, reproduction
 steps, and both logs from the same run. Remove credentials, private network
 paths and unrelated save data before uploading. Community soak reports now
-drive maintenance; no new Phase 7 gate is required for ordinary bug reports.
+drive maintenance; no additional release gate is required for ordinary bug
+reports.

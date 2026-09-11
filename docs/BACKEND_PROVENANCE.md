@@ -1,106 +1,38 @@
-# Backend extraction provenance
+# Backend provenance
 
-> The historical Phase 7 rows below describe the state at each extraction
-> checkpoint. The current public status is **PLAYABLE**; the release boundary
-> is [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md).
+This repository is the public source boundary for the PS5 Xash3D port. It does
+not contain Sony SDK headers, runtime binaries, game data, captured command
+buffers or generated SELF/PRX artifacts.
 
-This repository is a clean publication boundary. It contains no copied Sony
-headers, runtime binaries, game material, captured command buffers or shader
-blobs. Firmware-specific facts are represented as narrow constants and are
-covered by synthetic host tests.
+## Project-owned adapters
 
-## Extracted platform-neutral contracts
+| Area | Implementation and contract |
+| --- | --- |
+| Filesystem | `xash/platform_ps5/filesystem_prx_module.c` owns the complete open/read/seek/stat/close family and exposes the engine filesystem through a validated PRX descriptor. |
+| Input | `xash/platform_ps5/in_ps5.c` consumes chronological ScePad batches and translates them to Xash axes/buttons. The ABI is documented in [`DUALSENSE_CONTROLS.md`](DUALSENSE_CONTROLS.md). |
+| Audio | `xash/platform_ps5/audio_ps5.c`, `audio_pattern_ps5.c` and `audio_gate_ps5.c` own the PCM ring, resampling and SceAudioOut worker. |
+| Memory | `xash/platform_ps5/memory_arena_ps5.c`, `mem_ps5.c` and `memory_gate_ps5.c` provide guarded engine allocation and generation-tagged GPU ownership. |
+| Timing | `xash/platform_ps5/thread_time_ps5.c` wraps joined/detached workers, mutexes, monotonic clocks and bounded sleeps. |
+| Renderer | `src/ref_agc_*`, `src/goldsrc_*` and `native/ps5_agc_native.c` build and submit AGC command streams using GPU-visible resources and exact retirement tokens. |
+| Loader | `xash/platform_ps5/prx_loader_ps5.c` validates names, ranges, exports and rollback ownership for application PRXs. |
+| Logging | `native/ps5log` writes structured local traces and can mirror them to the optional TCP sink. |
 
-| Public unit | Purpose | Evidence boundary |
-| --- | --- | --- |
-| `ps5_surface` | Plans two 1080p/2160p tiled display buffers inside one aligned 128 MiB allocation. | Constants were sanitized from the FW 12.02 laboratory integration; footprint and non-overlap are host-tested and the native backend allocates/registers the resulting surfaces. |
-| `ps5_present` | Invokes an injected SetFlip builder, validates its cursor, then appends the terminal eight-DWORD release-fence packet. | Exact ordering and cursor bounds are host-tested with a synthetic builder. The public unit contains no NID or loader code. |
-| `ps5_frame_completion` | Retains every submitted resource until both fence zero and the matching VideoOut token are observed. | Every success and fail-closed transition is host-tested. Event polling remains outside this pure state machine. |
-| `include/ps5_agc*.h` | Declares only the AGC/driver functions currently required by the demo. | Calling conventions and arguments are sanitized FW 12.02 contracts exercised by the standalone artifact; project-owned link stubs are included. |
-| `ps5_color_target` | Selects the unique MRT0 runtime-default block and derives a bound color-target descriptor. | Firmware key, compact offsets, masks and alignment are explicit, checked at runtime and covered by synthetic defaults. |
-| `ps5_pipeline` | Combines MRT0, viewport, linked shaders and compiler-produced stage registers into the exact 84 CX / 12 SH / 3 UC plan. | Deterministic fixture hash and every concatenation boundary are host-tested. |
-| `ps5_depth_target` | Builds the uncompressed D32, no-HTILE target and depth-test state. | Alignment, dimensions and the 22 sanitized public-register pairs are host-tested; the private hardware integration previously exercised the equivalent plan. |
-| `ps5_event_adapter` | Converts injected equeue wait/decode calls into exact completion observations. | Host fixtures cover empty polls, matching tokens and fail-closed malformed/decode-error paths; native symbol binding stays outside this unit. |
-| `ps5_gpu_span` | Proves a complete non-empty range lies inside a declared GPU-visible mapping. | Boundary and integer-overflow cases are host-tested. |
-| `ps5_submission` | Initializes the terminal fence, composes presentation and invokes an injected submit callback. | Tests prove ordering, command length, no-submit on compose failure and resource retention across every irreversible failure. `render_resources_ready` deliberately replaces the obsolete assumption that the color target must be DMA-prefilled. |
-| `shaders/gears_lit.pipe` | Independently authored GLSL and LLPC pipeline/resource mapping for lit gears and the fullscreen clear. | A host contract test pins the 24 direct parameter DWORDs, one indirect vertex-table pointer, 24-byte interleaved vertex layout, triangle-list topology and BGRA8 target. No compiled PAL ELF or ISA blob is committed. |
-| `tools/build_shader.py` | Compiles the project source with public LLPC for `gfx1013`, rejects relocations, extracts exact PAL symbol extents and hashes every result. | Unit-tested parser and source invariants plus two consecutive real LLPC builds with identical ELF and stage hashes. Generated files remain ignored build products. |
-| `tools/generate_agc_metadata.py` | Safely decodes the project PAL notes and derives shader resource words, draw modifier and 10+9 CX templates. | The standalone result matches all ten defines and all nineteen register pairs used by the hardware-proven integration; invalid target/pipeline/relocation contracts fail closed. |
-| `native/stubs/libSceAgc*.c` | Provides link-only facades for the AGC imports declared by this project. | Both files compile with the pinned Prospero toolchain and link into x86-64 shared import modules with the required public symbols. Runtime implementations remain firmware-owned. |
-| `ps5_direct_memory` | Owns reserve/allocate/map and ordered unmap/release through injected platform calls. | Host tests cover valid lifecycle, map rollback, invalid alignment and refusal to release resources without explicit GPU cleanup authority. |
-| `include/ps5_platform.h` | Declares the minimal kernel, VideoOut and sysmodule surface and its opaque record layouts. | Compile-time sizes/offsets match the FW 12.02 hardware-used integration; it is explicitly a project-owned compatibility header. |
-| `xash/platform_ps5/audio_ps5.c`, `audio_pattern_ps5.c`, `audio_gate_ps5.c` and `s_ps5.c` | Own a producer/consumer PCM ring, a continuous 147/160 resampler and a dedicated worker that alone holds the `libSceAudioOut` handle, then bind that core to Xash3D's `SNDDMA_*` DMA ring. | The `sceAudioOutOpen` signature, grain/rate/format limits, 0 dB volume array, blocking `Output` pacing and no-short-final-block rule are pinned to `ps5-audio-decoding-research` commit `2c81f179` (GPL-3.0, FW 6.02 evidence); no reference source is vendored. Host tests cover the ratio, continuity, wrap, exclusion, prime, underrun, pause, error and teardown paths. FW 12.02 run `20260907T194413175Z_PPSA99996_xash3d-engine_0xc372db81ccc6` carried 66,150 source frames as 282 whole blocks with a matching PCM hash, zero underruns, zero Output errors and exactly one drain/close/join, with the operator confirming the tone sequence by ear. |
-| `xash/platform_ps5/in_ps5.c` and `in_ps5.h` | Translate chronological 64-record ScePad batches into generic Xash axes and buttons while neutralizing disconnects, interception and controller-generation changes. | The 120-byte ABI and batching/lifecycle contract are pinned to `ps5-native-gamepad-input-research` commit `16e9b953`; host tests cover all edges and rollback. FW 12.02 run `20260907T181827569Z_PPSA99996_xash3d-engine_0xbec4d1cc932e` proved all six gameplay actions, a 62-record batch, zero errors and exact close/terminate ownership. |
-| `xash/platform_ps5/memory_arena_ps5.c`, `mem_ps5.c` and `memory_gate_ps5.c` | Route the static engine's C/C++ allocation surface through one guarded direct-memory root and define generation-tagged active/retiring/reclaimed GPU ownership. | The fixed-VA policy follows the repository's FW 12.02 mapping-only evidence; the implementation is project-owned and host-tested for alignment, overflow, guards, stale handles, concurrency and exact-token reclamation. Run `20260907T212512180Z_PPSA99996_xash3d-engine_0xc8f58f777975` exercised four representative resource classes, 20,687 engine allocations and ordered empty unmap/release with zero errors. The final Phase 6 `ref_agc` gate subsequently consumed the real native AGC path with exact ownership. |
-| `xash/platform_ps5/thread_time_ps5.c` and `thread_time_gate_ps5.c` | Exercise joined and detached pthread ownership, mutex serialization, monotonic-clock behavior, and 1–10 ms `nanosleep`/`usleep` granularity. | The core is project-owned and host-tested. FW 12.02 run `20260907T220548886Z_PPSA99996_xash3d-engine_0xcb2ce47a2f65` proved two distinct workers, 32,768 locked increments, 8,192 monotonic reads with no regression, eight sleep buckets with no early wake/error, and exact join/detach/mutex teardown before the ordinary `c1a0` workload. |
-| `ps5_present`, `ps5_submission`, `bsp_command_plan` and `ps5_gpu_flip_timing` | Append an optional raw GPU end-of-pipe timestamp before the existing SetFlip/fence transaction, isolate two timestamp destinations and correlate them with CPU fence and exact VideoOut observations. | The selector-3 packet and ordering are independently authored from the private cross-title command-stream proof; no captured command buffer is published. Host tests pin packet words, overlap refusal, sentinel handling, strict sequence/clock progress and latency arithmetic. FW 12.02 run `20260907T225446311Z_PPSA99996_ps5-xash3d_0xcdd8ce3a668a` passed 60,000 writes, 59,999 strict changes and zero timing/order/gap errors through exact fence and VideoOut ownership. |
-| `xash/platform_ps5/libc_shims_ps5.c` | Owns the FreeBSD-style assertion sink, stable engine-facing identity and deterministic whereami fallback without depending on three ambiguous system exports. | Host tests pin exact formatting, truncation, uid propagation and zeroed `Dl_info`. The release audit rejects dynamic `__assert`, `getpwuid` or `dladdr` imports and requires local definitions. FW 12.02 run `20260907T235551519Z_PPSA99996_xash3d-engine_0xd12e2a9238fb` passed all three probes before loading `c1a0` and closing cleanly. Crash reporting itself continues to resolve modules with `sceKernelGetModuleList`/`sceKernelGetModuleInfo`, not `dladdr`. |
-| `xash/platform_ps5/prx_loader_ps5.c`, `prx_loader_ps5.h` and `lib_ps5.c` | Provide a hybrid Xash `COM_*` backend: proven modules may remain static while named application PRXs load through kernel module calls and publish a validated `PRXDESC1` table. | The loader flow and descriptor ABI originate in BlackBearReloaded's GPL-3.0-or-later `ps5-native-app-boilerplate` `exp/prx-module` work, pinned through public fork commit `1e9b564a4dd1d567e63ee0d292ed9a026ce06008`; this repository hardens range/name/duplicate checks and fail-closed rollback ownership. Host fault injection covers parsing and every lifecycle failure. FW 12.02 run `20260908T054317837Z_PPSA99996_xash3d-engine_0xe423c3826406` passed load, six exports, kernel-import execution and exact unload through Xash's public API. |
-| `xash/platform_ps5/filesystem_prx_module.c` and `filesystem_prx_exports.map` | Package the upstream GPL filesystem behind the bounded application-owned descriptor, explicitly own its start/stop boundary and exercise complete-tree behavior after game-hierarchy mounting. | FW 12.02 run `20260908T071044664Z_PPSA99996_xash3d-engine_0xe8e95e4c0974` loaded eight exports, indexed 4,823 entries, listed `gfx/*`, resolved mixed case, read 768-byte `palette.lmp` and 2,546,336-byte `c1a0.bsp`, then spawned the map and unloaded exactly. `LoadFileMalloc` deliberately retains the upstream process-libc ABI; a private module arena was rejected after diagnostic evidence proved the returned buffer crosses into host `COM_FreeFile`. |
-| `xash/tools/generate_prx_descriptor.py` and `xash/platform_ps5/server_prx_module.cpp` | Derive the application-owned HLSDK server descriptor, own idempotent C++ initializer/finalizer execution and expose bounded engine-table probes without modifying the pinned submodule. | The array symbols come from the pinned public PIE linker layout; the generator and ABI surface are project-owned and host-tested. FW 12.02 run `20260908T082646982Z_PPSA99996_xash3d-engine_0xed0f9a243abc` loaded 251 server exports, passed the table/callback ABI, completed the game cvar initialization, spawned `c1a0` and unloaded server then filesystem with exact ownership. |
-| `xash/platform_ps5/lib_ps5.c` MainUI trampolines and generated `menu.prx` descriptor | Move pinned upstream MainUI behind Xash's application-owned module ABI while preserving the original callbacks and explicit C++ lifecycle. | Host tests pin both API masks and strict evidence parsing. FW 12.02 run `20260908T094038112Z_PPSA99996_xash3d-engine_0xf1174a815840` exercised 16 base and 12 extended callbacks, 5,127 redraws and exact server/menu/filesystem teardown; presentation remains the software framebuffer until `ref_agc`. |
-| `xash/platform_ps5/lib_ps5.c`, `client_prx_module.cpp` and the generated `client.prx` descriptor | Move the pinned HLSDK client behind Xash's application-owned module ABI without changing its interface-7 callback table or upstream source. | Host tests require the 48-entry descriptor, exact C++ lifecycle, six host-to-module and four module-to-host ABI probes, and fail-closed evidence parsing. FW 12.02 run `20260908T130114060Z_PPSA99996_xash3d-engine_0xfc0996a1effb` initialized client video, ran 4,916 frames and 4,907 HUD redraws on `c1a0`, then unloaded server/menu/client/filesystem to zero active modules. The software framebuffer is retained until the independent `ref_agc` gate. |
-| `xash/platform_ps5/ref_agc_module.c`, `lib_ps5.c`, `src/ref_agc_live_frame.c`, the `ref_agc_*_store`, `ref_agc_lightmap_atlas` and `ref_agc_gpu_*` modules, and the generated `ref_agc.prx` descriptor | Publish Xash RefAPI v18 from an application-owned module, copy pointer-free live frame and world snapshots, retain normalized engine textures, build the styled engine-lightmap atlas, mirror textures/world/atlas into direct memory, compose live AGC world/special-surface/2D draws and bind frame take/ack to exact retirement. | Host contracts preserve the immutable earlier ABIs and additive resource form. FW 12.02 run pair `20260909T065237749Z...` / `20260909T065237800Z...` matched 1,339 serials, retained the accepted 3,695-draw lightmapped world, presented MainUI for 223 pre-map frames and then observed `c1a0` at serial 224 after an engine-command-buffer transition. A launch-correlated CLI recording visibly shows both states; all eight resources and five PRXs retired exactly. No OpenGL emulation layer is introduced. Live entities and the first-person viewmodel remain open. |
-| `native/ps5log` | Streams bounded structured `ps5log/1` records using `/app0/dev.conf` and a native `sceNet` adapter. | Vendored source matches the project-owned logging client byte-for-byte, its full host suite passes, and both native objects compile with only the expected libc/`sceNet` imports unresolved. |
-| `ps5_shader_header` | Builds the self-relative FW 12.02 input arena consumed by `sceAgcCreateShader` from generated public metadata. | Exact header/user-data/special/CX/SH offsets, GS/PS resource words and invalid inputs are host-tested; native compilation succeeds. |
-| `native/shader_assets.S` | Embeds only the two stages produced from `shaders/gears_lit.pipe`. | Prospero assembly produces 384-byte GS and 160-byte PS spans at 256-byte alignment using repository-local build paths. |
-| `ps5_agc_writer` | Adapts AGC's mutable command-buffer writer and driver wait cursor to checked project-owned calls. | Host tests cover exact 27+3 DWORD packets, capacity/cursor corruption, GPU-span rejection, depth-only DMA naming and transactional wait errors. Native symbol binding remains a thin separate layer. |
-| `ps5_agc_submit` and `native/ps5_agc_native` | Validate, flush and submit a GPU-visible DCB while binding the checked writer calls to the firmware builders. | Host tests inspect the exact 0x10-byte descriptor and reject out-of-range commands; all units compile with Clang 18 for `x86_64-sie-ps5` with only the declared AGC symbols unresolved. |
-| `ps5_videoout` | Owns VideoOut open, equeue/event setup, flip rate, buffer registration and ordered teardown. | Host fault injection covers every acquisition boundary and the FW 12.02 `RESOURCE_BUSY` unregister behavior; standalone hardware runs completed through VideoOut close and memory release. |
-| `native/main.c` | Joins the extracted units into the complete two-buffer renderer and native lifecycle. | The exact standalone build completed 300-frame strict validation and a 10,000-frame hardware soak on FW 12.02. |
-| `tools/build_native.sh` | Fetches/verifies the pinned public foundation, builds `gfx1013` shaders and metadata, compiles, links, signs and packages the dedicated PS5 Xash3D identity `PPSA99996`. | Its output is ignored, inspected after signing and identified by SHA-256 in every accepted hardware run. |
-| `bsp_texture_descriptor` | Emits mip-aware linear RGBA8 image and sampler SRDs plus one base/lightmap table per BSP texture. | Exact GFX10.3 words, 48-bit address/alignment limits, smallest-to-base padded mip layout, repeat/clamp modes, trilinear/anisotropic filters, full-table sizing and forged-view failures are host-tested against public Mesa/PAL contracts. |
-| `ps5_resource_pool` | Suballocates one direct-memory heap with aligned first-fit placement and generation-tagged handles. | Host tests cover fragmentation, stale handles, unsubmitted release and refusal to reclaim submitted resources without exact completion proof. |
-| `ps5_transient_ring` and `ps5_transient_table` | Own two per-frame arenas and build GPU-visible descriptor tables inside the currently open slot. | Host tests cover alignment, exhaustion, abort-before-submit, sealed-token mismatch and exact-token reuse. |
-| `ps5_gfx1013_descriptor` | Builds named V#, mip-aware T# and bilinear/trilinear/anisotropic S# records for structured vertices, raw constants and BSP images. | Exact DWORD tests pin the independently authored subset derived from Mesa/PAL's public GFX10.3 definitions. |
-| `ps5_cache_contract` | Plans an aligned CPU flush and scoped AcquireMem before GPU reads, then requires fence plus exact VideoOut token before CPU reuse. | Host tests pin the 256-byte range, FW-observed raw engine/GCR/poll tuple, operation order and refusal of fence-only completion; raw PS5 bits are not assigned speculative public AMD names. |
-| `bsp_resource_frame`, `bsp_resource_draw` and `bsp_alpha_test` | Build per-frame resources, partition opaque/`{` draws, select an alpha-test camera target and compose the ordered map passes plus overlay. | Synthetic GPU mappings verify spans, class counts, packet lengths, target selection, distinct GS `0x8d`/PS `0x0d` banks and no-write-on-invalid-input behavior. |
-| `shaders/bsp_resource.pipe`, `shaders/bsp_alpha_test.pipe`, `shaders/bsp_overlay.pipe` and generated permutation metadata | Define separate opaque, alpha-test and transient-overlay pipelines. | Source contracts pin resource mappings and require discard only in the alpha shader; LLPC metadata fixes a sole `DB_SHADER_CONTROL` kill-bit delta between the two map pipelines and validates all three permutation entries. |
+## External research and licenses
 
-These units replace laboratory-prefixed prototypes with project-owned names
-and interfaces. Their behavior was exercised by the private native integration
-before extraction, but the files here are independently reviewable and do not
-depend on the parent laboratory.
+The ScePad ABI follows the independently authored
+[PS5 native gamepad input research](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research).
+The audio contract follows the independently authored
+[PS5 audio decoding research](https://github.com/blackbearreloaded/ps5-audio-decoding-research).
+Both are used as compatibility references; their source is not vendored.
 
-## Hardware evidence versus repository evidence
+The native shell follows
+[PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).
+Xash3D FWGS and hlsdk-portable remain pinned submodules under their own
+licenses. See [`NOTICE.md`](../NOTICE.md) for attribution.
 
-The 300-frame, 10,000-frame and Phase 2 60,000-frame FW 12.02 runs cited in the
-README used title `PPSA99997` built entirely by this repository's native build
-path and the pinned public foundation. The strict 300-frame run proves the
-complete opening telemetry identity, exact frame ownership and clean teardown
-contract. The earlier 10,000-frame run proves prolonged GPU/ownership behavior
-but predates the final `LOG_BOOT_MONOTONIC_NS` opening-record correction; this
-limitation is preserved rather than silently reclassifying that transcript.
+## Verification
 
-The Phase 2 run
-`20260906T130036578Z_PPSA99997_ps5-agc-gears_0x5ed84765862b` proves the
-resource-pool, per-frame transient, descriptor-table, constant-buffer,
-pipeline-permutation and cache-transition path for 60,000 frames. Its public
-claim is limited to sanitized identities, hashes and outcomes. The private
-`c1a0` BSP, compiled artifact, transcript and Remote Play captures remain
-outside this repository. Exact hashes and validator results are listed in
-`HARDWARE_VALIDATION.md`.
-
-## Rules for later extraction
-
-- Rewrite public interfaces around the smallest required contract.
-- Preserve fail-closed ownership after any irreversible submit/present step.
-- Use only independently authored shader source and public compiler tooling.
-- Add a synthetic regression for each constant, layout and cursor advance.
-- Record hardware validation separately from host-only evidence.
-- Run `make audit` before any commit, archive or publication.
-
-## Native foundation pin
-
-Standalone renderer packaging uses the public boilerplate fork at commit
-`37dd53602bdead63936f718004555ba10154be48`. This is the hardware-used tree:
-upstream `722f2227a8bb6fa2229120546995b6562552c752` plus the public RELRO
-load-segment congruence correction. A build script must verify this exact
-revision or fetch it into a project-local ignored dependency directory; it does
-not silently consume whichever checkout happens to exist in a parent lab.
-
-The Xash engine builder pins the later public `exp/prx-module` foundation at
-`1e9b564a4dd1d567e63ee0d292ed9a026ce06008`. Besides the same native shell,
-that revision supplies the public PRX converter used for Phase 6. The builder
-stamps the host tool with the commit so a cached pre-module binary cannot be
-reused silently.
+Host contracts are run with `make test`; `make audit` checks that only
+allowlisted, reviewable files are published. Native builds must record the
+toolchain revision, artifact hash, firmware, title ID and the local trace path.
+The release identity is `PPSA99996`.

@@ -1,197 +1,30 @@
-# AGC capability and import matrix
+# Capability matrix
 
-This document separates missing public imports from missing renderer contracts.
-It preserves the pre-Phase-1 capability analysis that led to the native Gears
-and GoldSrc renderer. All renderer gates through Phase 4 have since passed on
-FW 12.02. The final Phase 6 `ref_agc.prx` conversion also passed: RefAPI v18
-drives the native backend while `c1a0` runs through the dynamic engine stack.
-Phase 7 now has compositor-visible live world geometry, base textures and
-engine-authored lightmaps after hardware gates fixed the required post-camera
-scheduler handoff and uploaded a deterministic owned atlas. Native
-sky/turbulent semantics, entities, viewmodel and 2D/UI remain the next boundary
-rather than a hidden requirement of the module-loader gate.
+This matrix describes the current public Xash3D runtime. “Ready” means the
+host contract and the release path are implemented; content compatibility still
+depends on the game data and its matching `client.prx`.
 
-## Hardware-proven core
-
-| Area | Imports already exercised on FW 12.02 |
-| --- | --- |
-| AGC lifecycle | `sceAgcInit`, `sceAgcGetRegisterDefaults`, `sceAgcCreateShader`, `sceAgcLinkShaders` |
-| Command construction | `sceAgcDcbSetCxRegistersIndirect`, `sceAgcDcbSetUcRegistersIndirect`, `sceAgcDcbSetShRegistersIndirect`, `sceAgcDcbDrawIndexAuto`, `sceAgcDcbSetFlip` |
-| Submission/ownership | `sceAgcDriverGetWaitRenderingPacketSizeInDwords`, `sceAgcDriverWaitUntilSafeForRendering`, `sceAgcDriverSubmitDcb` |
-| VideoOut | open, buffer attributes/registration, flip event/data, unregister and close |
-| Memory/events | Main Direct Memory, reserve, map/BatchMap, unmap/release and equeue primitives |
-
-## Capability progression
-
-| Stage | New import required? | Missing contract |
+| Area | Status | Notes |
 | --- | --- | --- |
-| Animated triangle | No | Per-frame command reset, monotonic flip IDs and double-buffer ownership |
-| Plasma | No | Time/resolution user data and a stable frame loop |
-| Procedural cube | Probably no | Matrix user data, perspective, culling and optionally depth |
-| Non-indexed gear | No known new import | One interleaved vertex-buffer SRD and table-pointer binding |
-| Indexed gear | Possibly | A validated indexed-draw builder; avoid it initially by expanding indices |
-| Correct overlapping gears | No known new import | Depth allocation, layout, descriptor/register block, clear and barriers |
-| Textured extensions | Useful new builder likely | Texture/sampler descriptors, resource residency and cache transitions |
+| PS5 title shell | Ready | `PPSA99996`, MainUI launch and ordered teardown. |
+| Filesystem | Ready | Directory listing, large reads, case handling and one consistent descriptor family. |
+| AGC renderer | Ready | GPU-accelerated world, lightmaps, brush entities, Studio models, HUD and effects. |
+| GPU memory | Ready | Direct-memory resources, cache transitions, fences and VideoOut retirement. |
+| DualSense | Ready | Movement, look, jump, crouch, use, fire, reload, weapon cycling and contextual ammo helper. |
+| Audio | Ready | SceAudioOut PCM ring, resampling, playback and teardown. |
+| Haptics | Ready | Short primary-fire pulse through the DualSense output path. |
+| Save/load | Ready | Writable overlay is used for saves, config and local logs. |
+| Diagnostics | Ready | Structured `ps5log/1` trace plus optional network mirroring. |
+| Additional GoldSrc titles | Build per title | Stage compatible data and compile/package that title’s `client.prx`; the engine port is shared. |
 
-The animated non-indexed Gears path is hardware-proven on FW 12.02 through a
-10,000-frame soak, two alternating backbuffers, two frames genuinely in flight
-and exact per-slot GPU/VideoOut completion. No new graphics import was required.
+## Optional platform imports
 
-## Candidate optional imports
+The implementation keeps platform libraries where they provide the tested PS5
+behavior. Project-owned probes and host tests validate ABI shape, symbol
+presence, return codes and teardown rather than replacing those libraries.
+Unused optional imports remain out of the release link.
 
-- `sceAgcCbSetShRegisterRangeDirect`: public-reference code uses it for resource
-  descriptors. It is convenient for dynamic uniforms/buffers but not required
-  for Plasma because the existing SH-indirect path can update user registers.
-- `sceAgcSuspendPoint`: present in a public reference after submit. It is not
-  required by our proven fence/event completion path and should remain optional.
-- `sceAgcDcbDrawIndex` (`q88lQ+GP5Yk`), or the bound-index trio
-  `sceAgcDcbSetIndexBuffer` (`l4fM9K-Lyks`),
-  `sceAgcDcbSetIndexCount` (`8N2tmT3jmC8`) and
-  `sceAgcDcbDrawIndexOffset` (`B+aG9DUnTKA`): useful for compact gear meshes,
-  but not a gate; a
-  first implementation can expand the index list and retain
-  `sceAgcDcbDrawIndexAuto`.
-  The direct indexed builder's sanitized firmware contract is four arguments
-  `(writer, count, 64-bit GPU index address, modifier)` and six command DWORDs.
-  Its modifier semantics are not yet public enough to make this the default,
-  so expanded non-indexed geometry remains the publication-safe first path.
-- `sceVideoOutGetFlipStatus` (`SbU3dwp80lQ`) and
-  `sceVideoOutWaitVblank` (`j6RaAUlaLv0`): potentially useful for
-  telemetry/pacing, but the existing exact flip event is sufficient for
-  ownership correctness.
-- `sceAgcDcbAcquireMem` (`57labkp+rSQ`), `sceAgcCbReleaseMem`
-  (`wr23dPKyWc0`), `sceAgcDcbEventWrite` (`aJf+j5yntiU`),
-  `sceAgcDcbWriteData` (`i1jyy49AjXU`) and `sceAgcDcbWaitRegMem`
-  (`VmW0Tdpy420`) are the public synchronization candidates for later depth
-  clears/transitions. They are not interchangeable: event/ACQUIRE controls
-  cache or pipeline visibility, while the terminal release label proves
-  completion and ownership.
+## Contribution rule
 
-## Reverse-engineering priorities
-
-1. **No Ghidra work for Plasma.** Use the already proven imports and derive the
-   time uniform from public compiler metadata.
-2. Validate how LLPC maps one small constant/user-data block into SH registers;
-   prefer compiler metadata and host disassembly before firmware analysis.
-3. For buffered geometry, recover only the descriptor words and user-SGPR
-   binding contract needed by our own shader. Cross-check public PAL/LLVM and
-   `sceAgcCbSetShRegisterRangeDirect` callers.
-4. Investigate depth only after Cube renders without it: defaults selector,
-   `DB_Z_*`/`DB_DEPTH_*` block, layout/alignment and safe clear/barrier sequence.
-5. Resolve an indexed-draw API only after non-indexed Gears works.
-
-Firmware analysis should record symbol/NID, module hash, calling convention,
-arguments, cursor advance, side effects and confidence. No proprietary bytes or
-substantial decompilation enter this repository.
-
-## Compiler evidence — 2026-09-05
-
-Project-authored Plasma, Cube and lit-Gears microshaders were compiled offline with
-public LLPC for `gfx1013`; all produced relocation-free PAL ELFs with AMDGPU
-flags `0x42`.
-
-- Plasma's four floats (`time`, inverse width/height and phase) map directly to
-  pixel-stage user data 0–3. Including the internal table pointer, PAL reports
-  five PS user SGPRs. No buffer descriptor or new import is needed.
-- Cube's 4×4 MVP maps directly to 16 pre-raster user-data words. Interleaved
-  position and normal inputs cause PAL to request the compiler-defined vertex
-  buffer table pointer (`0x1000000f`); the stage reports 20 user SGPRs.
-- The final project-authored Gears fixture adds a unit quaternion and material color
-  to the MVP. All 24 words remain direct pre-raster user data; the compiler
-  reports 28 user SGPRs and no relocation. The quaternion transforms normals,
-  allowing correct per-object lighting without a normal-matrix buffer.
-- Per object, compact SH offset `0x8d` updates 24 parameter words plus the
-  32-bit vertex-table pointer. The direct-range builder copies all 25 values
-  into the DCB, so three update-and-draw pairs cost 90 DWORDs and cannot alias
-  a mutable indirect table before submission completes.
-
-Public GFX10 PAL source and the resulting `gfx1013` ISA close the vertex side
-further:
-
-- both attributes share binding zero and one interleaved 24-byte vertex;
-- the shader loads exactly one 16-byte SRD, then fetches position and normal
-  using formats encoded in the shader instructions;
-- the SRD words are address-low, address-high plus stride, record count, and
-  the public GFX10 control word `0x11014fac`;
-- the SRD table is 16-byte aligned and its 32-bit GPU pointer occupies the
-  compiler-selected `VertexBufferTable` user register.
-
-Thus non-indexed Cube/Gears needed neither two descriptors nor a general
-uniform subsystem. At this historical checkpoint, the next hardware gate was
-depth consumption using the bounded offline bootstrap; that depth gate and the
-later VideoOut pacing contracts subsequently passed.
-
-The standalone project now contains the corresponding project-authored CPU mesh
-generator. A 20-tooth gear expands deterministically to 1,920 vertices with
-front/back faces, toothed outer wall and inner bore. Its only optimized math
-reference under the PS5 toolchain is `sincosf`, already exported by the public
-`libSceLibcInternal` stub; no graphics import was added.
-
-## Public depth register map
-
-The 16-entry depth-target block has now been cross-checked exhaustively against
-AMD's public GFX10 PAL register table. Each compact ID is exactly the register's
-context-space offset from `0xa000`:
-
-| ID | Public GFX10 register | ID | Public GFX10 register |
-|---:|---|---:|---|
-| `02` | `DB_DEPTH_VIEW` | `10` | `DB_Z_INFO` |
-| `05` | `DB_HTILE_DATA_BASE` | `11` | `DB_STENCIL_INFO` |
-| `07` | `DB_DEPTH_SIZE_XY` | `12` | `DB_Z_READ_BASE` |
-| `0a` | `DB_STENCIL_CLEAR` | `13` | `DB_STENCIL_READ_BASE` |
-| `0b` | `DB_DEPTH_CLEAR` | `14` | `DB_Z_WRITE_BASE` |
-| `1a` | `DB_Z_READ_BASE_HI` | `15` | `DB_STENCIL_WRITE_BASE` |
-| `1b` | `DB_STENCIL_READ_BASE_HI` | `1c` | `DB_Z_WRITE_BASE_HI` |
-| `1d` | `DB_STENCIL_WRITE_BASE_HI` | `1e` | `DB_HTILE_DATA_BASE_HI` |
-
-This identifies all five split 48-bit addresses, the two clear values, surface
-dimensions and format/control words. It does not by itself prove that writing
-this block initializes all depth state: public PAL also manages render-control,
-override, cache-policy, polygon-offset and HTILE-surface registers around the
-view. The first implementation will therefore use the uncompressed/no-HTILE
-path only after its allocation/swizzle and surrounding defaults are validated.
-
-Public Mesa now accepts GFX1013 external revisions `0x82..0x85` and routes
-them through generic GFX10 AddrLib. This proves the fixed depth swizzle family
-is `ADDR_SW_64KB_Z_X`: GFX1013 does not enable RB+ there, so the variable-block
-depth mode is unavailable. It does **not** prove a complete byte layout.
-AddrLib also requires the device's real `GB_ADDR_CONFIG` (pipe count,
-interleave and compression topology), so no Navi10-derived or emulator-default
-value is treated as PS5 fact. A narrow exception is topology-independent: a
-single-mip, single-sample D32 `64KB_Z_X` main plane uses 128×128-pixel blocks.
-At 1920×1080 its 64-KiB-aligned footprint is `0x870000` bytes, and a uniform
-`1.0f` initialization is simply `0x3f800000` repeated across that allocation;
-internal swizzle permutations cannot change a uniform field. Per-coordinate
-CPU addressing and HTILE remain blocked on the real topology.
-
-The public no-HTILE state also requires `DB_RENDER_CONTROL` to disable depth
-and stencil compression and `DB_STENCIL_INFO` to disable tiled stencil. These
-are not optional consequences of the 16-entry target block. A depth-enabled,
-write-enabled `LESS_EQUAL` state is a separate `DB_DEPTH_CONTROL` value. The
-offline register plan is reproducible. The selected first-use clear is one
-immediate `DMA_DATA` fill of all `0x870000` bytes with `0x3f800000`, routed
-through L2 with write-confirm and `cp_sync` enabled. Public PAL and RADV define
-that combination as a completed, coherent CP-DMA write before subsequent 3D
-work; the same builder mode has already filled and presented a larger surface
-in the private hardware lab. No pre-draw range ACQUIRE is inferred from the
-captured label-only ACQUIRE. Actual depth-test consumption, target reuse and
-the post-draw DB completion/ownership chain were still hardware gates at this
-checkpoint. They subsequently passed and remain required contracts in the
-Phase 4 backend.
-
-## Frame ownership contract
-
-No additional pacing import is required for the first animation loop. Two
-independent conditions govern reuse:
-
-1. the terminal GPU fence completes before command, shader or vertex memory is
-   reset;
-2. the exact VideoOut flip event returns the submitted `flipArg` before its
-   display buffer is rendered into again.
-
-Use a monotonic positive 48-bit token per frame and retain one owner token per
-backbuffer. `sceVideoOutWaitVblank` can regulate CPU production and
-`sceVideoOutGetFlipStatus` can provide telemetry/fallback, but neither proves
-GPU completion and neither replaces the terminal fence. Animation time should
-come from a monotonic clock rather than assuming one event equals one fixed
-duration.
+Before adding an import or changing a platform contract, add a focused host
+test, document the expected ownership, and run `make test && make audit`.
