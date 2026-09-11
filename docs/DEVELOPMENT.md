@@ -46,11 +46,12 @@ git diff --check
 git status --short
 ```
 
-Native changes additionally require a clean `make native-release`, artifact
-hashing and one hardware launch with matching TCP telemetry. Longer soaks are
-required when synchronization, ownership, memory layout or command emission
-changes. Generated `.deps/`, `build/`, `dist/` and `release/` content remains
-ignored and disposable.
+Native changes additionally require a clean `make renderer-native-release` for
+renderer-only work, or `make native-release` for the playable package, followed
+by artifact hashing and one hardware launch with matching TCP telemetry. Longer
+soaks are required when synchronization, ownership, memory layout or command
+emission changes. Generated `.deps/`, `build/`, `dist/` and `release/` content
+remains ignored and disposable.
 
 Multi-file bundles are promoted with one exact transaction rather than
 independent FTP overwrites:

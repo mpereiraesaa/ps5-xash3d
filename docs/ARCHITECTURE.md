@@ -29,9 +29,9 @@ headers, game data or generated binaries.
 ## Build boundaries
 
 `xash/build_engine.sh` produces the engine and the application-owned modules.
-The public `engine-playable-native-release` profile opens MainUI and lets the
-player choose New Game or Load Game. Bounded diagnostic targets remain available
-for contributors who need deterministic map or subsystem runs.
+The public `native-release` profile opens MainUI and lets the player choose New
+Game or Load Game. Bounded diagnostic targets remain available for contributors
+who need deterministic map or subsystem runs.
 
 The renderer is GPU accelerated through the PS5 AGC/GFX10.13 path. CPU work is
 limited to normal engine simulation, scene preparation and command construction;

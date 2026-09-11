@@ -2,18 +2,18 @@
 
 ## One production runtime
 
-The default native build is the user-facing release profile:
+The default native build is the user-facing playable release profile:
 
 ```sh
-make native-release AMDLLPC=/path/to/amdllpc \
-  LLVM_READELF=/path/to/llvm-readelf
+export XASH_GAME_DATA=/absolute/path/to/half-life
+AMDLLPC=/path/to/amdllpc LLVM_READELF=/path/to/llvm-readelf \
+  make native-release
 ```
 
-The renderer initializes one persistent state machine and calls `run_frame`
-continuously. Frame indices, telemetry and flip tokens are 64-bit and never
-restart at an artificial boundary. It emits a heartbeat every 3,600 completed
-frames but has no voluntary frame limit, chunk, sleep or automatic exit. The
-user closes the title with the PS5 **Close Game** action.
+The package boots MainUI, where the player chooses New Game or Load Game. The
+renderer runs continuously through the PS5 AGC path, while logs and structured
+telemetry are written beside save/config data. The user closes the title with
+the PS5 **Close Game** action.
 
 An external Close Game terminates the process through the system lifecycle, so
 the TCP transcript normally ends without application BYE. That is expected for

@@ -298,13 +298,14 @@ def main() -> None:
     if "engine-phase7-menu-native-release" not in makefile or \
             "XASH_PHASE7_MENU_GATE=1" not in makefile:
         raise SystemExit("Phase 7 native-menu release target missing")
-    if "engine-playable-native-release" not in makefile or \
+    if "native-release" not in makefile or \
             "XASH_INTERACTIVE=1" not in makefile or \
             "XASH_GATE_SECONDS=0" not in makefile:
         raise SystemExit("interactive playable release target missing")
     for item in (
-        "engine-playable-native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp",
-        "engine-playable-native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl",
+        "native-release: BSP_INPUT ?= $(XASH_GAME_DATA)/valve/maps/c1a0.bsp",
+        "native-release: STUDIO_INPUT ?= $(XASH_GAME_DATA)/valve/models/barney.mdl",
+        "engine-playable-native-release: native-release",
     ):
         if item not in makefile:
             raise SystemExit(f"playable build input default missing: {item}")

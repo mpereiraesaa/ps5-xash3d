@@ -50,7 +50,7 @@ Build the public interactive profile from a private Half-Life installation:
 
 ```sh
 export XASH_GAME_DATA=/absolute/path/to/half-life
-make engine-playable-native-release
+make native-release
 ```
 
 `XASH_GAME_DATA` is the private game-data root. `BSP_INPUT` and `STUDIO_INPUT`
