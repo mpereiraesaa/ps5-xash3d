@@ -1,5 +1,9 @@
 # Hardware validation
 
+> Phase 7 is closed and the public runtime is **PLAYABLE**. Older rows retain
+> the exact limitations known at each checkpoint; they are historical evidence
+> and do not reopen a release gate. See [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md).
+
 Hardware claims in this repository refer to one PS5 running firmware 12.02.
 They are not compatibility claims for other firmware or consoles. Run logs and
 captures live in the private parent laboratory; this public boundary records

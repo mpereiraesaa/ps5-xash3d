@@ -4407,7 +4407,9 @@ int main(void)
     (void)ps5log_line(PS5LOG_INFO, "LOG_SCHEMA=3");
     (void)ps5log_line(PS5LOG_INFO,
                       "LOG_TRANSPORT=ps5log/1 tcp structured");
-    (void)ps5log_line(PS5LOG_INFO, "LOG_FS_SINKS=disabled");
+    /* The standalone renderer has no game/save overlay; the engine title
+       mirrors structured records to valve/logs/xash3d-trace.log instead. */
+    (void)ps5log_line(PS5LOG_INFO, "LOG_FS_SINKS=not-applicable");
     (void)ps5log_hex64(PS5LOG_INFO, "LOG_BOOT_MONOTONIC_NS", boot_token);
     (void)ps5log_printf(PS5LOG_INFO,
                         "LOG_CONFIG_RESULT=%d LOG_INIT_RESULT=%d path=%s",

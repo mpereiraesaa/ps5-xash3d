@@ -1,4 +1,8 @@
-# Phase 7 live RefAPI frame bridge and first consumer
+# Phase 7 live RefAPI frame bridge and first consumer — historical gate record
+
+> Phase 7 is closed and the public runtime is **PLAYABLE**. The contracts and
+> evidence below are preserved for reproducibility; see
+> [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md) for the current boundary.
 
 Phase 6 proved RefAPI 18 module loading and the independent Phase 4 AGC
 backend. It deliberately did not claim that the backend consumed the engine's

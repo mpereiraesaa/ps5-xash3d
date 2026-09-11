@@ -1,4 +1,8 @@
-# Phase 7 fullscreen menu and c1a0 recovery
+# Phase 7 fullscreen menu and c1a0 recovery — historical gate record
+
+> Phase 7 is closed and the public runtime is **PLAYABLE**. The sections below
+> retain the original gate scopes and failure analyses; they are not pending
+> release requirements. See [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md).
 
 The bounded FW 12.02 regression passed on 2026-09-09. Native MainUI fills the
 1920x1080 output, the engine queues `map c1a0`, and the map becomes visible

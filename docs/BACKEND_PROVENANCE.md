@@ -1,5 +1,9 @@
 # Backend extraction provenance
 
+> The historical Phase 7 rows below describe the state at each extraction
+> checkpoint. The current public status is **PLAYABLE**; the release boundary
+> is [`PLAYABLE_RELEASE.md`](PLAYABLE_RELEASE.md).
+
 This repository is a clean publication boundary. It contains no copied Sony
 headers, runtime binaries, game material, captured command buffers or shader
 blobs. Firmware-specific facts are represented as narrow constants and are
